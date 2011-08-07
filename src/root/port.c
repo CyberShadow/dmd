@@ -342,7 +342,8 @@ char *Port::strupr(char *s)
 #include <stdlib.h>
 #include <ctype.h>
 #include <float.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 static double zero = 0;
 double Port::nan = NAN;

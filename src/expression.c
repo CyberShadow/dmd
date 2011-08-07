@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 #if _MSC_VER
 #include <complex>
 #else

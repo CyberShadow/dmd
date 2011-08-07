@@ -10,7 +10,8 @@
 
 #include <stdio.h>
 #include <ctype.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 #include <math.h>
 
 #if __DMC__

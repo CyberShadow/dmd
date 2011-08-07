@@ -9,8 +9,10 @@
 // See the included readme.txt for details.
 
 #include <stdio.h>
-#include <assert.h>
 #include <math.h>
+
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #if __FreeBSD__
 extern "C"

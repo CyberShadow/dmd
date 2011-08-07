@@ -15,7 +15,8 @@
 #include <limits.h>
 #include <string.h>
 #include <stdint.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #if (defined (__SVR4) && defined (__sun))
 #include <alloca.h>

@@ -7,7 +7,8 @@
 // in artistic.txt, or the GNU General Public License in gnu.txt.
 // See the included readme.txt for details.
 
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 /*******************************
  * Return !=0 if unicode alpha.

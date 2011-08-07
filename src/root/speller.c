@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #if __sun&&__SVR4
 #include <alloca.h>
@@ -210,7 +211,8 @@ void *speller(const char *seed, fp_speller_t fp, void *fparg, const char *charse
 
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 void *speller_test(void *fparg, const char *s)
 {

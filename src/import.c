@@ -9,7 +9,8 @@
 // See the included readme.txt for details.
 
 #include <stdio.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #include "root.h"
 #include "dsymbol.h"

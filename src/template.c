@@ -11,7 +11,8 @@
 // Handle template implementation
 
 #include <stdio.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #include "cdef.h"
 #include "root.h"

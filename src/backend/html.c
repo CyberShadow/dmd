@@ -21,7 +21,8 @@
 #include "html.h"
 
 #if MARS
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 #include "root.h"
 //#include "../mars/mars.h"
 #else

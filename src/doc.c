@@ -14,7 +14,8 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
-#include <assert.h>
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 #include "rmem.h"
 #include "root.h"
