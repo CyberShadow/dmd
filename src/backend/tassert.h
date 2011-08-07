@@ -33,9 +33,15 @@ static void local_assert(int line)
 
 #else
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void util_assert ( char * , int );
 #pragma noreturn(util_assert)
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 static void local_assert(int line)
 {
     util_assert(__file__,line);

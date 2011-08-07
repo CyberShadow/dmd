@@ -1,0 +1,651 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="access.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="aliasthis.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="argtypes.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="arrayop.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="attrib.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="builtin.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="cast.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="class.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="clone.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="cond.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="constfold.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="cppmangle.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="declaration.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="delegatize.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="doc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dsymbol.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dump.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="e2ir.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="eh.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="entity.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="enum.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="expression.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="func.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="glue.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="hdrgen.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="iasm.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="id.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="identifier.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="impcnvtab.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="imphint.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="import.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="inifile.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="init.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="inline.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="interpret.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="intrange.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="irstate.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="json.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="lexer.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="libomf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="link.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="macro.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mangle.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mars.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="module.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="msc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mtype.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="opover.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="optimize.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="parse.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ph.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="s2ir.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="scope.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="statement.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="staticassert.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="struct.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="template.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tk.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tocsym.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="toctype.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tocvdebug.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="todt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="toir.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="toobj.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="traits.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="typinf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="unialpha.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="unittests.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="utf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="version.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\aa.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\bcomplex.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\blockopt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cg.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cg87.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgcod.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgcs.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgcv.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgelem.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgen.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgobj.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgreg.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cgsched.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cod1.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cod2.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cod3.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cod4.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cod5.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\code.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\cppman.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\debug.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\dt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\dwarf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\ee.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\el.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\elfobj.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\evalu8.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\gdag.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\gflow.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\glocal.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\gloop.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\go.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\gother.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\html.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\machobj.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\md5.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\nteh.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\os.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\out.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\outbuf.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\ptrntab.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\rtlsym.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\strtold.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\symbol.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\ti_achar.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\ti_pvoid.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\type.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\var.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\aav.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\array.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\async.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\dchar.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\gnuc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\lstring.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\man.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\port.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\response.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\rmem.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\root.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\speller.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="root\stringtable.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="backend\newman.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="aggregate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="aliasthis.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="arraytypes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="attrib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="complex_t.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="cond.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="declaration.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="doc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dsymbol.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="enum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="expression.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hdrgen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="id.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="identifier.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="import.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="init.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="intrange.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="irstate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="json.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lexer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="lib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="macro.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="mars.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="module.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="mtype.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="objfile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="parse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="scope.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="statement.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="staticassert.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="template.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="toir.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="total.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="utf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\aa.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\bcomplex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\cc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\cdef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\cdeflnx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\cgcv.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\code.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\cv4.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\dt.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\dwarf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\dwarf2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\el.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\exh.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\global.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\go.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\html.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\iasm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\mach.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\md5.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\melf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\oper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\outbuf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\rtlsym.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\tassert.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\tinfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\token.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\ty.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="backend\type.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\aav.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\async.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\dchar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\gnuc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\lstring.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\port.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\rmem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\root.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\speller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="root\stringtable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tk\filespec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tk\list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tk\mem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="tk\vec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

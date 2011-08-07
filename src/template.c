@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "cdef.h"
 #include "root.h"
 #include "rmem.h"
 #include "stringtable.h"
@@ -4689,7 +4690,7 @@ Identifier *TemplateInstance::genIdent(Objects *args)
 
     //printf("TemplateInstance::genIdent('%s')\n", tempdecl->ident->toChars());
     char *id = tempdecl->ident->toChars();
-    buf.printf("__T%zu%s", strlen(id), id);
+    buf.printf("__T%"SIZE_T_FORMAT"u%s", strlen(id), id);
     for (int i = 0; i < args->dim; i++)
     {   Object *o = args->tdata()[i];
         Type *ta = isType(o);
@@ -4785,7 +4786,7 @@ Identifier *TemplateInstance::genIdent(Objects *args)
              * Unfortunately, fixing this ambiguity will break existing binary
              * compatibility and the demanglers, so we'll leave it as is.
              */
-            buf.printf("%zu%s", strlen(p), p);
+            buf.printf("%"SIZE_T_FORMAT"u%s", strlen(p), p);
         }
         else if (va)
         {

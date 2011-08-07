@@ -23,6 +23,7 @@
 extern "C" char * __cdecl __locale_decpoint;
 #endif
 
+#include "cdef.h"
 #include "rmem.h"
 #include "port.h"
 #include "root.h"
@@ -574,7 +575,7 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
     size_t nparams = Parameter::dim(tf->parameters);
 
     if (nargs > nparams && tf->varargs == 0)
-        error(loc, "expected %zu arguments, not %zu for non-variadic function type %s", nparams, nargs, tf->toChars());
+        error(loc, "expected %"SIZE_T_FORMAT"u arguments, not %"SIZE_T_FORMAT"u for non-variadic function type %s", nparams, nargs, tf->toChars());
 
     unsigned n = (nargs > nparams) ? nargs : nparams;   // n = max(nargs, nparams)
 
@@ -600,7 +601,7 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
                 {
                     if (tf->varargs == 2 && i + 1 == nparams)
                         goto L2;
-                    error(loc, "expected %zu function arguments, not %zu", nparams, nargs);
+                    error(loc, "expected %"SIZE_T_FORMAT"u function arguments, not %"SIZE_T_FORMAT"u", nparams, nargs);
                     return tf->next;
                 }
                 arg = p->defaultArg;
@@ -618,7 +619,7 @@ Type *functionParameters(Loc loc, Scope *sc, TypeFunction *tf,
                 if (arg->implicitConvTo(p->type))
                 {
                     if (nargs != nparams)
-                    {   error(loc, "expected %zu function arguments, not %zu", nparams, nargs);
+                    {   error(loc, "expected %"SIZE_T_FORMAT"u function arguments, not %"SIZE_T_FORMAT"u", nparams, nargs);
                         return tf->next;
                     }
                     goto L1;
@@ -9084,7 +9085,7 @@ Expression *IndexExp::semantic(Scope *sc)
             }
             else
             {
-                error("array index [%ju] is outside array bounds [0 .. %zu]",
+                error("array index [%ju] is outside array bounds [0 .. %"SIZE_T_FORMAT"u]",
                         index, length);
                 e = e1;
             }

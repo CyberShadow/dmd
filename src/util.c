@@ -50,6 +50,9 @@ void file_progress()
  * Alternative assert failure.
  */
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void util_assert(char *file,int line)
 {
     fflush(stdout);
@@ -61,6 +64,9 @@ void util_assert(char *file,int line)
  * Clean up and exit program.
  */
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_exit()
 {
     util_exit(EXIT_FAILURE);
@@ -70,6 +76,9 @@ void err_exit()
  * Clean up and exit program.
  */
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_break()
 {
     util_exit(255);
@@ -80,13 +89,20 @@ void err_break()
  * Clean up and exit program.
  */
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void util_exit(int exitcode)
 {
     exit(exitcode);                     /* terminate abnormally         */
 }
 
 
-#if _WIN32
+#if _MSC_VER
+
+void util_progress() {}
+
+#elif _WIN32
 
 volatile int controlc_saw;
 

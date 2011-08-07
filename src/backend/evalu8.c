@@ -19,7 +19,7 @@
 #include        <float.h>
 #include        <time.h>
 
-#if !defined(__OpenBSD__)
+#if !defined(__OpenBSD__) && !defined(_MSC_VER)
 // Mysteriously missing from OpenBSD
 #include        <fenv.h>
 #endif
@@ -37,6 +37,7 @@
 #include        "global.h"
 #include        "el.h"
 #include        "type.h"
+#include        "root.h"
 
 #if SCPP
 #include        "parser.h"

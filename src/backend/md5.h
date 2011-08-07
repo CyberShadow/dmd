@@ -37,6 +37,10 @@
  **********************************************************************
  */
 
+#if __cplusplus
+extern "C" {
+#endif
+
 /* typedef a 32 bit type */
 typedef unsigned long int UINT4;
 
@@ -59,3 +63,6 @@ void MD5Final (MD5_CTX *mdContext);
  */
 
 
+#if __cplusplus
+}
+#endif

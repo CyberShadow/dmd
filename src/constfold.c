@@ -17,6 +17,7 @@
 #include <complex.h>
 #endif
 
+#include "cdef.h"
 #include "rmem.h"
 #include "root.h"
 #include "port.h"
@@ -1258,7 +1259,7 @@ Expression *Index(Type *type, Expression *e1, Expression *e2)
         uinteger_t i = e2->toInteger();
 
         if (i >= es1->len)
-            e1->error("string index %ju is out of bounds [0 .. %zu]", i, es1->len);
+            e1->error("string index %ju is out of bounds [0 .. %"SIZE_T_FORMAT"u]", i, es1->len);
         else
         {   unsigned value = es1->charAt(i);
             e = new IntegerExp(loc, value, type);

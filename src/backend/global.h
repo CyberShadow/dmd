@@ -118,6 +118,9 @@ void util_progress();
 #if __clang__
 void util_exit(int) __attribute__((analyzer_noreturn));
 #else
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void util_exit(int);
 #pragma ZTC noreturn(util_exit)
 #endif
@@ -129,6 +132,9 @@ int ispow2(targ_ullong);
 #if __clang__
 void util_assert(char *, int) __attribute__((analyzer_noreturn));
 #else
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void util_assert(char *, int);
 #pragma ZTC noreturn(util_assert)
 #endif
@@ -195,6 +201,9 @@ void preerr(unsigned,...);
 #if __clang__
 void err_exit(void) __attribute__((analyzer_noreturn));
 #else
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_exit(void);
 #pragma ZTC noreturn(err_exit)
 #endif

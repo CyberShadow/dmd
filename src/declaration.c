@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "cdef.h"
 #include "init.h"
 #include "declaration.h"
 #include "attrib.h"
@@ -865,7 +866,7 @@ void VarDeclaration::semantic(Scope *sc)
         {   Parameter *arg = Parameter::getNth(tt->arguments, i);
 
             OutBuffer buf;
-            buf.printf("_%s_field_%zu", ident->toChars(), i);
+            buf.printf("_%s_field_%"SIZE_T_FORMAT"u", ident->toChars(), i);
             buf.writeByte(0);
             const char *name = (const char *)buf.extractData();
             Identifier *id = Lexer::idPool(name);

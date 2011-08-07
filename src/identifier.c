@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cdef.h"
 #include "root.h"
 #include "identifier.h"
 #include "mars.h"
@@ -94,7 +95,7 @@ Identifier *Identifier::generateId(const char *prefix, size_t i)
 {   OutBuffer buf;
 
     buf.writestring(prefix);
-    buf.printf("%zu", i);
+    buf.printf("%"SIZE_T_FORMAT"u", i);
 
     char *id = buf.toChars();
     buf.data = NULL;

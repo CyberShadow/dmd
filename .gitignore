@@ -18,4 +18,13 @@ test/test_results
 src/idgen.exe
 src/dmd.exe
 src/impcnvgen.exe
+src/optabgen.exe
 *.map
+
+src/Debug
+src/Release
+*.sdf
+*.opensdf
+*.suo
+*.user
+src/ipch

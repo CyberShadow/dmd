@@ -236,12 +236,10 @@ One and only one of these macros must be set by the makefile:
 
 #define STATEMENT_SCOPES CPP
 
-#if __GNUC__
+#if __GNUC__ || __SC__ >= 0x700 || _MSC_VER >= 1400
 #define LONGLONG        1
-#elif __SC__ < 0x700 || _MSC_VER
-#define LONGLONG        0
 #else
-#define LONGLONG        1               // add in code to support 64 bit integral types
+#define LONGLONG        0               // add in code to support 64 bit integral types
 #endif
 
 #if __GNUC__
@@ -590,7 +588,7 @@ typedef int bool;
 
 // gcc defines this for us, dmc doesn't, so look for it's __I86__
 #if ! (defined(LITTLE_ENDIAN) || defined(BIG_ENDIAN) )
-#if defined(__I86__) || defined(i386) || defined(__x86_64__)
+#if defined(__I86__) || defined(i386) || defined(__x86_64__) || defined(_M_IX86)
 #define LITTLE_ENDIAN 1
 #else
 #error unknown platform, so unknown endianness
@@ -613,6 +611,10 @@ Written by Walter Bright, Linux version by Pat Nelson"
 Written by Walter Bright"
 #endif
 #endif
+#endif
+
+#if _MSC_VER
+#define __pascal
 #endif
 
 /**********************************
@@ -1097,5 +1099,10 @@ inline void swap(int *a,int *b)
   *b = tmp;
 }
 
+#ifdef _MSC_VER
+#define SIZE_T_FORMAT "I"
+#else
+#define SIZE_T_FORMAT "z"
+#endif
 
 #endif /* CDEF_H */

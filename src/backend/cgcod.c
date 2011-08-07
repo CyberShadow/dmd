@@ -19,6 +19,8 @@
 
 #if __sun&&__SVR4
 #include        <alloca.h>
+#elif _MSC_VER
+#include        <malloc.h>
 #endif
 
 #include        "cc.h"

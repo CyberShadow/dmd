@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <time.h>
-#include <assert.h>
 
 #include "mars.h"
 #include "module.h"
@@ -33,6 +32,9 @@
 #include "cgcv.h"
 #include "outbuf.h"
 #include "irstate.h"
+
+static char __file__[] = __FILE__;      /* for tassert.h                */
+#include        "tassert.h"
 
 /* The CV4 debug format is defined in:
  *      "CV4 Symbolic Debug Information Specification"

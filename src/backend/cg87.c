@@ -650,6 +650,11 @@ __body
         #define M_LOG2T_L       LOG2T
         #define M_LOG2_L        LOG2
         {0.0,1.0,M_PIl,M_LOG2T_L,M_LOG2El,M_LOG2_L,M_LN2l};
+#elif _MSC_VER
+        // BUG: should get proper 80 bit values for these
+        #define M_LOG2T_L       LOG2T
+        #define M_LOG2_L        LOG2
+        {0.0,1.0,PI,M_LOG2T_L,LOG2E,M_LOG2_L,LN2};
 #else
         {0.0,1.0,M_PI_L,M_LOG2T_L,M_LOG2E_L,M_LOG2_L,M_LN2_L};
 #endif

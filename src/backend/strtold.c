@@ -16,7 +16,7 @@
 #include        <float.h>
 #include        <string.h>
 #include        <math.h>
-#if _WIN32
+#if _WIN32 && !_MSC_VER
 #include        <fenv.h>
 #include        <fltpnt.h>
 #endif
@@ -24,13 +24,15 @@
 #include        <errno.h>
 #endif
 
+#include "cdef.h"
+
 #if _WIN32
 // from \sc\src\include\setlocal.h
 extern char * __cdecl __locale_decpoint;
 void __pascal __set_errno (int an_errno);
 #endif
 
-#if _WIN32 || linux || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun&&__SVR4
+#if __DMC__ || linux || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun&&__SVR4
 
 #if 0
 /* This is for compilers that don't support hex float literals,
@@ -149,7 +151,7 @@ long double strtold(const char *p,char **endp)
         unsigned int old_cw;
         unsigned int old_status;
 
-#if _WIN32
+#if _WIN32 && !_MSC_VER
         fenv_t flagp;
         fegetenv(&flagp);  /* Store all exceptions, and current status word */
         if (_8087)
@@ -540,7 +542,7 @@ long double strtold(const char *p,char **endp)
             *endp = (char *) p;
         }
     L3:
-#if _WIN32
+#if _WIN32 && !_MSC_VER
         fesetenv(&flagp);               // reset floating point environment
         if (_8087)
         {

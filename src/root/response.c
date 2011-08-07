@@ -29,6 +29,10 @@
 #include <utime.h>
 #endif
 
+#if _MSC_VER
+#include <sys/stat.h>
+#endif
+
 /*********************************
  * #include <stdlib.h>
  * int response_expand(int *pargc,char ***pargv);

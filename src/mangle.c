@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <assert.h>
 
+#include "cdef.h"
 #include "root.h"
 
 #include "init.h"
@@ -234,7 +235,7 @@ char *TemplateInstance::mangle()
             buf.writestring(p);
         }
     }
-    buf.printf("%zu%s", strlen(id), id);
+    buf.printf("%"SIZE_T_FORMAT"u%s", strlen(id), id);
     id = buf.toChars();
     buf.data = NULL;
     //printf("TemplateInstance::mangle() %s = %s\n", toChars(), id);
@@ -262,7 +263,7 @@ char *Dsymbol::mangle()
             p += 2;
         buf.writestring(p);
     }
-    buf.printf("%zu%s", strlen(id), id);
+    buf.printf("%"SIZE_T_FORMAT"u%s", strlen(id), id);
     id = buf.toChars();
     buf.data = NULL;
     //printf("Dsymbol::mangle() %s = %s\n", toChars(), id);

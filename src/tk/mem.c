@@ -23,7 +23,7 @@
 #endif
 
 #ifndef malloc
-#if __SC__ || __DMC__ ||  _MSC_VER
+#if __SC__ || __DMC__
 #include        <malloc.h>
 #else
 #include        <stdlib.h>

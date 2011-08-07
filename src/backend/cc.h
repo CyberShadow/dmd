@@ -1327,7 +1327,11 @@ struct Aliassym : Symbol { };
 /* Format the identifier for presentation to the user   */
 char *cpp_prettyident (Symbol *s);
 
+#if defined(CPP) && !CPP
+inline char *prettyident(Symbol *s) { return s->Sident; }
+#else
 inline char *prettyident(Symbol *s) { return CPP ? cpp_prettyident(s) : s->Sident; }
+#endif
 
 /**********************************
  * Function parameters:

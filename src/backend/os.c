@@ -40,7 +40,7 @@
 #include        <windows.h>
 #endif
 
-#if __DMC__ || __GNUC__
+#if __DMC__ || __GNUC__ || _MSC_VER
 static char __file__[] = __FILE__;      /* for tassert.h                */
 #include        "tassert.h"
 #else
@@ -52,6 +52,10 @@ extern void dll_printf(const char *format,...);
 #define dbg_printf dll_printf
 #else
 #define dbg_printf printf
+#endif
+
+#if _MSC_VER
+#include <malloc.h>
 #endif
 
 int file_createdirs(char *name);
@@ -672,13 +676,13 @@ int os_file_exists(const char *name)
  * Get file size of open file. Return -1L on error.
  */
 
-#if _WIN32
+#if __DMC__
 extern "C" void * __cdecl _osfhnd[];
 #endif
 
 long os_file_size(int fd)
 {
-#if _WIN32
+#if __DMC__
     return GetFileSize(_osfhnd[fd],NULL);
 #else
     struct stat buf;

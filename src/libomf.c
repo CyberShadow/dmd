@@ -259,6 +259,7 @@ void Library::scanObjModule(ObjModule *om)
                 if (easyomf)
                     recTyp = COMDAT+1;          // convert to MS format
             case COMDAT+1:
+			{
                 int pickAny = 0;
 
                 if (*p++ & 5)           // if continuation or local comdat
@@ -291,7 +292,7 @@ void Library::scanObjModule(ObjModule *om)
                 //printf("[s] name='%s'\n",name);
                 addSymbol(om, names.tdata()[idx],pickAny);
                 break;
-
+			}
             case ALIAS:
                 while (p + 1 < pnext)
                 {
@@ -483,6 +484,7 @@ void Library::addObject(const char *module_name, void *buf, size_t buflen)
 
             case MODEND :
             case M386END:
+			{
                 if (om)
                 {   om->page = (om->base - pstart) / g_page_size;
                     om->length = pnext - om->base;
@@ -493,7 +495,7 @@ void Library::addObject(const char *module_name, void *buf, size_t buflen)
                 t = (t + g_page_size - 1) & ~(unsigned)(g_page_size - 1);
                 pnext = pstart + t;
                 break;
-
+			}
             default:
                 // ignore
                 ;

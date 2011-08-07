@@ -200,7 +200,7 @@ struct OPTABLE
  * Convert from identifier to operator
  */
 
-#if __GNUC__    // NOT DONE - FIX
+#if __GNUC__ || _MSC_VER    // NOT DONE - FIX
 char * unmangle_pt(const char **s)
 {
     return (char *)*s;
