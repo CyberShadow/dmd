@@ -396,6 +396,9 @@ void error(Loc loc, const char *format, ...);
 void verror(Loc loc, const char *format, va_list);
 void vwarning(Loc loc, const char *format, va_list);
 void fatal();
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_nomem();
 int runLINK();
 void deleteExeFile();

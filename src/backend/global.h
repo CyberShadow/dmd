@@ -122,7 +122,9 @@ void util_exit(int) __attribute__((analyzer_noreturn));
 __declspec(noreturn)
 #endif
 void util_exit(int);
+#ifndef _MSC_VER
 #pragma ZTC noreturn(util_exit)
+#endif
 #endif
 void util_set32(void);
 void util_set64(void);
@@ -136,7 +138,9 @@ void util_assert(char *, int) __attribute__((analyzer_noreturn));
 __declspec(noreturn)
 #endif
 void util_assert(char *, int);
+#ifndef _MSC_VER
 #pragma ZTC noreturn(util_assert)
+#endif
 #endif
 
 #if __GNUC__
@@ -205,14 +209,21 @@ void err_exit(void) __attribute__((analyzer_noreturn));
 __declspec(noreturn)
 #endif
 void err_exit(void);
+#ifndef _MSC_VER
 #pragma ZTC noreturn(err_exit)
+#endif
 #endif
 
 #if __clang__
 void err_nomem(void) __attribute__((analyzer_noreturn));
 #else
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_nomem(void);
+#ifndef _MSC_VER
 #pragma noreturn(err_nomem)
+#endif
 #endif
 
 int cpperr(unsigned,...);
@@ -227,8 +238,13 @@ CEXTERN void lexerr(unsigned,...);
 #if __clang__
 CEXTERN void err_fatal(unsigned,...) __attribute__((analyzer_noreturn));
 #else
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 CEXTERN void err_fatal(unsigned,...);
+#ifndef _MSC_VER
 #pragma noreturn(err_fatal)
+#endif
 #endif
 
 int typerr(int,type *,type *,...);

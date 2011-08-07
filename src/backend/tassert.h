@@ -37,7 +37,9 @@ static void local_assert(int line)
 __declspec(noreturn)
 #endif
 void util_assert ( char * , int );
+#ifndef _MSC_VER
 #pragma noreturn(util_assert)
+#endif
 
 #ifdef _MSC_VER
 __declspec(noreturn)
@@ -47,7 +49,9 @@ static void local_assert(int line)
     util_assert(__file__,line);
 }
 
+#ifndef _MSC_VER
 #pragma noreturn(local_assert)
+#endif
 
 #endif
 

@@ -157,6 +157,9 @@ void * __cdecl ph_realloc(void *p,size_t nbytes)
     return newp;
 }
 
+#ifdef _MSC_VER
+__declspec(noreturn)
+#endif
 void err_nomem()
 {
     printf("Error: out of memory\n");
