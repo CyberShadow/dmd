@@ -2475,7 +2475,45 @@ elem *EqualExp::toElem(IRState *irs)
     else if ((t1->ty == Tarray || t1->ty == Tsarray) &&
              (t2->ty == Tarray || t2->ty == Tsarray))
     {
-        Type *telement = t1->nextOf()->toBasetype();
+        Type *telement  = t1->nextOf()->toBasetype();
+        Type *telement2 = t2->nextOf()->toBasetype();
+
+        if ((telement->isintegral() || telement->ty == Tvoid) && telement->ty == telement2->ty)
+        {
+            elem *earr1 = e1->toElem(irs);
+            elem *earr2 = e2->toElem(irs);
+            elem *elen1;
+            elem *elen2;
+
+            if (t1->ty == Tarray)
+                elen1 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr1));
+            else
+                elen1 = el_long(TYsize_t, t1->size());
+
+            if (t2->ty == Tarray)
+                elen2 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr2));
+            else
+                elen2 = el_long(TYsize_t, t2->size());
+
+            elem *ecount = el_same(t2->ty == Tsarray ? &elen2 : &elen1);
+
+            e = el_param(array_toPtr(t1, el_same(&earr1)), array_toPtr(t2, el_same(&earr2)));
+            e = el_bin(OPmemcmp, TYint, e, ecount);
+            e = el_bin(eop, TYint, e, el_long(TYint, 0));
+
+            if (t1->ty == Tsarray && t2->ty == Tsarray)
+                assert(t1->size() == t2->size());
+            else
+            {
+                elem *elencmp = el_bin(eop, TYint, elen1, elen2);
+                e = el_bin(op==TOKequal ? OPandand : OPoror, TYint, elencmp, e);
+            }
+
+            e = el_combine(earr2, e);
+            e = el_combine(earr1, e);
+            el_setLoc(e,loc);
+            return e;
+        }
 
         elem *ea1 = eval_Darray(irs, e1);
         elem *ea2 = eval_Darray(irs, e2);
