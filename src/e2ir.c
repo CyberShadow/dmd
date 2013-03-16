@@ -2493,8 +2493,8 @@ elem *EqualExp::toElem(IRState *irs)
             else
             {
                 elen1 = el_long(TYsize_t, t1->size());
-                earr1 = addressElem(earr1, t1);
-                eptr1 = el_same(&earr1);
+                earr1 = eval_Darray(irs, e1);
+                eptr1 = array_toPtr(t1, el_same(&earr1));
             }
 
             if (t2->ty == Tarray)
@@ -2505,8 +2505,8 @@ elem *EqualExp::toElem(IRState *irs)
             else
             {
                 elen2 = el_long(TYsize_t, t2->size());
-                earr2 = addressElem(earr2, t2);
-                eptr2 = el_same(&earr2);
+                earr2 = eval_Darray(irs, e1);
+                eptr2 = array_toPtr(t2, el_same(&earr2));
             }
 
             elem *ecount = el_same(t2->ty == Tsarray ? &elen2 : &elen1);
