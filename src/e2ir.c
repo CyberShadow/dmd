@@ -2482,22 +2482,36 @@ elem *EqualExp::toElem(IRState *irs)
         {
             elem *earr1 = e1->toElem(irs);
             elem *earr2 = e2->toElem(irs);
-            elem *elen1;
-            elem *elen2;
+            elem *elen1, *eptr1;
+            elem *elen2, *eptr2;
 
             if (t1->ty == Tarray)
+            {
                 elen1 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr1));
+                eptr1 = array_toPtr(t1, el_same(&earr1));
+            }
             else
+            {
                 elen1 = el_long(TYsize_t, t1->size());
+                earr1 = array_toPtr(t1, earr1);
+                eptr1 = el_same(&earr1);
+            }
 
             if (t2->ty == Tarray)
+            {
                 elen2 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr2));
+                eptr2 = array_toPtr(t2, el_same(&earr2));
+            }
             else
+            {
                 elen2 = el_long(TYsize_t, t2->size());
+                earr2 = array_toPtr(t2, earr2);
+                eptr2 = el_same(&earr2);
+            }
 
             elem *ecount = el_same(t2->ty == Tsarray ? &elen2 : &elen1);
 
-            e = el_param(array_toPtr(t1, el_same(&earr1)), array_toPtr(t2, el_same(&earr2)));
+            e = el_param(eptr1, eptr2);
             e = el_bin(OPmemcmp, TYint, e, ecount);
             e = el_bin(eop, TYint, e, el_long(TYint, 0));
 
