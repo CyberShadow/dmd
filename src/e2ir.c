@@ -2493,7 +2493,7 @@ elem *EqualExp::toElem(IRState *irs)
             else
             {
                 elen1 = el_long(TYsize_t, t1->size());
-                earr1 = array_toPtr(t1, earr1);
+                earr1 = addressElem(earr1, t1);
                 eptr1 = el_same(&earr1);
             }
 
@@ -2505,7 +2505,7 @@ elem *EqualExp::toElem(IRState *irs)
             else
             {
                 elen2 = el_long(TYsize_t, t2->size());
-                earr2 = array_toPtr(t2, earr2);
+                earr2 = addressElem(earr2, t2);
                 eptr2 = el_same(&earr2);
             }
 
