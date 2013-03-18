@@ -5975,6 +5975,51 @@ void test9428()
 }
 
 /***************************************************/
+// 9477
+
+template Tuple9477(T...) { alias T Tuple9477; }
+template Select9477(bool b, T, U) { static if (b) alias T Select9477; else alias U Select9477; }
+
+void test9477()
+{
+    static bool isEq (T1, T2)(T1 s1, T2 s2) { return s1 == s2; }
+    static bool isNeq(T1, T2)(T1 s1, T2 s2) { return s1 != s2; }
+    int order; // Must be outside the loop due to http://d.puremagic.com/issues/show_bug.cgi?id=9748
+
+    foreach (b1; Tuple9477!(false, true))
+        foreach (b2; Tuple9477!(false, true))
+        {
+            assert( isEq (cast(Select9477!(b1, string, char[0]))"" , cast(Select9477!(b2, string, char[0]))""  ));
+            assert(!isNeq(cast(Select9477!(b1, string, char[0]))"" , cast(Select9477!(b2, string, char[0]))""  ));
+
+            assert(!isEq (cast(Select9477!(b1, string, char[0]))"" , cast(Select9477!(b2, string, char[1]))"a" ));
+            assert( isNeq(cast(Select9477!(b1, string, char[0]))"" , cast(Select9477!(b2, string, char[1]))"a" ));
+
+            assert( isEq (cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[1]))"a" ));
+            assert(!isNeq(cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[1]))"a" ));
+
+            assert(!isEq (cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[1]))"b" ));
+            assert( isNeq(cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[1]))"b" ));
+
+            assert(!isEq (cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[2]))"aa"));
+            assert( isNeq(cast(Select9477!(b1, string, char[1]))"a", cast(Select9477!(b2, string, char[2]))"aa"));
+
+            // Note: order of evaluation was not followed before this patch
+            // (thus, the test below will fail without the patch).
+            // Although the specification mentions that as implementation-defined behavior,
+            // I understand that this isn't by design, but rather an inconvenient aspect of DMD
+            // that has been moved to the specification.
+            order = 0;
+            // Use temporary ("v") to work around http://d.puremagic.com/issues/show_bug.cgi?id=9402
+            auto getS1()() { assert(order==0); order++; auto v = cast(Select9477!(b1, string, char[1]))"a"; return v; }
+            auto getS2()() { assert(order==1); order++; auto v = cast(Select9477!(b2, string, char[1]))"a"; return v; }
+            bool result = getS1() == getS2();
+            assert(result);
+            assert(order == 2);
+        }
+}
+
+/***************************************************/
 // 9504
 
 struct Bar9504
@@ -6312,6 +6357,7 @@ int main()
     test8945();
     test163();
     test9428();
+    test9477();
     test9538();
     test9700();
 
