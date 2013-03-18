@@ -2487,26 +2487,26 @@ elem *EqualExp::toElem(IRState *irs)
 
             if (t1->ty == Tarray)
             {
-                elen1 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr1));
-                eptr1 = array_toPtr(t1, el_same(&earr1));
+                elem *dup = el_same(&earr1);
+                elen1 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, earr1);
+                eptr1 = array_toPtr(t1, dup);
             }
             else
             {
                 elen1 = el_long(TYsize_t, t1->size());
-                earr1 = eval_Darray(irs, e1);
-                eptr1 = array_toPtr(telement ->arrayOf(), el_same(&earr1));
+                eptr1 = array_toPtr(telement ->arrayOf(), eval_Darray(irs, e1));
             }
 
             if (t2->ty == Tarray)
             {
-                elen2 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr2));
-                eptr2 = array_toPtr(t2, el_same(&earr2));
+                elem *dup = el_same(&earr2);
+                elen2 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, earr2);
+                eptr2 = array_toPtr(t2, dup);
             }
             else
             {
                 elen2 = el_long(TYsize_t, t2->size());
-                earr2 = eval_Darray(irs, e1);
-                eptr2 = array_toPtr(telement2->arrayOf(), el_same(&earr2));
+                eptr2 = array_toPtr(telement2->arrayOf(), eval_Darray(irs, e2));
             }
 
             elem *ecount = el_same(t2->ty == Tsarray ? &elen2 : &elen1);
@@ -2523,8 +2523,6 @@ elem *EqualExp::toElem(IRState *irs)
                 e = el_bin(op==TOKequal ? OPandand : OPoror, TYint, elencmp, e);
             }
 
-            e = el_combine(earr2, e);
-            e = el_combine(earr1, e);
             el_setLoc(e,loc);
             return e;
         }
