@@ -3057,14 +3057,15 @@ code *cdmemcmp(elem *e,regm_t *pretregs)
     }
 
 #if 1
-    c3 = cat(c3,getregs(mAX | mCX | mSI | mDI));
-    c3 = gen2(c3,0x33,modregrm(3,AX,AX));       // XOR AX,AX
+    c3 = cat(c3,getregs(mAX));
+    //c3 = gen2(c3,0x33,modregrm(3,AX,AX));       // XOR AX,AX
+    c3 = movregconst(c3,AX,0,0);                /* MOV AX,0             */
 #else
     if (*pretregs != mPSW)                      // if not flags only
         c3 = regwithvalue(c3,mAX,0,NULL,0);     // put 0 in AX
-    c3 = cat(c3,getregs(mCX | mSI | mDI));
 #endif
 
+    c3 = cat(c3,getregs(mCX | mSI | mDI));
     c3 = gen1(c3,0xF3);                         /* REPE                 */
     gen1(c3,0xA6);                              /* CMPSB                */
     if (need_DS)
