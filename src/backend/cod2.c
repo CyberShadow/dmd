@@ -3058,8 +3058,8 @@ code *cdmemcmp(elem *e,regm_t *pretregs)
 
 #if 1
     c3 = cat(c3,getregs(mAX));
-    //c3 = gen2(c3,0x33,modregrm(3,AX,AX));       // XOR AX,AX
-    c3 = movregconst(c3,AX,0,0);                /* MOV AX,0             */
+    c3 = gen2(c3,0x33,modregrm(3,AX,AX));       // XOR AX,AX
+    code_orflag(c3, CFpsw);
 #else
     if (*pretregs != mPSW)                      // if not flags only
         c3 = regwithvalue(c3,mAX,0,NULL,0);     // put 0 in AX
