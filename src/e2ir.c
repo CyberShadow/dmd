@@ -2483,17 +2483,20 @@ elem *EqualExp::toElem(IRState *irs)
             // Optimize comparisons of arrays of basic types with length comparison and memcmp
             elem *earr1 = e1->toElem(irs);
             elem *earr2 = e2->toElem(irs);
-            elem *elen1, *eptr1;
-            elem *elen2, *eptr2;
+            elem *eptr1, *elen1, *esiz1;
+            elem *eptr2, *elen2, *esiz2;
+            d_uns64 sz = telement->size();
 
             if (t1->ty == Tarray)
             {
                 elen1 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr1));
+                esiz1 = el_bin(OPmul, TYsize_t, el_same(&elen1), el_long(TYsize_t, sz));
                 eptr1 = array_toPtr(t1, el_same(&earr1));
             }
             else
             {
-                elen1 = el_long(TYsize_t, t1->size());
+                elen1 = el_long(TYsize_t, ((TypeSArray *)t1)->dim->toInteger());
+                esiz1 = el_long(TYsize_t, t1->size());
                 earr1 = addressElem(earr1, t1);
                 eptr1 = el_same(&earr1);
             }
@@ -2501,19 +2504,21 @@ elem *EqualExp::toElem(IRState *irs)
             if (t2->ty == Tarray)
             {
                 elen2 = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, el_same(&earr2));
+                esiz2 = el_bin(OPmul, TYsize_t, el_same(&elen2), el_long(TYsize_t, sz));
                 eptr2 = array_toPtr(t2, el_same(&earr2));
             }
             else
             {
-                elen2 = el_long(TYsize_t, t2->size());
+                elen2 = el_long(TYsize_t, ((TypeSArray *)t2)->dim->toInteger());
+                esiz2 = el_long(TYsize_t, t2->size());
                 earr2 = addressElem(earr2, t2);
                 eptr2 = el_same(&earr2);
             }
 
-            elem *ecount = el_same(t2->ty == Tsarray ? &elen2 : &elen1);
+            elem *esize = t2->ty == Tsarray ? esiz2 : esiz1;
 
             e = el_param(eptr1, eptr2);
-            e = el_bin(OPmemcmp, TYint, e, ecount);
+            e = el_bin(OPmemcmp, TYint, e, esize);
             e = el_bin(eop, TYint, e, el_long(TYint, 0));
 
             if (t1->ty == Tsarray && t2->ty == Tsarray)

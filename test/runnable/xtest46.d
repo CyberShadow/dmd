@@ -6017,6 +6017,18 @@ void test9477()
             assert(result);
             assert(order == 2);
         }
+
+    ubyte[64] a1, a2;
+    foreach (T; Tuple9477!(void, ubyte, ushort, uint, ulong, char, wchar, dchar, float, double))
+    {
+        auto s1 = cast(T[])(a1[]);
+        auto s2 = cast(T[])(a2[]);
+        assert(s1 == s2);
+        a2[$-1]++;
+        assert(s1 != s2);
+        assert(s1[0..$-1]==s2[0..$-1]);
+        a2[$-1]--;
+    }
 }
 
 /***************************************************/
