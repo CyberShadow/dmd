@@ -3005,7 +3005,7 @@ code *cdmemcmp(elem *e,regm_t *pretregs)
     tym_t ty1 = e1->E1->Ety;
     if (!tyreg(ty1))
         retregs1 |= mDX;
-    c1 = codelem(e1->E1,&retregs1,FALSE);
+    c1 = scodelem(e1->E1,&retregs1,mPSW,FALSE);
 
     // Get s2 into ES:DI
     regm_t retregs = mDI;
