@@ -2480,6 +2480,7 @@ elem *EqualExp::toElem(IRState *irs)
 
         if ((telement->isintegral() || telement->ty == Tvoid) && telement->ty == telement2->ty)
         {
+            // Optimize comparisons of arrays of basic types with length comparison and memcmp
             elem *earr1 = e1->toElem(irs);
             elem *earr2 = e2->toElem(irs);
             elem *elen1, *eptr1;
@@ -2523,6 +2524,7 @@ elem *EqualExp::toElem(IRState *irs)
                 e = el_bin(op==TOKequal ? OPandand : OPoror, TYint, elencmp, e);
             }
 
+            // Ensure left-to-right order of evaluation
             e = el_combine(earr2, e);
             e = el_combine(earr1, e);
             el_setLoc(e,loc);
