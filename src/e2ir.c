@@ -2480,12 +2480,19 @@ elem *EqualExp::toElem(IRState *irs)
 
         if ((telement->isintegral() || telement->ty == Tvoid) && telement->ty == telement2->ty)
         {
-            // Optimize comparisons of arrays of basic types with length comparison and memcmp
+            // Optimize comparisons of arrays of basic types
+            // For arrays of integers/characters, and void[],
+            // replace druntime call with:
+            // For a==b: a.length==b.length && memcmp(a.ptr, b.ptr, size)==0
+            // For a!=b: a.length!=b.length || memcmp(a.ptr, b.ptr, size)!=0
+            // size is .length*sizeof(a[0]) for dynamic arrays, or sizeof(a) for static arrays.
+
             elem *earr1 = e1->toElem(irs);
             elem *earr2 = e2->toElem(irs);
-            elem *eptr1, *elen1, *esiz1;
-            elem *eptr2, *elen2, *esiz2;
-            d_uns64 sz = telement->size();
+            elem *eptr1, *eptr2; // Pointer to data, to pass to memcmp
+            elem *elen1, *elen2; // Length, for comparison
+            elem *esiz1, *esiz2; // Data size, to pass to memcmp
+            d_uns64 sz = telement->size(); // Size of one element
 
             if (t1->ty == Tarray)
             {
