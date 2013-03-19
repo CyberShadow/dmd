@@ -2485,7 +2485,7 @@ elem *EqualExp::toElem(IRState *irs)
             // replace druntime call with:
             // For a==b: a.length==b.length && memcmp(a.ptr, b.ptr, size)==0
             // For a!=b: a.length!=b.length || memcmp(a.ptr, b.ptr, size)!=0
-            // size is .length*sizeof(a[0]) for dynamic arrays, or sizeof(a) for static arrays.
+            // size is a.length*sizeof(a[0]) for dynamic arrays, or sizeof(a) for static arrays.
 
             elem *earr1 = e1->toElem(irs);
             elem *earr2 = e2->toElem(irs);
