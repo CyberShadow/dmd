@@ -5984,7 +5984,18 @@ void test9477()
 {
     static bool isEq (T1, T2)(T1 s1, T2 s2) { return s1 == s2; }
     static bool isNeq(T1, T2)(T1 s1, T2 s2) { return s1 != s2; }
-    int order; // Must be outside the loop due to http://d.puremagic.com/issues/show_bug.cgi?id=9748
+
+    // Must be outside the loop due to http://d.puremagic.com/issues/show_bug.cgi?id=9748
+    int order;
+    // Must be outside the loop due to http://d.puremagic.com/issues/show_bug.cgi?id=9756
+    auto checkOrder(bool dyn, uint expected)()
+    {
+        assert(order==expected);
+        order++;
+        // Use temporary ("v") to work around http://d.puremagic.com/issues/show_bug.cgi?id=9402
+        auto v = cast(Select9477!(dyn, string, char[1]))"a";
+        return v;
+    }
 
     foreach (b1; Tuple9477!(false, true))
         foreach (b2; Tuple9477!(false, true))
@@ -6013,10 +6024,7 @@ void test9477()
             // I understand that this isn't by design, but rather an inconvenient aspect of DMD
             // that has been moved to the specification.
             order = 0;
-            // Use temporary ("v") to work around http://d.puremagic.com/issues/show_bug.cgi?id=9402
-            auto getS1()() { assert(order==0); order++; auto v = cast(Select9477!(b1, string, char[1]))"a"; return v; }
-            auto getS2()() { assert(order==1); order++; auto v = cast(Select9477!(b2, string, char[1]))"a"; return v; }
-            bool result = getS1() == getS2();
+            bool result = checkOrder!(b1, 0)() == checkOrder!(b2, 1)();
             assert(result);
             assert(order == 2);
         }
