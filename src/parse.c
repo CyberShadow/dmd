@@ -2397,6 +2397,8 @@ Objects *Parser::parseTemplateSingleArgument()
         case TOKfuncstring:
         case TOKprettyfunc:
         case TOKthis:
+        case TOKlcurly:
+        case TOKlbracket:
         {   // Template argument is an expression
             Expression *ea = parsePrimaryExp();
             tiargs->push(ea);
