@@ -395,7 +395,7 @@ void usage()
 #else
     const char fpic[] = "";
 #endif
-    printf("DMD%llu D Compiler %s\n%s %s\n",
+    printf("DMD%llu D Compiler %s (CyberShadow's blend)\n%s %s\n",
            (unsigned long long) sizeof(size_t) * 8,
         global.version, global.copyright, global.written);
     printf("\
