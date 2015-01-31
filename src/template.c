@@ -1310,7 +1310,7 @@ MATCH TemplateDeclaration::deduceFunctionTemplateMatch(
         }
     }
 
-    if (toParent()->isModule() || (scope->stc & STCstatic))
+    if (isstatic)
         tthis = NULL;
     if (tthis)
     {
@@ -5957,6 +5957,8 @@ void TemplateInstance::semantic(Scope *sc, Expressions *fargs)
     sc2->parent = this;
     sc2->tinst = this;
     sc2->minst = minst;
+    if (enclosing && tempdecl->isstatic)
+        sc2->stc &= ~STCstatic;
 
     tryExpandMembers(sc2);
 
