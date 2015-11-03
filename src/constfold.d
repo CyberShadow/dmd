@@ -1,3 +1,4 @@
+test
 // Compiler implementation of the D programming language
 // Copyright (c) 1999-2015 by Digital Mars
 // All Rights Reserved
