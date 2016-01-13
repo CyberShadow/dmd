@@ -7,7 +7,7 @@
     "name" : "_staticCtor1",
     "kind" : "function",
     "line" : 8,
-    "char" : 8,
+    "char" : 1,
     "storageClass" : [
      "static"
     ],
@@ -19,7 +19,7 @@
     "name" : "_staticDtor2",
     "kind" : "function",
     "line" : 10,
-    "char" : 8,
+    "char" : 1,
     "storageClass" : [
      "static"
     ],
@@ -149,9 +149,9 @@
     "kind" : "class",
     "line" : 22,
     "char" : 1,
-    "base" : "Bar",
+    "base" : "json.Bar!1.Bar",
     "interfaces" : [
-     "Baz"
+     "json.Baz!(int, 2, null).Baz"
     ],
     "members" : [
      {
@@ -181,7 +181,7 @@
       "storageClass" : [
        "static"
       ],
-      "deco" : "FZv",
+      "deco" : "FNaNbNiNfZv",
       "originalType" : "()",
       "endline" : 26,
       "endchar" : 19
@@ -211,6 +211,10 @@
       "overrides" : [
        "json.Baz!(int, 2, null).Baz.t"
       ]
+     },
+     {
+      "name" : "__xdtor",
+      "kind" : "alias"
      }
     ]
    },
@@ -219,7 +223,7 @@
     "kind" : "class",
     "line" : 31,
     "char" : 1,
-    "base" : "Bar2",
+    "base" : "json.Bar2",
     "members" : [
      {
       "name" : "val",
@@ -314,11 +318,8 @@
     "kind" : "function",
     "line" : 52,
     "char" : 16,
-    "storageClass" : [
-     "@trusted"
-    ],
     "deco" : "FNeKkC4json4Bar2Zi",
-    "originalType" : "myInt(ref uint blah, Bar2 foo = new Bar3(7))",
+    "originalType" : "@trusted myInt(ref uint blah, Bar2 foo = new Bar3(7))",
     "parameters" : [
      {
       "name" : "blah",
@@ -330,7 +331,7 @@
      {
       "name" : "foo",
       "deco" : "C4json4Bar2",
-      "default" : "cast(Bar2)new Bar3(7)"
+      "default" : "new Bar3(7)"
      }
     ],
     "endline" : 55,
@@ -341,11 +342,7 @@
     "kind" : "function",
     "line" : 57,
     "char" : 15,
-    "storageClass" : [
-     "@property"
-    ],
     "deco" : "FNbNdZi",
-    "originalType" : "nothrow int()",
     "endline" : 74,
     "endchar" : 1
    },
@@ -514,6 +511,78 @@
     "deco" : "xC6Object",
     "originalType" : "Object",
     "init" : "Object()"
+   },
+   {
+    "name" : "Numbers",
+    "kind" : "enum",
+    "line" : 101,
+    "char" : 1,
+    "baseDeco" : "i",
+    "members" : [
+     {
+      "name" : "unspecified1",
+      "kind" : "enum member",
+      "value" : "0",
+      "line" : 103,
+      "char" : 5
+     },
+     {
+      "name" : "one",
+      "kind" : "enum member",
+      "value" : "2",
+      "line" : 104,
+      "char" : 5
+     },
+     {
+      "name" : "two",
+      "kind" : "enum member",
+      "value" : "3",
+      "line" : 105,
+      "char" : 5
+     },
+     {
+      "name" : "FILE_NOT_FOUND",
+      "kind" : "enum member",
+      "value" : "101",
+      "line" : 106,
+      "char" : 5
+     },
+     {
+      "name" : "unspecified3",
+      "kind" : "enum member",
+      "value" : "102",
+      "line" : 107,
+      "char" : 5
+     },
+     {
+      "name" : "unspecified4",
+      "kind" : "enum member",
+      "value" : "103",
+      "line" : 108,
+      "char" : 5
+     },
+     {
+      "name" : "four",
+      "kind" : "enum member",
+      "value" : "4",
+      "line" : 109,
+      "char" : 5
+     }
+    ]
+   },
+   {
+    "kind" : "template",
+    "line" : 112,
+    "char" : 1,
+    "name" : "IncludeConstraint",
+    "parameters" : [
+     {
+      "name" : "T",
+      "kind" : "type"
+     }
+    ],
+    "constraint" : "T == string",
+    "members" : []
    }
   ]
  }

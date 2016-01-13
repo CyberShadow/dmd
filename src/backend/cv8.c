@@ -3,9 +3,9 @@
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+// Distributed under the Boost Software License, Version 1.0.
+// http://www.boost.org/LICENSE_1_0.txt
+// https://github.com/D-Programming-Language/dmd/blob/master/src/backend/cv8.c
 
 // This module generates the .debug$S and .debug$T sections for Win64,
 // which are the MS-Coff symbolic debug info and type debug info sections.
@@ -91,6 +91,33 @@ static Outbuffer *linepair;     // array of offset/line pairs
 
 unsigned cv8_addfile(const char *filename);
 void cv8_writesection(int seg, unsigned type, Outbuffer *buf);
+
+void cv8_writename(Outbuffer *buf, const char* name, size_t len)
+{
+    if(config.flags2 & CFG2gms)
+    {
+        const char* start = name;
+        const char* cur = strchr(start, '.');
+        const char* end = start + len;
+        while(cur != NULL)
+        {
+            if(cur >= end)
+            {
+                buf->writen(start, end - start);
+                return;
+            }
+            buf->writen(start, cur - start);
+            buf->writeByte('@');
+            start = cur + 1;
+            if(start >= end)
+                return;
+            cur = strchr(start, '.');
+        }
+        buf->writen(start, end - start);
+    }
+    else
+        buf->writen(name, len);
+}
 
 /************************************************
  * Called at the start of an object file generation.
@@ -250,7 +277,7 @@ void cv8_initmodule(const char *filename, const char *modulename)
 void cv8_termmodule()
 {
     //printf("cv8_termmodule()\n");
-    assert(config.exe == EX_WIN64);
+    assert(config.objfmt == OBJ_MSCOFF);
 }
 
 /******************************************
@@ -551,6 +578,7 @@ void cv8_outsym(Symbol *s)
     //printf("typidx = %x\n", typidx);
     const char *id = s->prettyIdent ? s->prettyIdent : prettyident(s);
     size_t len = strlen(id);
+
     if(len > CV8_MAX_SYMBOL_LENGTH)
         len = CV8_MAX_SYMBOL_LENGTH;
 
@@ -586,17 +614,17 @@ void cv8_outsym(Symbol *s)
             buf->writeWordn(0x1111);
             buf->write32(s->Soffset + base + BPoff);
             buf->write32(typidx);
-            buf->writeWordn(334);       // relative to RBP
-            buf->writen(id, len);
+            buf->writeWordn(I64 ? 334 : 22);       // relative to RBP/EBP
+            cv8_writename(buf, id, len);
             buf->writeByte(0);
 #else
             // This is supposed to work, implicit BP relative addressing, but it does not
             buf->reserve(2 + 2 + 4 + 4 + len + 1);
             buf->writeWordn( 2 + 4 + 4 + len + 1);
-            buf->writeWordn(0x1006);
+            buf->writeWordn(S_BPREL_V3);
             buf->write32(s->Soffset + base + BPoff);
             buf->write32(typidx);
-            buf->writen(id, len);
+            cv8_writename(buf, id, len);
             buf->writeByte(0);
 #endif
             break;
@@ -623,12 +651,12 @@ void cv8_outsym(Symbol *s)
             buf->writeWordn(S_REGISTER_V3);
             buf->write32(typidx);
             buf->writeWordn(cv8_regnum(s));
-            buf->writen(id, len);
+            cv8_writename(buf, id, len);
             buf->writeByte(0);
             break;
 
         case SCextern:
-            return;
+            break;
 
         case SCstatic:
         case SClocstat:
@@ -661,12 +689,12 @@ void cv8_outsym(Symbol *s)
             buf->write32(0);
             buf->writeWordn(0);
 
-            buf->writen(id, len);
+            cv8_writename(buf, id, len);
             buf->writeByte(0);
             break;
 
         default:
-            return;
+            break;
     }
 }
 
@@ -682,13 +710,14 @@ void cv8_udt(const char *id, idx_t typidx)
     //printf("cv8_udt('%s', %x)\n", id, typidx);
     Outbuffer *buf = currentfuncdata.f1buf;
     size_t len = strlen(id);
+
     if (len > CV8_MAX_SYMBOL_LENGTH)
         len = CV8_MAX_SYMBOL_LENGTH;
     buf->reserve(2 + 2 + 4 + len + 1);
     buf->writeWordn( 2 + 4 + len + 1);
     buf->writeWordn(S_UDT_V3);
     buf->write32(typidx);
-    buf->writen(id, len);
+    cv8_writename(buf, id, len);
     buf->writeByte(0);
 }
 
@@ -762,6 +791,7 @@ idx_t cv8_fwdref(Symbol *s)
     }
     unsigned len = numidx + cv4_numericbytes(0);
     int idlen = strlen(s->Sident);
+
     if (idlen > CV8_MAX_SYMBOL_LENGTH)
         idlen = CV8_MAX_SYMBOL_LENGTH;
 
@@ -776,10 +806,11 @@ idx_t cv8_fwdref(Symbol *s)
         TOLONG(d->data + 14, 0);        // vshape
     }
     cv4_storenumeric(d->data + numidx, 0);
-    memcpy(d->data + len, s->Sident, idlen);
+    cv_namestring(d->data + len, s->Sident, idlen);
     d->data[len + idlen] = 0;
     idx_t typidx = cv_debtyp(d);
     s->Stypidx = typidx;
+
     return typidx;
 }
 
@@ -833,7 +864,9 @@ idx_t cv8_darray(type *t, idx_t etypidx)
 
     debtyp_t *f = debtyp_alloc(sizeof(fl));
     memcpy(f->data,fl,sizeof(fl));
+    TOLONG(f->data + 6, I64 ? 0x23 : 0x22); // size_t
     TOLONG(f->data + 26, ptridx);
+    TOWORD(f->data + 30, NPTRSIZE);
     idx_t fieldlist = cv_debtyp(f);
 
     const char *id;
@@ -857,6 +890,7 @@ idx_t cv8_darray(type *t, idx_t etypidx)
     }
 
     int idlen = strlen(id);
+
     if (idlen > CV8_MAX_SYMBOL_LENGTH)
         idlen = CV8_MAX_SYMBOL_LENGTH;
 
@@ -867,8 +901,8 @@ idx_t cv8_darray(type *t, idx_t etypidx)
     TOLONG(d->data + 6, fieldlist);
     TOLONG(d->data + 10, 0);    // dList
     TOLONG(d->data + 14, 0);    // vtshape
-    TOWORD(d->data + 18, 16);   // size
-    memcpy(d->data + 20, id, idlen);
+    TOWORD(d->data + 18, 2 * NPTRSIZE);   // size
+    cv_namestring(d->data + 20, id, idlen);
     d->data[20 + idlen] = 0;
 
     idx_t top = cv_numdebtypes();
@@ -934,6 +968,7 @@ idx_t cv8_ddelegate(type *t, idx_t functypidx)
     memcpy(f->data,fl,sizeof(fl));
     TOLONG(f->data + 6, pvidx);
     TOLONG(f->data + 22, ptridx);
+    TOWORD(f->data + 26, NPTRSIZE);
     idx_t fieldlist = cv_debtyp(f);
 
     const char *id = "dDelegate";
@@ -948,7 +983,7 @@ idx_t cv8_ddelegate(type *t, idx_t functypidx)
     TOLONG(d->data + 6, fieldlist);
     TOLONG(d->data + 10, 0);    // dList
     TOLONG(d->data + 14, 0);    // vtshape
-    TOWORD(d->data + 18, 16);   // size
+    TOWORD(d->data + 18, 2 * NPTRSIZE);   // size
     memcpy(d->data + 20, id, idlen);
     d->data[20 + idlen] = 0;
 #endif
@@ -968,6 +1003,8 @@ idx_t cv8_daarray(type *t, idx_t keyidx, idx_t validx)
     /* Put out a struct:
      *    struct dAssocArray {
      *      void* ptr;
+     *      typedef key-type __key_t;
+     *      typedef val-type __val_t;
      *    }
      */
 
@@ -993,12 +1030,24 @@ idx_t cv8_daarray(type *t, idx_t keyidx, idx_t validx)
         0x00, 0x00, 0x00, 0x00, // void*
         0x00, 0x00,             // offset
         'p','t','r',0,          // "ptr"
-        0xf2, 0xf1,             // align to 4-byte including length word before data
+        0xf2, 0xf1,             // align to 4-byte including field id
+        // offset 18
+        0x10, 0x15,             // LF_NESTTYPE_V3
+        0x00, 0x00,             // padding
+        0x00, 0x00, 0x00, 0x00, // key type
+        '_','_','k','e','y','_','t',0,  // "__key_t"
+        // offset 34
+        0x10, 0x15,             // LF_NESTTYPE_V3
+        0x00, 0x00,             // padding
+        0x00, 0x00, 0x00, 0x00, // value type
+        '_','_','v','a','l','_','t',0,  // "__val_t"
     };
 
     debtyp_t *f = debtyp_alloc(sizeof(fl));
     memcpy(f->data,fl,sizeof(fl));
     TOLONG(f->data + 6, pvidx);
+    TOLONG(f->data + 22, keyidx);
+    TOLONG(f->data + 38, validx);
     idx_t fieldlist = cv_debtyp(f);
 
     const char *id = "dAssocArray";

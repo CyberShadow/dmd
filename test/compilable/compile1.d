@@ -11,6 +11,45 @@ class C1748(T) {}
 static assert(C1748!int.stringof == "C1748!int");
 
 /**************************************************
+    2354 pragma + single semicolon DeclarationBlock
+**************************************************/
+
+version(all)
+    pragma(msg, "true");
+else
+    pragma(msg, "false");
+
+/**************************************************
+    2438
+**************************************************/
+
+alias void delegate() Dg2438;
+
+alias typeof(Dg2438.ptr)     CP2438a;
+alias typeof(Dg2438.funcptr) FP2438a;
+static assert(is(CP2438a == void*));
+static assert(is(FP2438a == void function()));
+
+alias typeof(Dg2438.init.ptr)     CP2438b;
+alias typeof(Dg2438.init.funcptr) FP2438b;
+static assert(is(CP2438b == void*));
+static assert(is(FP2438b == void function()));
+
+/**************************************************
+    4225
+**************************************************/
+
+struct Foo4225
+{
+    enum x = Foo4225();
+
+    static Foo4225 opCall()
+    {
+        return Foo4225.init;
+    }
+}
+
+/**************************************************
     5996    ICE(expression.c)
 **************************************************/
 
@@ -87,6 +126,19 @@ auto bug6650(X)(X y)
 
 static assert(!is(typeof(bug6650!(int)(6))));
 static assert(!is(typeof(bug6650!(int)(18))));
+
+/**************************************************
+    14710    VC-built DMD crashes on templated variadic function IFTI
+**************************************************/
+
+void bug14710a(T)(T val, T[] arr...)
+{
+}
+
+void bug14710b()
+{
+    bug14710a("", "");
+}
 
 /**************************************************
   6661 Templates instantiated only through is(typeof()) shouldn't cause errors
@@ -446,6 +498,26 @@ alias test8163!(ubyte, ubyte, ushort, float) _BBSf;
 
 
 /***************************************************/
+// 4757
+
+auto foo4757(T)(T)
+{
+    static struct Bar(T)
+    {
+        void spam()
+        {
+            foo4757(1);
+        }
+    }
+    return Bar!T();
+}
+
+void test4757()
+{
+    foo4757(1);
+}
+
+/***************************************************/
 // 9348
 
 void test9348()
@@ -492,6 +564,62 @@ static if (is(object.ModuleInfo == class))
 }
 
 /***************************************************/
+// 10158
+
+class Outer10158
+{
+    static struct Inner
+    {
+        int f;
+    }
+
+    void test()
+    {
+        static assert( Inner.f .offsetof == 0);  // OK <- NG
+        static assert((Inner.f).offsetof == 0);  // OK
+    }
+}
+
+void test10158()
+{
+    static assert(Outer10158.Inner.f.offsetof == 0);  // OK
+}
+
+/***************************************************/
+// 10326
+
+class C10326
+{
+    int val;
+    invariant   { assert(val == 0); }
+    invariant() { assert(val == 0); }
+}
+
+/***************************************************/
+// 11042
+
+static if           ((true  || error) == true ) {} else { static assert(0); }
+static if           ((false && error) == false) {} else { static assert(0); }
+static assert       ((true  || error) == true );
+static assert       ((false && error) == false);
+int f11042a1()() if ((true  || error) == true ) { return 0; }   enum x11042a1 = f11042a1();
+int f11042b1()() if ((false && error) == false) { return 0; }   enum x11042b1 = f11042b1();
+
+static if           (is(typeof(true  || error)) == false) {} else { static assert(0); }
+static if           (is(typeof(false && error)) == false) {} else { static assert(0); }
+static assert       (is(typeof(true  || error)) == false);
+static assert       (is(typeof(false && error)) == false);
+int f11042a2()() if (is(typeof(true  || error)) == false) { return 0; }   enum x11042a2 = f11042a2();
+int f11042b2()() if (is(typeof(false && error)) == false) { return 0; }   enum x11042b2 = f11042b2();
+
+static if           (__traits(compiles, true  || error) == false) {} else { static assert(0); }
+static if           (__traits(compiles, false && error) == false) {} else { static assert(0); }
+static assert       (__traits(compiles, true  || error) == false);
+static assert       (__traits(compiles, false && error) == false);
+int f11042a3()() if (__traits(compiles, true  || error) == false) { return 0; }   enum x11042a3 = f11042a3();
+int f11042b3()() if (__traits(compiles, false && error) == false) { return 0; }   enum x11042b3 = f11042b3();
+
+/***************************************************/
 // 11554
 
 enum E11554;
@@ -499,3 +627,313 @@ static assert(is(E11554 == enum));
 
 struct Bro11554(N...) {}
 static assert(!is(E11554 unused : Bro11554!M, M...));
+
+/***************************************************/
+// 12302
+
+template isCallable12302(T...)
+    if (T.length == 1)
+{
+    static if (is(typeof(& T[0].opCall) == delegate))
+        enum bool isCallable12302 = true;
+    else
+    static if (is(typeof(& T[0].opCall) V : V*) && is(V == function))
+        enum bool isCallable12302 = true;
+    else
+        enum bool isCallable12302 = true;
+}
+
+class A12302
+{
+    struct X {}
+    X x;
+    auto opDispatch(string s, TArgs...)(TArgs args)
+    {
+        mixin("return x."~s~"(args);");
+    }
+}
+
+A12302 func12302() { return null; }
+enum b12302 = isCallable12302!func12302;
+
+/***************************************************/
+// 12476
+
+template A12476(T) {  }
+
+struct S12476(T)
+{
+    alias B = A12476!T;
+}
+
+class C12476(T)
+{
+    alias B = A12476!T;
+}
+
+struct Bar12476(alias Foo)
+{
+    Foo!int baz;
+    alias baz this;
+}
+
+alias Identity12476(alias A) = A;
+
+alias sb12476 = Identity12476!(Bar12476!S12476.B);
+alias cb12476 = Identity12476!(Bar12476!C12476.B);
+
+static assert(__traits(isSame, sb12476, A12476!int));
+static assert(__traits(isSame, cb12476, A12476!int));
+
+/***************************************************/
+// 12506
+
+import imports.a12506;
+private           bool[9] r12506a = f12506!(i => true)(); // OK
+private immutable bool[9] r12506b = f12506!(i => true)(); // OK <- error
+
+/***************************************************/
+// 12555
+
+class A12555(T)
+{
+    Undef12555 error;
+}
+
+static assert(!__traits(compiles, {
+    class C : A12555!C  { }
+}));
+
+/***************************************************/
+// 11622
+
+class A11622(T)
+{
+    B11622!T foo()
+    {
+        return new B11622!T;
+    }
+}
+
+class B11622(T) : T
+{
+}
+
+static assert(!__traits(compiles, {
+    class C : A11622!C  { }
+}));
+
+/***************************************************/
+// 12688
+
+void writeln12688(A...)(A) {}
+
+struct S12688
+{
+    int foo() @property { return 1; }
+}
+
+void test12688()
+{
+    S12688 s;
+    s.foo.writeln12688;   // ok
+    (s.foo).writeln12688; // ok <- ng
+}
+
+/***************************************************/
+// 12703
+
+struct S12703
+{
+    this(int) {}
+}
+
+final class C12703
+{
+    S12703 s = S12703(1);
+}
+
+/***************************************************/
+// 12799
+
+struct A12799
+{
+    int a;
+    enum C = A12799.sizeof;
+    enum D = C; // OK <- Error
+}
+
+/***************************************************/
+// 13236
+
+pragma(msg, is(typeof({ struct S { S x; } })));
+
+/***************************************************/
+// 13280
+
+struct S13280
+{
+    alias U = ubyte;
+    alias T1 =       ubyte[this.sizeof]; // ok
+    alias T2 = const     U[this.sizeof]; // ok
+    alias T3 = const ubyte[this.sizeof]; // ok <- error
+}
+
+/***************************************************/
+// 13481
+
+mixin template Mix13481(void function() callback)
+{
+    static this()
+    {
+        callback();
+    }
+}
+
+void sort13481() { int[] arr; arr.sort; }
+mixin Mix13481!(&sort13481);
+
+mixin Mix13481!({ int[] arr; arr.sort; });
+
+/***************************************************/
+// 13564
+
+class E13564(T)
+{
+    int pos;
+}
+
+class C13564(T)
+{
+    struct S
+    {
+        ~this()
+        {
+            C13564!int c;
+            c.element.pos = 0;
+        }
+    }
+
+    E13564!T element;
+}
+
+void test13564()
+{
+    auto c = new C13564!int();
+}
+
+/***************************************************/
+// 14166
+
+struct Proxy14166(T)
+{
+    T* ptr;
+    ref deref() { return *ptr; }
+    alias deref this;
+}
+struct Test14166
+{
+    auto opIndex() { return this; }
+    auto opIndex(int) { return 1; }
+}
+template Elem14166a(R) { alias Elem14166a = typeof(R.init[][0]); }
+template Elem14166b(R) { alias Elem14166b = typeof(R.init[0]); }
+void test14166()
+{
+    alias T = Proxy14166!Test14166;
+    static assert(is(Elem14166a!T == int));     // rejects-valid case
+    static assert(is(Elem14166b!T == int));     // regression case
+}
+
+// other related cases
+struct S14166
+{
+    int x;
+    double y;
+    int[] a;
+    S14166 opUnary(string op : "++")() { return this;  }
+}
+S14166 s14166;
+
+struct X14166 { this(int) { } X14166 opAssign(int) { return this; } }
+X14166[int] aa14166;
+X14166[int] makeAA14166() { return aa14166; }
+
+struct Tup14166(T...) { T field; alias field this; }
+Tup14166!(int, int) tup14166;
+Tup14166!(int, int) makeTup14166() { return tup14166; }
+
+pragma(msg, typeof((s14166.x += 1) = 2));    // ok <- error
+pragma(msg, typeof(s14166.a.length += 2));   // ok <- error
+pragma(msg, typeof(s14166++));               // ok <- error
+pragma(msg, typeof(s14166.x ^^ 2));          // ok <- error
+pragma(msg, typeof(s14166.y ^^= 2.5));       // ok <- error
+pragma(msg, typeof(makeAA14166()[0] = 1));   // ok <- error
+pragma(msg, typeof(tup14166.field = makeTup14166()));   // ok <- error
+
+/***************************************************/
+// 14388
+
+@property immutable(T)[] idup14388(T)(T[] a)
+{
+    alias U = immutable(T);
+    U[] res;
+    foreach (ref e; a)
+        res ~= e;
+    return res;
+}
+
+struct Data14388(A14388 a)
+{
+    auto foo()
+    {
+        return Data14388!a.init;    // [B]
+    }
+}
+
+struct A14388
+{
+    struct Item {}
+
+    immutable(Item)[] items;
+
+    this(int dummy)
+    {
+        items = [Item()].idup14388;
+    }
+}
+
+void test14388()
+{
+    auto test = Data14388!(A14388(42)).init.foo();  // [A]
+    /*
+     * A(42) is interpreter to a struct literal A([immutable(Item)()]).
+     * The internal VarDeclaration with STCmanifest for the Data's template parameteter 'a'
+     * calls syntaxCopy() on its ((ExpInitializer *)init)->exp in VarDeclaration::semantic(),
+     * and 'immutable(Item)()'->syntaxCopy() had incorrectly removed the qualifier.
+     * Then, the arguments of two Data template instances at [A] and [B] had become unmatch,
+     * and the second instantiation had created the AST duplication.
+     */
+}
+
+/***************************************************/
+// 15163
+
+void function() func15164(int[] arr)
+{
+    return () { };
+}
+
+void test15163()
+{
+    auto arr = [[0]];
+    func15164(arr[0])();
+}
+
+/**************************************************
+    3438
+**************************************************/
+import core.vararg;
+struct S3438_1 { this(int x, int y = 1) { } }
+struct S3438_2 { this(int x, ...) { } }
+struct S3438_3 { this(int x, int[] arr...) { } }

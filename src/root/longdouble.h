@@ -1,12 +1,10 @@
-
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2011 by Digital Mars
-// All Rights Reserved
-// written by Rainer Schuetze
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved, written by Rainer Schuetze
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/root/longdouble.h
+ */
 
 // 80 bit floating point value implementation for Microsoft compiler
 
@@ -68,12 +66,12 @@ extern "C"
     void ld_setull(longdouble* ld, unsigned long long d);
 }
 
+#pragma pack(push, 1)
 struct longdouble
 {
     unsigned long long mantissa;
     unsigned short exponent:15;  // bias 0x3fff
     unsigned short sign:1;
-    unsigned short fill:16;      // for 12 byte alignment
 
     // no constructor to be able to use this class in a union
     // use ldouble() to explicitely create a longdouble value
@@ -116,6 +114,9 @@ struct longdouble
     operator unsigned long long() { return ld_readull(this); }
     operator bool              () { return mantissa != 0 || exponent != 0; } // correct?
 };
+
+#pragma pack(pop)
+// static_assert(sizeof(longdouble) == 10, "bad sizeof longdouble");
 
 // some optimizations are avoided by adding volatile to the longdouble
 // type, but this introduces bad ambiguities when using the class implementation above
@@ -198,7 +199,6 @@ longdouble tanl (longdouble ld);
 
 longdouble fmodl(longdouble x, longdouble y);
 longdouble ldexpl(longdouble ldval, int exp); // see strtold
-longdouble strtold(const char *p,char **endp);
 
 inline longdouble fabs (longdouble ld) { return fabsl(ld); }
 inline longdouble sqrt (longdouble ld) { return sqrtl(ld); }

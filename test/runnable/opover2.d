@@ -12,6 +12,8 @@ bool thrown(E, T)(lazy T val)
     catch (E e) { return true; }
 }
 
+void stompStack() { int[256] sa = 0xdeadbeef; }
+
 /**************************************/
 
 class A
@@ -823,6 +825,260 @@ void test10037()
 }
 
 /**************************************/
+// 5810
+
+struct Bug5810
+{
+    void opUnary(string op)() {}
+}
+
+struct Foo5810
+{
+    Bug5810 x;
+    void bar() { x++; }
+}
+
+/**************************************/
+// 6798
+
+struct Tuple6798(T...)
+{
+    T field;
+    alias field this;
+
+    bool opEquals(Tuple6798 rhs)
+    {
+        foreach (i, _; T)
+        {
+            if (this[i] != rhs[i])
+                return false;
+        }
+        return true;
+    }
+}
+auto tuple6798(T...)(T args)
+{
+    return Tuple6798!T(args);
+}
+
+int test6798a()
+{
+    //import std.typecons;
+    alias tuple6798 tuple;
+
+    static struct S1
+    {
+        auto opDollar(size_t dim)()
+        {
+            return 99;
+        }
+        auto opSlice(int dim)(int lwr, int upr)
+        {
+            return [dim, lwr, upr];
+        }
+
+        auto opIndex(A...)(A indices)
+        {
+            return tuple(" []", indices);
+        }
+        auto opIndexUnary(string op, A...)(A indices)
+        {
+            return tuple(op~"[]", indices);
+        }
+        auto opIndexAssign(A...)(string s, A indices)
+        {
+            return tuple("[] =", s, indices);
+        }
+        auto opIndexOpAssign(string op, A...)(string s, A indices)
+        {
+            return tuple("[]"~op~"=", s, indices);
+        }
+    }
+    S1 s1;
+    assert( s1[]       == tuple(" []"));
+    assert( s1[10]     == tuple(" []", 10));
+    assert( s1[10, 20] == tuple(" []", 10, 20));
+    assert( s1[10..20] == tuple(" []", [0, 10, 20]));
+    assert(+s1[]       == tuple("+[]"));
+    assert(-s1[10]     == tuple("-[]", 10));
+    assert(*s1[10, 20] == tuple("*[]", 10, 20));
+    assert(~s1[10..20] == tuple("~[]", [0, 10, 20]));
+    assert((s1[]       ="x") == tuple("[] =", "x"));
+    assert((s1[10]     ="x") == tuple("[] =", "x", 10));
+    assert((s1[10, 20] ="x") == tuple("[] =", "x", 10, 20));
+    assert((s1[10..20] ="x") == tuple("[] =", "x", [0, 10, 20]));
+    assert((s1[]      +="x") == tuple("[]+=", "x"));
+    assert((s1[10]    -="x") == tuple("[]-=", "x", 10));
+    assert((s1[10, 20]*="x") == tuple("[]*=", "x", 10, 20));
+    assert((s1[10..20]~="x") == tuple("[]~=", "x", [0, 10, 20]));
+    assert( s1[20..30, 10]           == tuple(" []", [0, 20, 30], 10));
+    assert( s1[10, 10..$, $-4, $..2] == tuple(" []", 10, [1,10,99], 99-4, [3,99,2]));
+    assert(+s1[20..30, 10]           == tuple("+[]", [0, 20, 30], 10));
+    assert(-s1[10, 10..$, $-4, $..2] == tuple("-[]", 10, [1,10,99], 99-4, [3,99,2]));
+    assert((s1[20..30, 10]           ="x") == tuple("[] =", "x", [0, 20, 30], 10));
+    assert((s1[10, 10..$, $-4, $..2] ="x") == tuple("[] =", "x", 10, [1,10,99], 99-4, [3,99,2]));
+    assert((s1[20..30, 10]          +="x") == tuple("[]+=", "x", [0, 20, 30], 10));
+    assert((s1[10, 10..$, $-4, $..2]-="x") == tuple("[]-=", "x", 10, [1,10,99], 99-4, [3,99,2]));
+
+    // opIndex exist, but opSlice for multi-dimensional doesn't.
+    static struct S2
+    {
+        auto opSlice(size_t dim)() { return [dim]; }
+        auto opSlice()(size_t lwr, size_t upr) { return [lwr, upr]; }
+
+        auto opIndex(A...)(A indices){ return [[indices]]; }
+    }
+    S2 s2;
+    assert(s2[] == [[]]);
+    assert(s2[1] == [[1]]);
+    assert(s2[1, 2] == [[1, 2]]);
+    assert(s2[1..2] == [1, 2]);
+    static assert(!__traits(compiles, s2[1, 2..3] ));
+    static assert(!__traits(compiles, s2[1..2, 2..3] ));
+
+    // opSlice for multi-dimensional exists, but opIndex for that doesn't.
+    static struct S3
+    {
+        auto opSlice(size_t dim)(size_t lwr, size_t upr) { return [lwr, upr]; }
+
+        auto opIndex(size_t n){ return [[n]]; }
+        auto opIndex(size_t n, size_t m){ return [[n, m]]; }
+    }
+    S3 s3;
+    static assert(!__traits(compiles, s3[] ));
+    assert(s3[1]    == [[1]]);
+    assert(s3[1, 2] == [[1, 2]]);
+    static assert(!__traits(compiles, s3[1..2] ));
+    static assert(!__traits(compiles, s3[1, 2..3] ));
+    static assert(!__traits(compiles, s3[1..2, 2..3] ));
+
+    return 0;
+}
+
+int test6798b()
+{
+    static struct Typedef(T)
+    {
+        private T Typedef_payload = T.init;
+
+        alias a = Typedef_payload;
+
+        auto ref opIndex(this X, D...)(auto ref D i)    { return a[i]; }
+        auto ref opSlice(this X      )()                { return a[]; }
+        auto ref opSlice(this X, B, E)(auto ref B b, auto ref E e)
+        {
+            assert(b == 0 && e == 3);
+            return a[b..e];
+        }
+
+        template opDispatch(string name)
+        {
+            // field or property function
+            @property auto ref opDispatch(this X)()                { return mixin("a."~name);        }
+            @property auto ref opDispatch(this X, V)(auto ref V v) { return mixin("a."~name~" = v"); }
+        }
+
+        static if (is(typeof(a) : E[], E))
+        {
+            auto opDollar() const { return a.length; }
+        }
+    }
+
+    Typedef!(int[]) dollar2;
+    dollar2.length = 3;
+    assert(dollar2.Typedef_payload.length == 3);
+    assert(dollar2[0 .. $] is dollar2[0 .. 3]);
+
+    return 0;
+}
+
+int test6798c()
+{
+    alias T = Tuple6798!(int, int);
+    auto n = T[].init;
+    static assert(is(typeof(n[0]) == Tuple6798!(int, int)));
+
+    return 0;
+}
+
+void test6798()
+{
+    static assert(test6798a() == 0);    // CTFE check
+    test6798a();
+    static assert(test6798b() == 0);
+    test6798b();
+    static assert(test6798c() == 0);
+    test6798c();
+}
+
+/**************************************/
+// 12382
+
+struct S12382
+{
+    size_t opDollar() { return 0; }
+    size_t opIndex(size_t) { return 0; }
+}
+
+S12382 func12382() { return S12382(); }
+
+static assert(S12382.init[$] == 0);
+static assert(func12382()[$] == 0);
+enum e12382a = S12382.init[$];
+enum e12382b = func12382()[$];
+static v12382a = S12382.init[$];
+static v12382b = func12382()[$];
+
+void test12382()
+{
+    static assert(S12382.init[$] == 0);
+    static assert(func12382()[$] == 0);
+    enum e12382a = S12382.init[$];
+    enum e12382b = func12382()[$];
+    static v12382a = S12382.init[$];
+    static v12382b = func12382()[$];
+}
+
+/**************************************/
+// 12904
+
+struct S12904
+{
+    void opIndexAssign(U, A...)(U value, A args)
+    {
+        static assert(0);
+    }
+    void opSliceAssign(int n)
+    {
+        assert(n == 10);
+    }
+
+    size_t opDollar(size_t dim)()
+    {
+        return 7;
+    }
+
+    int opSlice(size_t dim)(size_t, size_t to)
+    {
+        assert(to == 7);
+        return 1;
+    }
+
+    int opIndex(int i1, int i2)
+    {
+        assert(i1 == 1 && i2 == 1);
+        return 10;
+    }
+}
+
+void test12904()
+{
+    S12904 s;
+    s[] = s[0..$, 1];
+    s[] = s[0..$, 0..$];
+}
+
+/**************************************/
 // 7641
 
 mixin template Proxy7641(alias a)
@@ -1054,7 +1310,7 @@ void test18()
     }
     assert(dollar!q{@property size_t opDollar() { return 8; }}() == 8);
     assert(dollar!q{template opDollar(size_t dim) { enum opDollar = dim; }}() == 0);
-    assert(dollar!q{const size_t opDollar = 8;}() == 8);
+    assert(dollar!q{static const size_t opDollar = 8;}() == 8);
     assert(dollar!q{enum opDollar = 8;}() == 8);
     assert(dollar!q{size_t length() { return 8; } alias length opDollar;}() == 8);
 }
@@ -1205,6 +1461,45 @@ void test10064()
         }
     }
     auto x = S(0)[0 .. $];
+}
+
+/**************************************/
+// 12585
+
+void test12585()
+{
+    struct Bar
+    {
+        int opIndex(size_t index)
+        {
+            return 0;
+        }
+    }
+
+    struct Foo
+    {
+        Bar opIndex(size_t index)
+        {
+            throw new Exception("Fail");
+        }
+    }
+
+    Foo foo()
+    {
+        return Foo();
+    }
+
+    void catchStuff(E)(lazy E expression)
+    {
+        try
+            expression();
+        catch (Exception e) {}
+    }
+
+    catchStuff(foo()[0][0]);          // OK <- NG
+    catchStuff(foo().opIndex(0)[0]);  // OK
+    catchStuff(foo()[0].opIndex(0));  // OK
+    Foo f; catchStuff(f[0][0]);       // OK
 }
 
 /**************************************/
@@ -1495,6 +1790,226 @@ void test11311()
 }
 
 /**************************************/
+// 12193
+
+void test12193()
+{
+    struct Foo
+    {
+        bool bar;
+        alias bar this;
+        void opOpAssign(string op)(size_t x)
+        {
+            bar = false;
+        }
+    }
+
+    Foo foo;
+    foo <<= 1;
+}
+
+/**************************************/
+// 14057
+
+struct W14057
+{
+    int[] subType;
+    alias subType this;
+
+    W14057 opSlice(size_t, size_t)
+    {
+        return this;
+    }
+}
+
+void test14057()
+{
+    auto w = W14057();
+    W14057 w2 = w[0 .. 1337];
+}
+
+/**************************************/
+
+struct Tuple20(T...) { T field; alias field this; }
+
+void test20a()
+{
+    // ae1save in in AssignExp::semantic
+    int a, b;
+
+    struct A1
+    {
+        void opIndexAssign(int v, Tuple20!(int, int) ) { a = v; }
+        Tuple20!(int, int) opSlice(size_t dim)(int, int) { return typeof(return).init; }
+    }
+    struct A2
+    {
+        A1 a1;
+        alias a1 this;
+        ref int opIndexAssign(int) { return b; }
+    }
+
+    stompStack();
+    A2 foo() { return A2(); }
+    foo()[1..2] = 1;
+    // ref A1 __tmp = foo().a1; __tmp.opIndexAssign(1, __tmp.opSlice!0(1, 2));
+    assert(a == 1);     // should work
+    assert(b == 0);
+}
+
+void test20b()
+{
+    // ae1save in UnaExp::op_overload()
+    int a, b;
+
+    struct A1
+    {
+        void opIndexUnary(string op)(Tuple20!(int, int) ) { a = 1; }
+        Tuple20!(int, int) opSlice(size_t dim)(int, int) { return typeof(return).init; }
+        void dummy() {} // nessary to make A1 nested struct
+    }
+    struct A2
+    {
+        A1 a1;
+        alias a1 this;
+        int opIndexUnary(string op)(int) { return 0; }
+    }
+
+    stompStack();
+    A2 foo() { return A2(); }
+    +foo()[1..2];
+    // ref A1 __tmp = foo().a1; __tmp.opIndexUnary!"+"(__tmp.opSlice!0(1, 2));
+    assert(a == 1);     // should pass
+    assert(b == 0);
+}
+
+void test20c()
+{
+    // ae1save in ArrayExp::op_overload()
+    int a, b;
+
+    struct A1
+    {
+        void opIndex(Tuple20!(int, int) ) { a = 1; }
+        Tuple20!(int, int) opSlice(size_t dim)(int, int) { return typeof(return).init; }
+    }
+    struct A2
+    {
+        A1 a1;
+        alias a1 this;
+        int opIndex(int) { return 0; }
+    }
+
+    stompStack();
+    A2 foo() { return A2(); }
+    foo()[1..2];
+    // ref A1 __tmp = foo().a1; __tmp.opIndex(__tmp.opSlice!0(1, 2));
+    assert(a == 1);     // should pass
+    assert(b == 0);
+}
+
+void test20d()
+{
+    // ae1save in BinAssignExp::op_overload()
+    int a, b;
+
+    struct A1
+    {
+        void opIndexOpAssign(string op)(int v, Tuple20!(int, int) ) { a = v; }
+        Tuple20!(int, int) opSlice(size_t dim)(int, int) { return typeof(return).init; }
+        void dummy() {} // nessary to make A1 nested struct
+    }
+    struct A2
+    {
+        A1 a1;
+        alias a1 this;
+        ref int opIndexOpAssign(alias op)(int) { return b; }
+    }
+
+    stompStack();
+    A2 foo() { return A2(); }
+    foo()[1..2] += 1;
+    // ref A1 __tmp = foo().a1; __tmp.opIndexOpAssign!"+"(1, __tmp.opSlice!0(1, 2));
+    assert(a == 1);     // should pass
+    assert(b == 0);
+}
+
+/**************************************/
+// 14624
+
+void test14624()
+{
+    struct A1
+    {
+        int x;
+        ref int opIndex() { return x; }
+        ref int opSlice() { assert(0); }
+    }
+    {
+        A1 a = A1(1);
+        auto x = a[];       // a.opIndex()
+        assert(x == a.x);
+        auto y = -a[];      // -a.opIndex()        <-- not found: a.opIndexUnary!"-"
+        assert(y == -a.x);
+        a[] = 1;            // a.opIndex() = 1;    <-- not found: a.opIndexAssign(int)
+        assert(a.x == 1);
+        a[] += 1;           // a.opIndex() += 1;   <-- not found: a.opIndexOpAssign!"+"(int)
+        assert(a.x == 2);
+    }
+
+    struct A2
+    {
+        int x;
+        ref int opIndex() { x = 10; return x; }
+        ref int opSlice() { assert(0); }
+        ref int opSliceUnary(alias op)()       { x = 11; return x; }
+        ref int opSliceAssign(int)             { x = 12; return x; }
+        ref int opSliceOpAssign(alias op)(int) { x = 13; return x; }
+    }
+    {
+        A2 a = A2(1);
+        auto x = a[];       // a.opIndex()
+        assert(a.x == 10);
+        auto y = -a[];      // a.opSliceUnary!"-"()     is preferred than: -a.opIndex()
+        assert(a.x == 11);
+        a[] = 1;            // a.opSliceAssign(1)       is preferred than: a.opIndex() = 1;
+        assert(a.x == 12);
+        a[] += 1;           // a.opSliceOpAssign!"+"(1) is preferred than: a.opIndex() += 1;
+        assert(a.x == 13);
+    }
+}
+
+/**************************************/
+// 14625
+
+void test14625()
+{
+    struct R
+    {
+        @property bool empty() { return true; }
+        @property int front() { return 0; }
+        void popFront() {}
+    }
+
+    struct C1
+    {
+        R opIndex() { return R(); }
+        R opSlice() { assert(0); }
+    }
+    C1 c1;
+    foreach (e; c1) {}      // OK <- asserts in opSlice()
+    foreach (e; c1[]) {}    // OK, opIndex()
+
+    struct C2
+    {
+        R opIndex() { return R(); }
+    }
+    C2 c2;
+    foreach (e; c2) {}      // OK <- rejected
+    foreach (e; c2[]) {}    // OK, opIndex()
+}
+
+/**************************************/
 
 int main()
 {
@@ -1518,6 +2033,8 @@ int main()
     test17();
     test3789();
     test10037();
+    test6798();
+    test12904();
     test7641();
     test8434();
     test18();
@@ -1527,10 +2044,18 @@ int main()
     test9689();
     test9694();
     test10064();
+    test12585();
     test10394();
     test10567();
     test11062();
     test11311();
+    test14057();
+    test20a();
+    test20b();
+    test20c();
+    test20d();
+    test14624();
+    test14625();
 
     printf("Success\n");
     return 0;

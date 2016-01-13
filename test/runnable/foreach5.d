@@ -635,7 +635,7 @@ struct Foo9068
 struct SimpleCounter9068
 {
     static int destroyedCount;
-    const(int) limit = 5;
+    enum int limit = 5;
     int counter;
     ~this() { destroyedCount++; }
 
@@ -645,14 +645,14 @@ struct SimpleCounter9068
     void popFront() { counter++; }
 }
 
-// ICE when trying to break outer loop from inside switch statement
 void test9068()
 {
     //----------------------------------------
     // There was never a bug in this case (no range).
     int sum;
 loop_simple:
-    foreach (i; [10, 20]) {
+    foreach (i; [10, 20])
+    {
         sum += i;
         break loop_simple;
     }
@@ -661,10 +661,14 @@ loop_simple:
     //----------------------------------------
     // There was a bug with loops over ranges.
     int last = -1;
-X:  foreach (i; SimpleCounter9068()) {
-       switch(i) {
-           case 3: break X;
-           default: last = i;
+X:  foreach (i; SimpleCounter9068())
+    {
+        switch(i)
+        {
+            case 3:
+                break X;
+            default:
+                last = i;
        }
     }
     assert(last == 2);
@@ -674,7 +678,8 @@ X:  foreach (i; SimpleCounter9068()) {
     // Simpler case: the compiler error had nothing to do with the switch.
     last = -1;
 loop_with_range:
-    foreach (i; SimpleCounter9068()) {
+    foreach (i; SimpleCounter9068())
+    {
         last = i;
         break loop_with_range;
     }
@@ -685,21 +690,110 @@ loop_with_range:
     // Test with destructors: the loop is implicitly wrapped into two
     // try/finally clauses.
 loop_with_dtors:
-    for (auto x = Foo9068(4), y = Foo9068(5); x.x != 10; ++x.x) {
+    for (auto x = Foo9068(4), y = Foo9068(5); x.x != 10; ++x.x)
+    {
         if (x.x == 8)
             break loop_with_dtors;
     }
     assert(Foo9068.destroyed == [5, 8]);
-    Foo9068.destroyed.clear();
+    Foo9068.destroyed = null;
 
     //----------------------------------------
     // Same with an unlabelled break.
-    for (auto x = Foo9068(4), y = Foo9068(5); x.x != 10; ++x.x) {
+    for (auto x = Foo9068(4), y = Foo9068(5); x.x != 10; ++x.x)
+    {
         if (x.x == 7)
             break;
     }
     assert(Foo9068.destroyed == [5, 7]);
-    Foo9068.destroyed.clear();
+    Foo9068.destroyed = null;
+}
+
+/***************************************/
+// 11885
+
+struct Foo11885
+{
+    static int[] destroyed;
+    int x;
+    ~this() { destroyed ~= x; }
+}
+
+struct SimpleCounter11885
+{
+    static int destroyedCount;
+    enum int limit = 5;
+    int counter;
+    ~this() { destroyedCount++; }
+
+    // Range primitives.
+    @property bool empty() const { return counter >= limit; }
+    @property int front() { return counter; }
+    void popFront() { counter++; }
+}
+
+void test11885()
+{
+    //----------------------------------------
+    // There was never a bug in this case (no range).
+    int sum;
+loop_simple:
+    foreach (i; [10, 20])
+    {
+        sum += i;
+        continue loop_simple;
+    }
+    assert(sum == 30);
+
+    //----------------------------------------
+    // There was a bug with loops over ranges.
+    int last = -1;
+X:  foreach (i; SimpleCounter11885())
+    {
+        switch(i)
+        {
+            case 3:
+                continue X;
+            default:
+                last = i;
+       }
+    }
+    assert(last == 4);
+    assert(SimpleCounter11885.destroyedCount == 1);
+
+    //----------------------------------------
+    // Simpler case: the compiler error had nothing to do with the switch.
+    last = -1;
+loop_with_range:
+    foreach (i; SimpleCounter11885())
+    {
+        last = i;
+        continue loop_with_range;
+    }
+    assert(last == 4);
+    assert(SimpleCounter11885.destroyedCount == 2);
+
+    //----------------------------------------
+    // Test with destructors: the loop is implicitly wrapped into two
+    // try/finally clauses.
+loop_with_dtors:
+    for (auto x = Foo11885(4), y = Foo11885(5); x.x != 10; ++x.x)
+    {
+        if (x.x == 8)
+            continue loop_with_dtors;
+    }
+    assert(Foo11885.destroyed == [5, 10]);
+    Foo11885.destroyed = null;
+
+    //----------------------------------------
+    // Same with an unlabelled continue.
+    for (auto x = Foo11885(4), y = Foo11885(5); x.x != 10; ++x.x)
+    {
+        if (x.x == 7)
+            continue;
+    }
+    assert(Foo11885.destroyed == [5, 10]);
+    Foo11885.destroyed = null;
 }
 
 /***************************************/
@@ -838,6 +932,157 @@ void test12103()
 }
 
 /***************************************/
+// 12739
+
+struct S12739
+{
+nothrow:
+    int opApply(int delegate(ref int) nothrow dg)
+    {
+        return 0;
+    }
+}
+
+void test12739() nothrow
+{
+    S12739 s;
+    foreach (e; s) {}
+}
+
+/***************************************/
+// 12932
+
+void test12932() @nogc
+{
+    int sum;
+    foreach (e; [1,2,3])
+    {
+        sum += e;
+    }
+    assert(sum == 6);
+}
+
+/***************************************/
+// 13756
+
+void test13756()
+{
+    int[int] org = [1:2], aa;
+
+    aa = org.dup;
+    foreach (v; aa)
+    {
+        static assert(is(typeof(v) == int));
+        v = 20;
+    }
+    assert(aa == [1:2]);
+
+    aa = org.dup;
+    foreach (ref v; aa)
+    {
+        static assert(is(typeof(v) == int));
+        v = 20;
+    }
+    assert(aa == [1:20]);
+
+    aa = org.dup;
+    foreach (k, v; aa)
+    {
+        static assert(is(typeof(k) == int));
+        static assert(is(typeof(v) == int));
+        k = 10;
+        v = 20;
+    }
+    assert(aa == [1:2]);
+
+    aa = org.dup;
+    foreach (k, ref v; aa)
+    {
+        static assert(is(typeof(k) == int));
+        static assert(is(typeof(v) == int));
+        k = 10;
+        v = 20;
+    }
+    assert(aa == [1:20]);
+
+    aa = org.dup;
+    foreach (ref k, v; aa)      // NG -> OK
+    {
+        static assert(is(typeof(k) == const int));
+        static assert(is(typeof(v) == int));
+        static assert(!__traits(compiles, k = 10));
+        v = 20;
+    }
+    assert(aa == [1:2]);
+
+    aa = org.dup;
+    foreach (ref k, ref v; aa)  // NG -> OK
+    {
+        static assert(is(typeof(k) == const int));
+        static assert(is(typeof(v) == int));
+        static assert(!__traits(compiles, k = 10));
+        v = 20;
+    }
+    assert(aa == [1:20]);
+
+    foreach (ref const k, v; aa)  // NG -> OK, same with 'ref k'
+    {
+        static assert(is(typeof(k) == const int));
+    }
+}
+
+/***************************************/
+// 14653
+
+static string result14653;
+
+class RangeClass14653
+{
+    int a;
+
+    this(T)(T...) { result14653 ~= "c"; }
+    ~this()       { result14653 ~= "d"; a = -1; }
+
+    @property bool empty() { result14653 ~= "e"; return a >= 2; }
+    @property int front()  { result14653 ~= "f"; assert(a >= 0); return a; }
+    void popFront()        { result14653 ~= "p"; ++a; }
+}
+
+auto scoped14653(T, A...)(A args)
+{
+    static struct Scoped(T)
+    {
+        void[__traits(classInstanceSize, T)] store;
+        T payload() { return cast(T)cast(void*)store.ptr; }
+        alias payload this;
+
+        ~this()
+        {
+            //.destroy(payload);
+            payload.__dtor();
+            (cast(byte[])store)[] = 0;
+        }
+    }
+
+    Scoped!T result = void;
+
+    //emplace!T(result.store[], args);
+    result.store[] = typeid(T).init[];
+    result.payload.__ctor(args);
+
+    return result;
+}
+
+void test14653()
+{
+    foreach (e; scoped14653!RangeClass14653(1))
+    {
+        result14653 ~= "b";
+    }
+    assert(result14653 == "cefbpefbped", result14653);
+}
+
+/***************************************/
 
 int main()
 {
@@ -859,10 +1104,15 @@ int main()
     test7814();
     test6652();
     test9068();
+    test11885();
     test10475a();
     test10475b();
     test11291();
     test12103();
+    test12739();
+    test12932();
+    test13756();
+    test14653();
 
     printf("Success\n");
     return 0;

@@ -174,6 +174,108 @@ unittest
 }
 
 // ------------------------------------
+// insert import declaration between documented function and unittests
+
+///
+void fooImport() {}
+import core.stdc.stdio;
+/// test
+unittest { fooImport(); }
+
+///
+void fooStaticImport() {}
+static import core.stdc.stdlib;
+/// test
+unittest { fooStaticImport(); }
+
+///
+void fooPublicImport() {}
+public import core.stdc.string;
+/// test
+unittest { fooPublicImport(); }
+
+///
+void fooSelectiveImport() {}
+import core.stdc.ctype : isalpha;
+/// test
+unittest { fooSelectiveImport(); }
+
+///
+void fooRenamedImport() {}
+import io = core.stdc.stdio;
+/// test
+unittest { fooRenamedImport(); }
+
+// ------------------------------------
+// documented unittest after conditional declarations
+
+static if (true)
+  void fooConditionalDecl1a() {} /** */
+unittest { int x1a; }   ///
+
+static if (true)
+{ void fooConditionalDecl1b() {} /** */ }
+unittest { int x1b; }   ///
+
+static if (false)
+  void fooConditionalDecl2a() {} /** */
+unittest { int x2a; }   ///
+
+static if (false)
+{ void fooConditionalDecl2b() {} /** */ }
+unittest { int x2b; }   ///
+
+static if (true)
+{ void fooConditionalDecl3a() {} /** */ }
+else
+{ void barConditionalDecl3a() {} /** */ }
+unittest { int x3a; }   ///
+
+static if (true)
+{ void fooConditionalDecl3b() {} /** */ }
+else
+{ void barConditionalDecl3b() {} /** */ }
+unittest { int x3b; }   ///
+
+static if (false)
+  void fooConditionalDecl4a() {} /** */
+else
+  void barConditionalDecl4a() {} /** */
+unittest { int x4a; }   ///
+
+static if (false)
+{ void fooConditionalDecl4b() {} /** */ }
+else
+{ void barConditionalDecl4b() {} /** */ }
+unittest { int x4b; }   ///
+
+static if (true)
+{}
+else
+  void barConditionalDecl5a() {} /** */
+unittest { int x5a; }   ///
+
+static if (true)
+{}
+else
+{ void barConditionalDecl5b() {} /** */ }
+unittest { int x5b; }   ///
+
+static if (false)
+{}
+else
+  void barConditionalDecl6a() {} /** */
+///
+unittest { int x6a; }
+
+static if (false)
+{}
+else
+{ void barConditionalDecl6b() {} /** */ }
+///
+unittest { int x6b; }
+
+// ------------------------------------
 // 9474
 
 ///
@@ -315,6 +417,79 @@ unittest
 {
     int[] arr;
 }
+
+// ------------------------------------
+// 14594
+
+/*******************
+ * testA
+ */
+void fun14594a()() {}
+///
+unittest { fun14594a(); }
+
+/*******************
+ * testB
+ */
+void fun14594b()() {}
+/// ditto
+void fun14594b(T)(T) {}
+///
+unittest { fun14594b(); fun14594b(1); }
+
+/*******************
+ * testC
+ */
+void fun14594c()() {}
+///
+unittest { fun14594c(); fun14594c(1); }
+/// ditto
+void fun14594c(T)(T) {}
+
+/*******************
+ * testD
+ */
+void fun14594d()() {}
+///
+unittest { fun14594d(); }
+/// ditto
+void fun14594d(T)(T) {}
+///
+unittest { fun14594d(1); }
+
+/*******************
+ * testE
+ */
+template fun14594e()
+{
+    /// concatenated doc-comment fun14594e
+    void fun14594e() {}
+    /// ignored-unittest fun14594e
+    unittest { fun14594e(); }
+}
+/// doc-unittest fun14594e
+unittest { fun14594e(); }
+
+/*******************
+ * testF
+ */
+template fun14594f()
+{
+    /// concatenated doc-comment fun14594f
+    void fun14594f() {}
+    /// ignored-unittest fun14594f
+    unittest { fun14594f(); }
+}
+/// ditto
+template fun14594f(T)
+{
+    /// ignored doc-comment fun14594f
+    void fun14594f(T) {}
+    /// ignored-unittest fun14594f
+    unittest { fun14594f(1); }
+}
+/// doc-unittest fun14594f
+unittest { fun14594f(); }
 
 // ------------------------------------
 

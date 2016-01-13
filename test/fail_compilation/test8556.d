@@ -1,14 +1,13 @@
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/test8556.d(22): Error: template instance test8556.Grab!(Circle!(uint[])) does not match template declaration Grab(Range) if (!isSliceable!Range)
-fail_compilation/test8556.d(53): Error: template instance test8556.grab!(Circle!(uint[])) error instantiating
+fail_compilation/test8556.d(21): Error: template instance test8556.Grab!(Circle!(uint[])) does not match template declaration Grab(Range) if (!isSliceable!Range)
+fail_compilation/test8556.d(52): Error: template instance test8556.grab!(Circle!(uint[])) error instantiating
 ---
 */
 
 extern(C) int printf(const char*, ...);
 
-//+
 template isSliceable(R)
 {
     enum bool isSliceable = is(typeof( R.init[1 .. 2] ));

@@ -795,6 +795,35 @@ void test10609()
 }
 
 /*******************************************/
+// 11312
+
+struct S11312;
+
+S11312* getS11312() { return null; }
+int getValue(S11312*) { return 10; }
+
+void test11312()
+{
+    S11312* op = getS11312();
+    int x = op.getValue();
+    assert(x == 10);
+}
+
+/*******************************************/
+// 15123
+
+auto keys15123(K, V)(V[K] aa) { return [1]; }
+auto values15123(K, V)(V[K] aa) { return [2]; }
+
+alias id15123(alias arg) = arg;
+
+enum int[int] aa15123 = [1:2];
+static assert(id15123!(aa15123.keys15123) == [1]);  // TypeIdentifier + UFCS
+
+T[T] f15123(T)() { return [1:2]; }
+static assert(id15123!(f15123!int.values15123) == [2]); // TypeInstance + UFCS
+
+/*******************************************/
 
 int main()
 {
@@ -823,6 +852,7 @@ int main()
     test10041();
     test10047();
     test10526();
+    test11312();
 
     printf("Success\n");
     return 0;

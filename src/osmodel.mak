@@ -1,4 +1,5 @@
 # This Makefile snippet detects the OS and the architecture MODEL
+# Keep this file in sync between druntime, phobos, and dmd repositories!
 
 ifeq (,$(OS))
   uname_S:=$(shell uname -s)
@@ -25,8 +26,18 @@ ifeq (,$(OS))
   endif
 endif
 
+# When running make from XCode it may set environment var OS=MACOS.
+# Adjust it here:
+ifeq (MACOS,$(OS))
+  OS:=osx
+endif
+
 ifeq (,$(MODEL))
-  uname_M:=$(shell uname -m)
+  ifeq ($(OS), solaris)
+    uname_M:=$(shell isainfo -n)
+  else
+    uname_M:=$(shell uname -m)
+  endif
   ifneq (,$(findstring $(uname_M),x86_64 amd64))
     MODEL:=64
   endif

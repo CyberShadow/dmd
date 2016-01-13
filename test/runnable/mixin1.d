@@ -1254,8 +1254,8 @@ void test11767()
         mixin M11767!();
         alias S2 = S11767;
         static assert(!is(S1 == S2));
-        static assert(S1.mangleof == "S6mixin19test11767FZv8__mixin16S11767");
-        static assert(S2.mangleof == "S6mixin19test11767FZv8__mixin26S11767");
+        static assert(S1.mangleof == "S6mixin19test11767FZ8__mixin16S11767");
+        static assert(S2.mangleof == "S6mixin19test11767FZ8__mixin26S11767");
     }
     mixin M11767!();
     static assert(!__traits(compiles, S11767));
@@ -1300,6 +1300,115 @@ class TurretCannon12023(ProjectileClass)
 void test12023()
 {
     auto tc = new TurretCannon12023!Object();
+}
+
+/*******************************************/
+// 14243
+
+mixin template Mix14243a(int n)
+{
+    static assert(n > 0);
+    import core.stdc.stdio;
+    enum { enumMember = 1 }
+
+    auto a = A14243(n);
+}
+
+mixin template Mix14243b(int n)
+{
+    static if (n > 0)
+    {
+        auto b = A14243(n);
+    }
+}
+
+template foo14243(alias v) { auto bar() { return &v; } }
+mixin template Mix14243c(alias v)
+{
+    // instantiate template in TemplateMixin
+    auto c = foo14243!v.bar();
+}
+
+mixin template Mix14243d(int n)
+{
+    // Type declaration in TemplateMixin
+    struct NS { int x = n; }
+    mixin("auto d" ~ ('0' + n) ~ " = NS();");
+}
+
+mixin template Mix14243e(int n)
+{
+@safe:
+nothrow:
+    int foo() { return var; }
+
+static:
+    struct S { int x; void f() {} }
+    int bar() { return n; }
+}
+
+int test14243()
+{
+    int[] ctor;
+    int[] dtor;
+    struct A14243
+    {
+        int x;
+        this(int x) { ctor ~= x; this.x = x; }
+        ~this()     { dtor ~= x; }
+    }
+
+    {
+        /**/
+        assert(ctor == [] && dtor == []);         mixin Mix14243a!(1);
+        assert(ctor == [1] && dtor == []);        mixin Mix14243b!(12) b1;
+        assert(ctor == [1,12] && dtor == []);     mixin Mix14243b!(24) b2;
+        assert(ctor == [1,12,24] && dtor == []);
+        assert(a.x == 1);
+        static assert(!__traits(compiles, b > 0));  // ambiguous symbol access
+        assert(b1.b.x == 12);
+        assert(b2.b.x == 24);
+
+        int x;
+        mixin Mix14243c!(x);
+        assert(c == &x);
+
+        mixin Mix14243d!(1);
+        mixin Mix14243d!(2);
+        static assert(!is(typeof(d1) == typeof(d2)));
+        assert(d1.x == 1);
+        assert(d2.x == 2);
+
+        assert(ctor == [1,12,24] && dtor == []);
+    }
+    assert(ctor == [1,12,24] && dtor == [24,12,1]);
+
+    {
+        int var = 1;
+        mixin Mix14243e!12;
+        static assert(is(typeof(&foo) == int delegate() @safe nothrow));
+        static assert(is(typeof(&bar) == int function() @safe nothrow));
+        static assert(S.sizeof == int.sizeof);  // s is static struct
+        assert(foo() == 1);
+        assert(bar() == 12);
+    }
+    return 1;
+}
+static assert(test14243()); // changed to be workable
+
+/*******************************************/
+// 10492
+
+class TestClass10492 {}
+
+mixin template mix10492(string name)
+{
+    mixin("scope " ~ name ~ " = new TestClass10492;" );
+}
+
+void test10492()
+{
+    mixin mix10492!("var");
 }
 
 /*******************************************/
@@ -1353,6 +1462,8 @@ int main()
     test9417();
     test11767();
     test12023();
+    test14243();
+    test10492();
 
     printf("Success\n");
     return 0;

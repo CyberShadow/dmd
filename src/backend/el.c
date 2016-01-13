@@ -175,10 +175,6 @@ L1:
     switch (op)
     {
         case OPconst:
-#if FLOATS_IN_CODE
-            if (!PARSER && FLT_CODESEG_CELEM(e))
-                flt_free_elem(e);
-#endif
             break;
 
         case OPvar:
@@ -588,10 +584,18 @@ elem *exp2_copytotemp(elem *e)
 {
     //printf("exp2_copytotemp()\n");
     elem_debug(e);
-    Symbol *stmp = symbol_genauto(e);
+    tym_t ty = tybasic(e->Ety);
+    type *t;
+#if MARS
+    if ((ty == TYstruct || ty == TYarray) && e->ET)
+        t = e->ET;
+    else
+#endif
+        t = type_fake(ty);
+    Symbol *stmp = symbol_genauto(t);
     elem *eeq = el_bin(OPeq,e->Ety,el_var(stmp),e);
     elem *er = el_bin(OPcomma,e->Ety,eeq,el_var(stmp));
-    if (tybasic(e->Ety) == TYstruct || tybasic(e->Ety) == TYarray)
+    if (ty == TYstruct || ty == TYarray)
     {
         eeq->Eoper = OPstreq;
         eeq->ET = e->ET;
@@ -615,6 +619,22 @@ elem * el_same(elem **pe)
     {
         *pe = exp2_copytotemp(e);       /* convert to ((tmp=e),tmp)     */
         e = (*pe)->E2;                  /* point at tmp                 */
+    }
+    return el_copytree(e);
+}
+
+/*************************
+ * Thin wrapper of exp2_copytotemp. Different from el_same,
+ * always makes a temporary.
+ */
+elem *el_copytotmp(elem **pe)
+{
+    //printf("copytotemp()\n");
+    elem *e = *pe;
+    if (e)
+    {
+        *pe = exp2_copytotemp(e);
+        e = (*pe)->E2;
     }
     return el_copytree(e);
 }
@@ -660,8 +680,6 @@ void el_replace_sym(elem *e,symbol *s1,symbol *s2)
  *      0       no
  */
 
-#if MARS
-
 int el_appears(elem *e,Symbol *s)
 {
     symbol_debug(s);
@@ -687,6 +705,8 @@ int el_appears(elem *e,Symbol *s)
     }
     return 0;
 }
+
+#if MARS
 
 /*****************************************
  * Look for symbol that is a base of addressing mode e.
@@ -1294,7 +1314,7 @@ elem *el_picvar(symbol *s)
      *      MOV  EAX,s@GOT32[EBX]
      *      MOV  reg,[EAX]
      * For TLS var locals and globals:
-     *      MOV  EAX,s@TLS_GD[EBX]
+     *      LEA  EAX,s@TLS_GD[1*EBX+0] // must use SIB addressing
      *      CALL ___tls_get_addr@PLT32
      *      MOV  reg,[EAX]
      *****************************************
@@ -1403,14 +1423,13 @@ elem *el_picvar(symbol *s)
             tym_t tym = e->Ety;
             e->Eoper = OPrelconst;
             e->Ety = TYnptr;
-            e = el_bin(OPadd, TYnptr, e, el_var(el_alloc_localgot()));
 
             if (s->Stype->Tty & mTYthread)
             {
                 /* Add "volatile" to prevent e from being common subexpressioned.
                  * This is so we can preserve the magic sequence of instructions
                  * that the gnu linker patches:
-                 *   lea EAX,x@tlsgd[EBX], call __tls_get_addr@plt
+                 *   lea EAX,x@tlsgd[1*EBX+0], call __tls_get_addr@plt
                  *      =>
                  *   mov EAX,gs[0], sub EAX,x@tpoff
                  * elf32-i386.c
@@ -1425,6 +1444,10 @@ elem *el_picvar(symbol *s)
                     symbol_keep(tls_get_addr_sym);
                 }
                 e = el_bin(OPcall, TYnptr, el_var(tls_get_addr_sym), e);
+            }
+            else
+            {
+                e = el_bin(OPadd, TYnptr, e, el_var(el_alloc_localgot()));
             }
 
             switch (op * 2 + x)
@@ -1464,11 +1487,7 @@ elem * el_var(symbol *s)
     //printf("el_var(s = '%s')\n", s->Sident);
     //printf("%x\n", s->Stype->Tty);
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
-    // OSX is currently always pic
     if (config.flags3 & CFG3pic &&
-#if TARGET_LINUX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
-        (!(s->Stype->Tty & mTYthread) || I64) &&
-#endif
         !tyfunc(s->ty()))
         // Position Independent Code
         return el_picvar(s);
@@ -1554,7 +1573,7 @@ elem * el_var(symbol *s)
          */
         elem *e2 = el_calloc();
         e2->Eoper = OPvar;
-        e2->EV.sp.Vsym = rtlsym[RTLSYM_TLS_ARRAY];
+        e2->EV.sp.Vsym = getRtlsym(RTLSYM_TLS_ARRAY);
         e2->Ety = e2->EV.sp.Vsym->ty();
 
         e->Eoper = OPind;
@@ -1596,12 +1615,12 @@ elem * el_var(symbol *s)
         if (config.wflags & WFexe)
         {
             // e => *(&s + *(FS:_tls_array))
-            e2 = el_var(rtlsym[RTLSYM_TLS_ARRAY]);
+            e2 = el_var(getRtlsym(RTLSYM_TLS_ARRAY));
         }
         else
         {
-            e2 = el_bin(OPmul,TYint,el_var(rtlsym[RTLSYM_TLS_INDEX]),el_long(TYint,REGSIZE));
-            ea = el_var(rtlsym[RTLSYM_TLS_ARRAY]);
+            e2 = el_bin(OPmul,TYint,el_var(getRtlsym(RTLSYM_TLS_INDEX)),el_long(TYint,REGSIZE));
+            ea = el_var(getRtlsym(RTLSYM_TLS_ARRAY));
             e2 = el_bin(OPadd,ea->Ety,ea,e2);
         }
         e2 = el_una(OPind,TYsize_t,e2);
@@ -1658,8 +1677,8 @@ elem * el_var(symbol *s)
                 e1->ET = newpointer(s->Stype);
                 e1->ET->Tcount++;
 
-                e2 = el_bint(OPmul,tsint,el_var(rtlsym[RTLSYM_TLS_INDEX]),el_longt(tsint,4));
-                ea = el_var(rtlsym[RTLSYM_TLS_ARRAY]);
+                e2 = el_bint(OPmul,tsint,el_var(getRtlsym(RTLSYM_TLS_INDEX)),el_longt(tsint,4));
+                ea = el_var(getRtlsym(RTLSYM_TLS_ARRAY));
                 e2 = el_bint(OPadd,ea->ET,ea,e2);
                 e2 = el_unat(OPind,tsint,e2);
 
@@ -1762,7 +1781,7 @@ elem * el_ptr_offset(symbol *s,targ_size_t offset)
 }
 
 #endif
-
+
 /*************************
  * Returns:
  *      !=0     elem evaluates right-to-left
@@ -1792,12 +1811,7 @@ int el_noreturn(elem *e)
     while (1)
     {   elem_debug(e);
         switch (e->Eoper)
-        {   case OPcomma:
-                if ((result |= el_noreturn(e->E1)) != 0)
-                    break;
-                e = e->E2;
-                continue;
-
+        {
             case OPcall:
             case OPucall:
                 e = e->E1;
@@ -1809,7 +1823,28 @@ int el_noreturn(elem *e)
                 result = 1;
                 break;
 
+            case OPandand:
+            case OPoror:
+                e = e->E1;
+                continue;
+
+            case OPcolon:
+            case OPcolon2:
+                return el_noreturn(e->E1) && el_noreturn(e->E2);
+
             default:
+                if (EBIN(e))
+                {
+                    if (el_noreturn(e->E2))
+                        return 1;
+                    e = e->E1;
+                    continue;
+                }
+                if (EUNA(e))
+                {
+                    e = e->E1;
+                    continue;
+                }
                 break;
         }
         break;
@@ -1871,7 +1906,7 @@ elem *el_convfloat(elem *e)
     else if (loadconst(e, 0))
         return e;
 
-    changes++;
+    go.changes++;
     tym_t ty = e->Ety;
     int sz = tysize(ty);
     assert(sz <= sizeof(buffer));
@@ -1958,7 +1993,7 @@ elem *el_convxmm(elem *e)
         return e;
 #endif
 
-    changes++;
+    go.changes++;
     tym_t ty = e->Ety;
     int sz = tysize(ty);
     assert(sz <= sizeof(buffer));
@@ -2006,7 +2041,7 @@ elem *el_convstring(elem *e)
     if (tybasic(e->Ety) == TYcptr ||
         (tyfv(e->Ety) && config.flags3 & CFG3strcod))
     {
-        assert(OMFOBJ);         // option not done yet for others
+        assert(config.objfmt == OBJ_OMF);         // option not done yet for others
         s = symbol_generate(SCstatic, type_fake(mTYcs | e->Ety));
         s->Sfl = FLcsdata;
         s->Soffset = Coffset;
@@ -2135,7 +2170,7 @@ elem *el_convert(elem *e)
             break;
 
         case OPstring:
-            changes++;
+            go.changes++;
             e = el_convstring(e);
             break;
 
@@ -2203,11 +2238,13 @@ elem * el_const(tym_t ty,union eve *pconst)
 
 /**************************
  * Insert constructor information into tree.
- *      e       code to construct the object
- *      decl    VarDeclaration of variable being constructed
+ * A corresponding el_ddtor() must be called later.
+ * Params:
+ *      e =     code to construct the object
+ *      decl =  VarDeclaration of variable being constructed
  */
 
-#if MARS
+#if 0
 elem *el_dctor(elem *e,void *decl)
 {
     elem *ector = el_calloc();
@@ -2232,7 +2269,7 @@ elem *el_dctor(elem *e,void *decl)
  *              (must match decl for corresponding OPctor)
  */
 
-#if MARS
+#if 0
 elem *el_ddtor(elem *e,void *decl)
 {
     /* A destructor always executes code, or we wouldn't need
@@ -2247,6 +2284,103 @@ elem *el_ddtor(elem *e,void *decl)
     return edtor;
 }
 #endif
+
+/*********************************************
+ * Create constructor/destructor pair of elems.
+ * Caution: The pattern generated here must match that detected in e2ir.c's visit(CallExp).
+ * Params:
+ *      ec = code to construct (may be NULL)
+ *      ed = code to destruct
+ *      pedtor = set to destructor node
+ * Returns:
+ *      constructor node
+ */
+
+elem *el_ctor_dtor(elem *ec, elem *ed, elem **pedtor)
+{
+    elem *er;
+    if (config.ehmethod == EH_DWARF)
+    {
+        /* Construct (note that OPinfo is evaluated RTOL):
+         *  er = (OPdctor OPinfo (__flag = 0, ec))
+         *  edtor = __flag = 1, (OPddtor ((__exception_object = _EAX), ed, (!__flag && _Unsafe_Resume(__exception_object))))
+         */
+
+        /* Declare __flag, __EAX, __exception_object variables.
+         * Use volatile to prevent optimizer from messing them up, since optimizer doesn't know about
+         * landing pads (the landing pad will be on the OPddtor's EV.ed.Eleft)
+         */
+        symbol *sflag = symbol_name("__flag", SCauto, type_fake(mTYvolatile | TYbool));
+        symbol *sreg = symbol_name("__EAX", SCpseudo, type_fake(mTYvolatile | TYnptr));
+        sreg->Sreglsw = 0;          // EAX, RAX, whatevs
+        symbol *seo = symbol_name("__exception_object", SCauto, tspvoid);
+
+        symbol_add(sflag);
+        symbol_add(sreg);
+        symbol_add(seo);
+
+        elem *ector = el_calloc();
+        ector->Eoper = OPdctor;
+        ector->Ety = TYvoid;
+//      ector->EV.ed.Edecl = decl;
+
+        union eve c;
+        memset(&c, 0, sizeof(c));
+        elem *e_flag_0 = el_bin(OPeq, TYvoid, el_var(sflag), el_const(TYbool, &c));  // __flag = 0
+        er = el_bin(OPinfo, ec ? ec->Ety : TYvoid, ector, el_combine(e_flag_0, ec));
+
+        /* A destructor always executes code, or we wouldn't need
+         * eh for it.
+         * An OPddtor must match 1:1 with an OPdctor
+         */
+        elem *edtor = el_calloc();
+        edtor->Eoper = OPddtor;
+        edtor->Ety = TYvoid;
+//      edtor->EV.ed.Edecl = decl;
+//      edtor->EV.ed.Eleft = e;
+
+        c.Vint = 1;
+        elem *e_flag_1 = el_bin(OPeq, TYvoid, el_var(sflag), el_const(TYbool, &c)); // __flag = 1
+        elem *e_eax = el_bin(OPeq, TYvoid, el_var(seo), el_var(sreg));              // __exception_object = __EAX
+        elem *eu = el_bin(OPcall, TYvoid, el_var(getRtlsym(RTLSYM_UNWIND_RESUME)), el_var(seo));
+        eu = el_bin(OPandand, TYvoid, el_una(OPnot, TYbool, el_var(sflag)), eu);
+
+        edtor->EV.ed.Eleft = el_combine(el_combine(e_eax, ed), eu);
+
+        *pedtor = el_combine(e_flag_1, edtor);
+    }
+    else
+    {
+        /* Construct (note that OPinfo is evaluated RTOL):
+         *  er = (OPdctor OPinfo ec)
+         *  edtor = (OPddtor ed)
+         */
+        elem *ector = el_calloc();
+        ector->Eoper = OPdctor;
+        ector->Ety = TYvoid;
+//      ector->EV.ed.Edecl = decl;
+        if (ec)
+            er = el_bin(OPinfo,ec->Ety,ector,ec);
+        else
+            /* Remember that a "constructor" may execute no code, hence
+             * the need for OPinfo if there is code to execute.
+             */
+            er = ector;
+
+        /* A destructor always executes code, or we wouldn't need
+         * eh for it.
+         * An OPddtor must match 1:1 with an OPdctor
+         */
+        elem *edtor = el_calloc();
+        edtor->Eoper = OPddtor;
+        edtor->Ety = TYvoid;
+//      edtor->EV.ed.Edecl = decl;
+        edtor->EV.ed.Eleft = ed;
+        *pedtor = edtor;
+    }
+
+    return er;
+}
 
 /**************************
  * Insert constructor information into tree.
@@ -2494,11 +2628,9 @@ L1:
                         else
                             goto case_long;
 
-#if JHANDLE
-                    case TYjhandle:
-#endif
                     case TYnullptr:
                     case TYnptr:
+                    case TYnref:
 #if TARGET_SEGMENTED
                     case TYsptr:
                     case TYcptr:
@@ -2567,7 +2699,19 @@ L1:
                         if (memcmp(&n1->EV,&n2->EV,sizeof(n1->EV.Vcdouble)))
                             goto nomatch;
                         break;
-
+                    case TYfloat4:
+                    case TYdouble2:
+                    case TYschar16:
+                    case TYuchar16:
+                    case TYshort8:
+                    case TYushort8:
+                    case TYlong4:
+                    case TYulong4:
+                    case TYllong2:
+                    case TYullong2:
+                        if (n1->EV.Vcent.msw != n2->EV.Vcent.msw || n1->EV.Vcent.lsw != n2->EV.Vcent.lsw)
+                            goto nomatch;
+                        break;
                     case TYcldouble:
 #if LNGDBLSIZE > 10
                         /* sizeof is 12, but actual size of each part is 10 */
@@ -2586,9 +2730,7 @@ L1:
                         goto nomatch;
 #endif
                     default:
-#ifdef DEBUG
                         elem_print(n1);
-#endif
                         assert(0);
                 }
                 break;
@@ -2624,7 +2766,6 @@ L1:
                 break;
             case OPasm:
             case OPstring:
-            case OPhstring:
                 if (n1->EV.ss.Vstrlen != (n = n2->EV.ss.Vstrlen) ||
                     n1->EV.ss.Voffset != n2->EV.ss.Voffset ||
                     memcmp(n1->EV.ss.Vstring,n2->EV.ss.Vstring,n))
@@ -2640,9 +2781,7 @@ L1:
                 break;
 #endif
             default:
-#ifdef DEBUG
                 WROP(op);
-#endif
                 assert(0);
         }
 ismatch:
@@ -2737,10 +2876,8 @@ targ_llong el_tolong(elem *e)
         e->EV.Vllong = type_size(e->EV.sp.Vsym->Stype);
     }
 #endif
-#ifdef DEBUG
     if (e->Eoper != OPconst)
         elem_print(e);
-#endif
     assert(e->Eoper == OPconst);
     ty = tybasic(typemask(e));
 L1:
@@ -2775,15 +2912,13 @@ L1:
             goto L1;
 #endif
 
-#if JHANDLE
-        case TYjhandle:
-#endif
 #if TARGET_SEGMENTED
         case TYsptr:
         case TYcptr:
 #endif
         case TYnptr:
         case TYnullptr:
+        case TYnref:
             if (NPTRSIZE == SHORTSIZE)
                 goto Ushort;
             if (NPTRSIZE == LONGSIZE)
@@ -2852,9 +2987,7 @@ L1:
             // Can happen as result of syntax errors
             assert(errcnt);
 #else
-#ifdef DEBUG
             elem_print(e);
-#endif
             assert(0);
 #endif
     }
@@ -3007,12 +3140,10 @@ void el_check(elem *e)
 }
 
 #endif
-
+
 /*******************************
  * Write out expression elem.
  */
-
-#ifdef DEBUG
 
 void elem_print(elem *e)
 { static int nestlevel = 0;
@@ -3029,7 +3160,12 @@ void elem_print(elem *e)
   elem_debug(e);
   if (configv.addlinenumbers)
   {
+#if MARS
+        if (e->Esrcpos.Sfilename)
+            printf("%s(%u) ", e->Esrcpos.Sfilename, e->Esrcpos.Slinnum);
+#else
         e->Esrcpos.print("elem_print");
+#endif
   }
   if (!PARSER)
   {     dbg_printf("cnt=%d ",e->Ecount);
@@ -3086,7 +3222,6 @@ void elem_print(elem *e)
                 break;
             case OPasm:
             case OPstring:
-            case OPhstring:
                 dbg_printf(" '%s',%lld\n",e->EV.ss.Vstring,(unsigned long long)e->EV.ss.Voffset);
                 break;
             case OPconst:
@@ -3114,15 +3249,13 @@ case_tym:
         case TYuchar:
             dbg_printf("%d ",e->EV.Vuchar);
             break;
-#if JHANDLE
-        case TYjhandle:
-#endif
 #if TARGET_SEGMENTED
         case TYsptr:
         case TYcptr:
 #endif
         case TYnullptr:
         case TYnptr:
+        case TYnref:
             if (NPTRSIZE == LONGSIZE)
                 goto L1;
             if (NPTRSIZE == SHORTSIZE)
@@ -3241,8 +3374,6 @@ case_tym:
             /*assert(0);*/
     }
 }
-
-#endif
 
 /**********************************
  * Hydrate an elem.

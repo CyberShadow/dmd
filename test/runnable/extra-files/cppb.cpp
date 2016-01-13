@@ -182,6 +182,53 @@ extern "C" { int foo7()
 
 /**************************************/
 
+struct S13955a
+{
+    float a;
+    double b;
+};
+
+struct S13955b
+{
+    double a;
+    float b;
+};
+
+struct S13955c
+{
+    float a;
+    float b;
+};
+
+struct S13955d
+{
+    double a;
+    double b;
+};
+
+void check13955(S13955a a, S13955b b, S13955c c, S13955d d);
+
+void func13955(S13955a a, S13955b b, S13955c c, S13955d d)
+{
+    check13955(a, b, c, d);
+}
+
+/**************************************/
+
+struct Struct10071
+{
+    void *p;
+    long double r;
+};
+
+size_t offset10071()
+{
+    Struct10071 s;
+    return (char *)&s.r - (char *)&s;
+}
+
+/**************************************/
+
 void foo8(const char *p)
 {
 }
@@ -206,4 +253,301 @@ void foo10(const MyStructType s, const MyStructType t) { }
 enum MyEnumType { onemember };
 void foo10(const MyEnumType s, const MyEnumType t) { }
 
+/**************************************/
 
+namespace N11 { namespace M { void bar11() { } } }
+
+namespace A11 { namespace B { namespace C { void bar() { } } } }
+
+/**************************************/
+
+void myvprintfx(const char* format, va_list);
+
+void myvprintf(const char* format, va_list va)
+{
+    myvprintfx(format, va);
+}
+
+/**************************************/
+
+class C13161
+{
+public:
+        virtual void dummyfunc() {}
+        long long val_5;
+        unsigned val_9;
+};
+
+class Test : public C13161
+{
+public:
+        unsigned val_0;
+        long long val_1;
+};
+
+size_t getoffset13161()
+{
+    Test s;
+    return (char *)&s.val_0 - (char *)&s;
+}
+
+class C13161a
+{
+public:
+        virtual void dummyfunc() {}
+        long double val_5;
+        unsigned val_9;
+};
+
+class Testa : public C13161a
+{
+public:
+        bool val_0;
+};
+
+size_t getoffset13161a()
+{
+    Testa s;
+    return (char *)&s.val_0 - (char *)&s;
+}
+
+/****************************************************/
+
+#if __linux__ || __APPLE__ || __FreeBSD__
+#include <memory>
+#include <vector>
+#include <string>
+
+#if __linux__
+template struct std::allocator<int>;
+template struct std::vector<int>;
+
+void foo15()
+{
+    std::allocator<int>* p;
+    p->deallocate(0, 0);
+}
+
+#endif
+
+// _Z5foo14PSt6vectorIiSaIiEE
+void foo14(std::vector<int, std::allocator<int> > *p) { }
+
+void foo14a(std::basic_string<char> *p) { }
+void foo14b(std::basic_string<int> *p) { }
+void foo14c(std::basic_istream<char> *p) { }
+void foo14d(std::basic_ostream<char> *p) { }
+void foo14e(std::basic_iostream<char> *p) { }
+
+void foo14f(std::char_traits<char>* x, std::basic_string<char> *p, std::basic_string<char> *q) { }
+
+#endif
+
+/**************************************/
+
+struct S13956
+{
+};
+
+void check13956(S13956 arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6);
+
+void func13956(S13956 arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6)
+{
+    check13956(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+/**************************************/
+
+wchar_t f13289_cpp_wchar_t(wchar_t ch)
+{
+    if (ch <= L'z' && ch >= L'a')
+    {
+        return ch - (L'a' - L'A');
+    }
+    else
+    {
+        return ch;
+    }
+}
+
+#if __linux__ || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun
+unsigned short f13289_d_wchar(unsigned short ch);
+wchar_t f13289_d_dchar(wchar_t ch);
+#elif _WIN32
+wchar_t f13289_d_wchar(wchar_t ch);
+unsigned int f13289_d_dchar(unsigned int ch);
+#endif
+
+bool f13289_cpp_test()
+{
+#if __linux__ || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun
+    if (!(f13289_d_wchar((unsigned short)'c') == (unsigned short)'C')) return false;
+    if (!(f13289_d_wchar((unsigned short)'D') == (unsigned short)'D')) return false;
+    if (!(f13289_d_dchar(L'e') == L'E')) return false;
+    if (!(f13289_d_dchar(L'F') == L'F')) return false;
+    return true;
+#elif _WIN32
+    if (!(f13289_d_wchar(L'c') == L'C')) return false;
+    if (!(f13289_d_wchar(L'D') == L'D')) return false;
+    if (!(f13289_d_dchar((unsigned int)'e') == (unsigned int)'E')) return false;
+    if (!(f13289_d_dchar((unsigned int)'F') == (unsigned int)'F')) return false;
+    return true;
+#else
+    return false;
+#endif
+}
+
+/******************************************/
+
+long double testld(long double ld)
+{
+    assert(ld == 5);
+    return ld + 1;
+}
+
+long testl(long lng)
+{
+    assert(lng == 5);
+    return lng + sizeof(long);
+}
+
+unsigned long testul(unsigned long ul)
+{
+    assert(ul == 5);
+    return ul + sizeof(unsigned long);
+}
+
+/******************************************/
+
+struct S13707
+{
+    void* a;
+    void* b;
+    S13707(void *a, void* b)
+    {
+        this->a = a;
+        this->b = b;
+    }
+};
+
+S13707 func13707()
+{
+    S13707 pt(NULL, NULL);
+    return pt;
+}
+
+/******************************************/
+
+template <int x> struct S13932
+{
+    int member;
+};
+
+void func13932(S13932<-1> s) {}
+
+/******************************************/
+
+namespace N13337 {
+  namespace M13337 {
+    struct S13337 { };
+    void foo13337(S13337 s) { }
+  }
+}
+
+/****************************************/
+// 14195
+
+template <typename T>
+struct Delegate1 {};
+
+template <typename R1>
+struct Delegate1 < R1() > {};
+
+template <typename T1, typename T2>
+struct Delegate2 {};
+
+template < typename R1, typename T1, typename T2, typename R2, typename T3, typename T4 >
+struct Delegate2<R1(T1, T2), R2(T3, T4)> {};
+
+void test14195a(Delegate1<void()> func) {}
+
+void test14195b(Delegate2<int(float, double), int(float, double)> func) {}
+
+/******************************************/
+// 14200
+
+void test14200a(int a) {};
+void test14200b(float a, int b, double c) {};
+
+/******************************************/
+// check order of overloads in vtable
+
+class Statement;
+class ErrorStatement;
+class PeelStatement;
+class ExpStatement;
+class DtorExpStatement;
+
+class Visitor
+{
+public:
+    virtual int visit(Statement*) { return 1; }
+    virtual int visit(ErrorStatement*) { return 2; }
+    virtual int visit(PeelStatement*) { return 3; }
+};
+
+class Visitor2 : public Visitor
+{
+public:
+    virtual int visit2(ExpStatement*) { return 4; }
+    virtual int visit2(DtorExpStatement*) { return 5; }
+};
+
+bool testVtableCpp(Visitor2* sv)
+{
+    if (sv->visit((Statement*)0) != 1) return false;
+    if (sv->visit((ErrorStatement*)0) != 2) return false;
+    if (sv->visit((PeelStatement*)0) != 3) return false;
+    if (sv->visit2((ExpStatement*)0) != 4) return false;
+    if (sv->visit2((DtorExpStatement*)0) != 5) return false;
+    return true;
+}
+
+Visitor2 inst;
+
+Visitor2* getVisitor2()
+{
+    return &inst;
+}
+
+/******************************************/
+// issues detected by fuzzer
+#if _LP64
+#define longlong long
+#else
+#define longlong long long
+#endif
+
+void fuzz1_checkValues(longlong arg10, longlong arg11, bool arg12);
+void fuzz1_cppvararg(longlong arg10, longlong arg11, bool arg12)
+{
+    fuzz1_checkValues(arg10, arg11, arg12);
+}
+
+void fuzz2_checkValues(unsigned longlong arg10, unsigned longlong arg11, bool arg12);
+void fuzz2_cppvararg(unsigned longlong arg10, unsigned longlong arg11, bool arg12)
+{
+    fuzz2_checkValues(arg10, arg11, arg12);
+}
+
+#if __linux__ || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun
+#define wchar unsigned short
+#elif _WIN32
+#define wchar wchar_t
+#endif
+
+void fuzz3_checkValues(wchar arg10, wchar arg11, bool arg12);
+void fuzz3_cppvararg(wchar arg10, wchar arg11, bool arg12)
+{
+    fuzz3_checkValues(arg10, arg11, arg12);
+}

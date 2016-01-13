@@ -48,7 +48,7 @@ void fECPa() {
         }
         h();
     }
-    static assert( is(typeof(&g!()) == void delegate() pure nothrow @safe));
+    static assert( is(typeof(&g!()) == void delegate() pure nothrow @nogc @safe));
     static assert(!is(typeof(&g!()) == void delegate()));
 }
 
@@ -60,6 +60,22 @@ void fECPb() {
     }
     static assert(!is(typeof(&g!()) == void delegate() pure));
     static assert( is(typeof(&g!()) == void delegate()));
+}
+
+/***************************************************/
+// 5635
+
+pure bool foo5635(R = int)(string x)
+{
+    bool result = false;
+    foreach (dchar d; x)
+        result = true;
+    return result;
+}
+
+void test5635()
+{
+    foo5635("hi");
 }
 
 /***************************************************/
@@ -82,6 +98,69 @@ void test6351()
 {
     void delegate(int[] a...) deleg6351 = (int[] a...){};
     alias bug6351!(deleg6351) baz6531;
+}
+
+/***************************************************/
+// 6359
+
+void    impure6359()      nothrow @safe @nogc {}
+void throwable6359() pure         @safe @nogc {}
+void    system6359() pure nothrow       @nogc {}
+void    gcable6359() pure nothrow @safe       {}
+
+int global6359;
+
+void f6359() pure nothrow @safe @nogc
+{
+    static assert(!__traits(compiles,    impure6359()));
+    static assert(!__traits(compiles, throwable6359()));
+    static assert(!__traits(compiles,    system6359()));
+    static assert(!__traits(compiles,    gcable6359()));
+    static assert(!__traits(compiles,    global6359++));
+
+    static assert(!__traits(compiles, {    impure6359(); }()));
+    static assert(!__traits(compiles, { throwable6359(); }()));
+    static assert(!__traits(compiles, {    system6359(); }()));
+    static assert(!__traits(compiles, {    gcable6359(); }()));
+    static assert(!__traits(compiles, {    global6359++; }()));
+}
+
+void g6359()() pure nothrow @safe @nogc
+{
+    static assert(!__traits(compiles,    impure6359()));
+    static assert(!__traits(compiles, throwable6359()));
+    static assert(!__traits(compiles,    system6359()));
+    static assert(!__traits(compiles,    gcable6359()));
+    static assert(!__traits(compiles,    global6359++));
+
+    static assert(!__traits(compiles, {    impure6359(); }()));
+    static assert(!__traits(compiles, { throwable6359(); }()));
+    static assert(!__traits(compiles, {    system6359(); }()));
+    static assert(!__traits(compiles, {    gcable6359(); }()));
+    static assert(!__traits(compiles, {    global6359++; }()));
+}
+
+// attribute inference is not affected by the expressions inside __traits(compiles)
+void h6359()()
+{
+    static assert( __traits(compiles,    impure6359()));
+    static assert( __traits(compiles, throwable6359()));
+    static assert( __traits(compiles,    system6359()));
+    static assert( __traits(compiles,    gcable6359()));
+    static assert( __traits(compiles,    global6359++));
+
+    static assert( __traits(compiles, {    impure6359(); }()));
+    static assert( __traits(compiles, { throwable6359(); }()));
+    static assert( __traits(compiles, {    system6359(); }()));
+    static assert( __traits(compiles, {    gcable6359(); }()));
+    static assert( __traits(compiles, {    global6359++; }()));
+}
+
+void test6359() pure nothrow @safe @nogc
+{
+    f6359();
+    g6359();
+    h6359();
 }
 
 /***************************************************/
@@ -160,6 +239,26 @@ pure string escapeShellArguments()
 }
 
 /***************************************************/
+// 8234
+
+void test8234()
+{
+    immutable int x = 0;
+
+    alias FP = typeof({ enum e = x; return e; });
+    static assert(is(FP : int function()));
+
+    auto fp = { enum e = x; return e; };
+    static assert(is(typeof(fp) : int function()));
+
+    alias DG = typeof({ auto e = x; return e; });
+    static assert(is(DG : int delegate()));
+
+    auto dg = { auto e = x; return e; };
+    static assert(is(typeof(dg) : int delegate()));
+}
+
+/***************************************************/
 // 8504
 
 void foo8504()()
@@ -176,9 +275,9 @@ extern(C) void testC8504() {}
 
 void test8504()
 {
-    static assert(typeof(foo8504!()).stringof == "pure nothrow @safe void()");
-    static assert(typeof(foo8504!()).mangleof == "FNaNbNfZv");
-    static assert(foo8504!().mangleof == "_D13testInference12__T7foo8504Z7foo8504FNaNbNfZv");
+    static assert(typeof(foo8504!()).stringof == "pure nothrow @nogc @safe void()");
+    static assert(typeof(foo8504!()).mangleof == "FNaNbNiNfZv");
+    static assert(foo8504!().mangleof == "_D13testInference12__T7foo8504Z7foo8504FNaNbNiNfZv");
 
     auto fp1 = toDelegate8504a(&testC8504);
     auto fp2 = toDelegate8504b(&testC8504);
@@ -212,13 +311,18 @@ Dg8793 foo8793fp1(immutable Fp8793 f) pure { return x => (*f)(x); } // OK
 Dg8793 foo8793fp2(    const Fp8793 f) pure { return x => (*f)(x); } // OK
 
 Dg8793 foo8793dg1(immutable Dg8793 f) pure { return x => f(x); } // OK
-Dg8793 foo8793dg2(    const Dg8793 f) pure { return x => f(x); } // error -> OK
+Dg8793 foo8793dg2(    const Dg8793 f) pure { return x => f(x); } // OK <- error
 
 Dg8793 foo8793pfp1(immutable Fp8793* f) pure { return x => (*f)(x); } // OK
 Dg8793 foo8793pdg1(immutable Dg8793* f) pure { return x => (*f)(x); } // OK
 
+Dg8793 foo8793pfp2(const Fp8793* f) pure { return x => (*f)(x); } // OK <- error
+Dg8793 foo8793pdg2(const Dg8793* f) pure { return x => (*f)(x); } // OK <- error
+
 // general case for the hasPointer type
 Dg8793 foo8793ptr1(immutable int* p) pure { return x => *p == x; } // OK
+
+Dg8793 foo8793ptr2(const int* p) pure { return x => *p == x; } // OK <- error
 
 /***************************************************/
 // 9072
@@ -242,14 +346,194 @@ struct S5933
     double foo()(double a) { return a * a; }
 }
 // outside function
-static assert(typeof(foo5933!()).stringof == "pure nothrow @safe int(int a)");
-static assert(typeof(S5933.init.foo!()).stringof == "pure nothrow @safe double(double a)");
+static assert(typeof(foo5933!()).stringof == "pure nothrow @nogc @safe int(int a)");
+static assert(typeof(S5933.init.foo!()).stringof == "pure nothrow @nogc @safe double(double a)");
 
 void test5933()
 {
     // inside function
-    static assert(typeof(foo5933!()).stringof == "pure nothrow @safe int(int a)");
-    static assert(typeof(S5933.init.foo!()).stringof == "pure nothrow @safe double(double a)");
+    static assert(typeof(foo5933!()).stringof == "pure nothrow @nogc @safe int(int a)");
+    static assert(typeof(S5933.init.foo!()).stringof == "pure nothrow @nogc @safe double(double a)");
+}
+
+/***************************************************/
+// 9148
+
+void test9148a() pure
+{
+    static int g;
+    int x;
+
+    void foo1() /+pure+/
+    {
+        static assert(!__traits(compiles, g++));
+        x++;
+    }
+    void foo2() pure
+    {
+        static assert(!__traits(compiles, g++));
+        x++;
+    }
+    foo1();
+    static assert(is(typeof(&foo1) == void delegate() pure));
+    foo2();
+    static assert(is(typeof(&foo2) == void delegate() pure));
+
+    void bar1() immutable /+pure+/
+    {
+        static assert(!__traits(compiles, g++));
+        static assert(!__traits(compiles, x++));
+    }
+    void bar2() immutable pure
+    {
+        static assert(!__traits(compiles, g++));
+        static assert(!__traits(compiles, x++));
+    }
+    bar1();
+    static assert(is(typeof(&bar1) == void delegate() pure immutable));
+    bar2();
+    static assert(is(typeof(&bar2) == void delegate() pure immutable));
+
+    struct S
+    {
+        void foo1() /+pure+/
+        {
+            static assert(!__traits(compiles, g++));
+            x++;
+        }
+        void foo2() pure
+        {
+            static assert(!__traits(compiles, g++));
+            x++;
+        }
+        void bar1() immutable /+pure+/
+        {
+            static assert(!__traits(compiles, g++));
+            static assert(!__traits(compiles, x++));
+        }
+        void bar2() immutable pure
+        {
+            static assert(!__traits(compiles, g++));
+            static assert(!__traits(compiles, x++));
+        }
+    }
+
+    S sm;
+    sm.foo1();
+    static assert(is(typeof(&sm.foo1) == void delegate() pure));
+    sm.foo2();
+    static assert(is(typeof(&sm.foo2) == void delegate() pure));
+
+    immutable S si;
+    si.bar1();
+    static assert(is(typeof(&si.bar1) == void delegate() pure immutable));
+    si.bar2();
+    static assert(is(typeof(&si.bar2) == void delegate() pure immutable));
+}
+
+// ----
+// inheritance of pure and @safe
+
+void test9148b() pure nothrow @nogc @safe
+{
+    void nf() {}
+    static assert(is(typeof(&nf) == void delegate() @safe pure));
+
+    struct NS
+    {
+        void mf() {}
+        static void sf() {}
+    }
+    NS ns;
+    static assert(is(typeof(&ns.mf) == void delegate() @safe pure));
+    static assert(is(typeof(&NS.sf) == void function() @safe));
+
+    static void sf() {}
+    static assert(is(typeof(&sf) == void function() @safe));
+
+    static struct SS
+    {
+        void mf() {}
+        static void sf() {}
+    }
+    SS ss;
+    static assert(is(typeof(&ss.mf) == void delegate() @safe));
+    static assert(is(typeof(&SS.sf) == void function() @safe));
+}
+
+void impureSystem9148b() {}
+void func9148b()()
+{
+    void bar()  // do not inherit PUREfwdref
+    {
+        static assert(is(typeof(&bar) == void delegate()));
+        impureSystem9148b();
+    }
+    static assert(is(typeof(&bar) == void delegate()));
+}
+static assert(is(typeof(&func9148b!()) == void function() pure nothrow @nogc @safe));
+
+// ----
+// from fail_compilation/fail283.d
+
+pure int double_sqr9148c(int x)
+{
+    int y = x;
+    void do_sqr() pure { y *= y; }
+    do_sqr();
+    return y;
+}
+
+void test9148c()
+{
+    assert(double_sqr9148c(10) == 100);
+}
+
+// ----
+// from fail_compilation/fail348.d
+
+void test9148d() pure
+{
+    void g()    // implicitly marked as 'pure'
+    {
+        void h() pure
+        {
+            // i() and j() are implicitly marked as 'pure'
+            void i() { }
+            void j() { i(); g(); }  // can call i() and g()
+        }
+    }
+}
+
+void test9148e()
+{
+    int x;
+    static assert(is(typeof((int a){ return a + x; }) == int delegate(int) pure nothrow @nogc @safe));
+
+    auto dg = (int a){ return a + x; };
+    static assert(is(typeof(dg) == int delegate(int) pure nothrow @nogc @safe));
+}
+
+/***************************************************/
+// 12912
+
+struct S12912(alias fun)
+{
+    void f() { fun(); }
+}
+
+class C12912
+{
+    int n;
+
+    void f() pure
+    {
+        S12912!(() => n) s;
+        // Here lambda should be inferred to weak purity.
+
+        s.f();
+        // And this call will be a pure member function call.
+    }
 }
 
 /***************************************************/
@@ -375,6 +659,159 @@ pure void test10296()
 }
 
 /***************************************************/
+// 12025
+
+struct Foo12025
+{
+    int[5] bar;
+}
+
+void test12025a() pure
+{
+    enum n1 = typeof(Foo12025.bar).length;  // OK
+    enum n2 =        Foo12025.bar .length;  // OK <- error
+
+    auto x1 = typeof(Foo12025.bar).length;  // OK
+    auto x2 =        Foo12025.bar .length;  // OK <- error
+}
+
+void test12025b() pure
+{
+    static int[5] bar;
+
+    enum n1 = typeof(bar).length;  // OK
+    enum n2 =        bar .length;  // OK <- error
+
+    auto x1 = typeof(bar).length;  // OK
+    auto x2 =        bar .length;  // OK <- error
+}
+
+/***************************************************/
+// 12542
+
+int logOf12542(T)(T n)
+{
+    if (n)
+        return 1 + logOf12542(n/2);
+    return 0;
+}
+
+void test12542() @safe nothrow pure
+{
+    int log = logOf12542(9);
+}
+
+/***************************************************/
+// 12704
+
+void foo12704() @system;
+alias FP12704 = typeof(function() { foo12704(); });
+static assert(is(FP12704 == void function() @system));
+
+/***************************************************/
+// 12970
+
+@system { @safe void f12970a() {} }
+@system { void f12970b() @safe {} }
+static assert(is(typeof(&f12970a) == void function() @safe));
+static assert(is(typeof(&f12970b) == void function() @safe));
+
+@system { @trusted void f12970c() {} }
+@system { void f12970d() @trusted {} }
+static assert(is(typeof(&f12970c) == void function() @trusted));
+static assert(is(typeof(&f12970d) == void function() @trusted));
+
+@safe { @system void f12970e() {} }
+@safe { void f12970f() @system {} }
+static assert(is(typeof(&f12970e) == void function() @system));
+static assert(is(typeof(&f12970f) == void function() @system));
+
+@safe { @trusted void f12970g() {} }
+@safe { void f12970h() @trusted {} }
+static assert(is(typeof(&f12970g) == void function() @trusted));
+static assert(is(typeof(&f12970h) == void function() @trusted));
+
+@trusted { @safe void f12970i() {} }
+@trusted { void f12970j() @safe {} }
+static assert(is(typeof(&f12970i) == void function() @safe));
+static assert(is(typeof(&f12970j) == void function() @safe));
+
+@trusted { @system void f12970k() {} }
+@trusted { void f12970l() @system {} }
+static assert(is(typeof(&f12970k) == void function() @system));
+static assert(is(typeof(&f12970l) == void function() @system));
+
+/***************************************************/
+// Parsing prefix STC_FUNCATTR for variable declaration
+
+__gshared immutable pure nothrow @property @nogc @safe void function() prefix_qualified_fp1;
+__gshared{immutable{pure{nothrow{@property{@nogc{@safe{void function() prefix_qualified_fp2;}}}}}}}
+static assert(typeof(prefix_qualified_fp1).stringof == typeof(prefix_qualified_fp2).stringof);
+static assert(typeof(prefix_qualified_fp1).stringof
+        == "immutable(void function() pure nothrow @nogc @property @safe)");
+
+const pure nothrow @property @nogc @safe void function()[] prefix_qualified_fp_array1;
+const{pure{nothrow{@property{@nogc{@safe{void function()[] prefix_qualified_fp_array2;}}}}}}
+static assert(typeof(prefix_qualified_fp_array1).stringof == typeof(prefix_qualified_fp_array2).stringof);
+static assert(typeof(prefix_qualified_fp_array1).stringof
+        == "const(void function() pure nothrow @nogc @property @safe[])");
+
+/***************************************************/
+// Parsing prefix, intermediate, or postfix @safe for alias declaration
+
+@safe alias void function() AliasDecl_FP1;
+alias @safe void function() AliasDecl_FP2;    // is not @safe
+alias void function() @safe AliasDecl_FP3;
+static assert(AliasDecl_FP1.stringof == "void function() @safe");
+static assert(AliasDecl_FP2.stringof == "void function()");
+static assert(AliasDecl_FP3.stringof == "void function() @safe");
+
+/***************************************************/
+// 13217
+
+void writeln13217(string) {}
+
+nothrow void a13217(T)(T x)
+{
+    try
+    {
+        () { writeln13217("a"); } ();
+    }
+    catch (Exception e) {}
+}
+
+void test13217()
+{
+    a13217(1);
+}
+
+/***************************************************/
+// 13840
+
+struct Foo13840
+{
+    int opApply(int delegate(int))
+    {
+        return 0;
+    }
+}
+
+void func13840()
+{
+}
+
+void test13840() nothrow
+{
+    try
+    {
+        foreach (i; Foo13840()) // generated delegate is throwable
+        {
+            func13840();        // throwable function call
+        }
+    }
+    catch
+    {}
+}
 
 // Add more tests regarding inferences later.
 

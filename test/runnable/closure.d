@@ -1,5 +1,5 @@
 
-import std.c.stdio;
+import core.stdc.stdio;
 
 struct S { int a,b,c,d; }
 
@@ -689,6 +689,41 @@ void test22()
 }
 
 /************************************/
+// 1759
+
+void test1759()
+{
+    struct S { int a, b, c; }
+    struct SS { S obj; }
+
+    static int delegate() makeSum1(S s)
+    {
+        with (s) return { return a + b + c; };
+    }
+    static int delegate() makeSum2(S[1] sa)
+    {
+        with (sa[0]) return { return a + b + c; };
+    }
+    static int delegate() makeSum3(SS ss)
+    {
+        with (ss.obj) return { return a + b + c; };
+    }
+    static int delegate() makeSum4(SS[1] ssa)
+    {
+        with (ssa[0].obj) return { return a + b + c; };
+    }
+
+    S s = {15, 30, 45};
+    SS ss = {s};
+    int delegate() sum;
+
+    sum = makeSum1(s);      assert(sum() == 90);
+    sum = makeSum2([s]);    assert(sum() == 90);
+    sum = makeSum3(ss);     assert(sum() == 90);
+    sum = makeSum4([ss]);   assert(sum() == 90);
+}
+
+/************************************/
 // 1841
 
 int delegate() foo1841()
@@ -718,7 +753,7 @@ int delegate() foo1841b()
     return delegate int() { return more_nested(); };
 }
 
-void bug1841()
+void test1841()
 {
     auto z = foo1841();
     auto p = foo1841();
@@ -756,6 +791,113 @@ void test5911()
 }
 
 /************************************/
+// 9685
+
+auto get9685a(alias fun)()
+{
+    int x = 10;
+    struct Foo
+    {
+        size_t data;
+
+        @property clone()
+        {
+            return Foo(15);
+        }
+    }
+    return Foo(5);
+}
+void test9685a()
+{
+    uint a = 42;
+    auto bar = get9685a!(() => a)();
+    auto qux = bar.clone;
+    //printf("bar context pointer : %p\n", bar.tupleof[$-1]);
+    //printf("qux context pointer : %p\n", qux.tupleof[$-1]);
+    assert(bar.tupleof[$-1] == qux.tupleof[$-1]);
+    assert(qux.data == 15);
+}
+
+auto get9685b(alias fun)()
+{
+    int x = 10;
+    struct Foo
+    {
+        size_t data;
+
+        @property clone()
+        {
+            return Foo(data + x);
+        }
+    }
+    return Foo(5);
+}
+void test9685b()
+{
+    uint a = 42;
+    auto bar = get9685b!(() => a)();
+    auto qux = bar.clone;
+    //printf("bar context pointer : %p\n", bar.tupleof[$-1]);
+    //printf("qux context pointer : %p\n", qux.tupleof[$-1]);
+    assert(bar.tupleof[$-1] == qux.tupleof[$-1]);
+    assert(qux.data == 15);
+}
+
+/************************************/
+// 12406
+
+auto createDg12406()
+{
+    static struct Dg
+    {
+        Dg delegate() action;
+    }
+
+    static void fn(void delegate()) { }
+
+    int x; fn({ x++; }); // required
+
+    Dg dg;
+
+    Dg createDg2()
+    {
+        int x; void unusedFun() { x++; } // required
+
+        return Dg(() => dg); // lambda returns garbage instead of dg
+    }
+
+    return dg = Dg(&createDg2);
+}
+
+void test12406()
+{
+    auto dgs = [createDg12406()];
+    //printf("dgs[%2d].action = %p:%p\n", 0, dgs[$-1].action.ptr, dgs[$-1].action.funcptr);
+    foreach (i; 1 .. 10+1)
+    {
+        dgs ~= dgs[i-1].action();
+        //printf("dgs[%2d].action = %p:%p\n", i, dgs[$-1].action.ptr, dgs[$-1].action.funcptr);
+    }
+
+    foreach (i, dgx; dgs)
+    {
+        if (i % 2 == 0)
+        {
+            // All closures are equal with dgs[0].
+            assert(dgx.action.ptr     is dgs[0].action.ptr);
+            assert(dgx.action.funcptr is dgs[0].action.funcptr);    // is: createDg2
+        }
+        else
+        {
+            // Each closures has unique context.
+            for (size_t j = i + 2; j < dgs.length; j += 2)
+                assert(dgx.action.ptr !is dgs[j].action.ptr);
+            assert(dgx.action.funcptr is dgs[1].action.funcptr);    // is: lambda () => dg
+        }
+    }
+}
+
+/************************************/
 
 int main()
 {
@@ -781,8 +923,12 @@ int main()
     test20();
     test21();
     test22();
-    bug1841();
+    test1759();
+    test1841();
     test5911();
+    test9685a();
+    test9685b();
+    test12406();
 
     printf("Success\n");
     return 0;

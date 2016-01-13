@@ -1,14 +1,13 @@
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/ice11850.d(17): Error: incompatible types for ((a) < ([0])): 'uint[]' and 'int[]'
+fail_compilation/ice11850.d(16): Error: incompatible types for ((a) < ([0])): 'uint[]' and 'int[]'
 fail_compilation/imports/a11850.d(9):        instantiated from here: FilterResult!(__lambda1, uint[][])
-fail_compilation/ice11850.d(17):        instantiated from here: filter!(uint[][])
-fail_compilation/ice11850.d(17): Error: template instance ice11850.main.filter!((a) => a < [0]).filter!(uint[][]) error instantiating
-fail_compilation/ice11850.d(17): Error: template imports.a11850.filter cannot deduce function from argument types !((a) => a < [0])(uint[][]), candidates are:
-fail_compilation/imports/a11850.d(5):        imports.a11850.filter(alias pred)
+fail_compilation/ice11850.d(16):        instantiated from here: filter!(uint[][])
 ---
 */
+
+
 
 import imports.a11850 : filter;
 
@@ -16,6 +15,3 @@ void main()
 {
     filter!(a => a < [0])([[0u]]);
 }
-
-
-

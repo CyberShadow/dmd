@@ -73,7 +73,7 @@ void cgreg_init()
     {   unsigned sz;
         symbol *s = globsym.tab[i];
 
-        //printf("candidate '%s' for register\n",s->Sident);
+        //printf("considering candidate '%s' for register\n",s->Sident);
 
         if (s->Srange)
             s->Srange = vec_realloc(s->Srange,dfotop);
@@ -89,7 +89,17 @@ void cgreg_init()
         {
             #ifdef DEBUG
             if (debugr)
+            {
                 printf("not considering variable '%s' for register\n",s->Sident);
+                if (!(s->Sflags & GTregcand))
+                    printf("\tnot GTregcand\n");
+                if (!s->Srange)
+                    printf("\tno Srange\n");
+                if (sz == 0)
+                    printf("\tsz == 0\n");
+                if (tysize(s->ty()) == -1)
+                    printf("\ttysize\n");
+            }
             #endif
             s->Sflags &= ~GTregcand;
             continue;
@@ -261,9 +271,10 @@ Lagain:
     benefit = 0;
     retsym_cnt = 0;
 
-#if 0 // causes assert failure in std.range(4488) from std.parallelism's unit tests
+#if 1 // causes assert failure in std.range(4488) from std.parallelism's unit tests
+      // (it works now - but keep an eye on it for the moment)
     // If s is passed in a register to the function, favor that register
-    if (s->Sclass == SCfastpar && s->Spreg == reg)
+    if ((s->Sclass == SCfastpar || s->Sclass == SCshadowreg) && s->Spreg == reg)
         ++benefit;
 #endif
 
@@ -283,6 +294,7 @@ Lagain:
             case BCcatch:
             case BC_except:
             case BC_finally:
+            case BC_lpad:
             case BC_ret:
                 s->Sflags &= ~GTregcand;
                 goto Lcant;             // can't assign to register
@@ -387,10 +399,10 @@ Lagain:
 
 #ifdef DEBUG
     //printf("2weights: dfotop = %d, globsym.top = %d\n", dfotop, globsym.top);
-    if (benefit > s->Sweight + retsym_cnt)
+    if (benefit > s->Sweight + retsym_cnt + 1)
         printf("s = '%s', benefit = %d, Sweight = %d, retsym_cnt = x%x\n",s->Sident,benefit,s->Sweight, retsym_cnt);
 #endif
-    assert(benefit <= s->Sweight + retsym_cnt);
+    assert(benefit <= s->Sweight + retsym_cnt + 1);
     return benefit;
 
 Lcant:
@@ -810,6 +822,15 @@ int cgreg_assign(Symbol *retsym)
     regm_t dst_integer_mask = mask[dst_integer_reg];
     regm_t dst_float_mask = mask[dst_float_reg];
 
+    /* Find all the parameters passed as registers
+     */
+    regm_t regparams = 0;
+    for (size_t si = 0; si < globsym.top; si++)
+    {   symbol *s = globsym.tab[si];
+        if (s->Sclass == SCfastpar || s->Sclass == SCshadowreg)
+            regparams |= s->Spregm();
+    }
+
     // Find symbol t, which is the most 'deserving' symbol that should be
     // placed into a register.
     Reg t;
@@ -873,6 +894,12 @@ int cgreg_assign(Symbol *retsym)
             if (reg == BX && !(allregs & mBX))
                 continue;
 #endif
+            /* Don't assign register parameter to another register parameter
+             */
+            if ((s->Sclass == SCfastpar || s->Sclass == SCshadowreg) &&
+                mask[reg] & regparams &&
+                reg != s->Spreg)
+                continue;
 
             if (s->Sflags & GTbyte &&
                 !(mask[reg] & BYTEREGS))
@@ -901,6 +928,10 @@ int cgreg_assign(Symbol *retsym)
                         if (regmsw == NOREG)
                             goto Ltried;                // tried and failed to assign MSW
                         if (regmsw == reg)              // can't assign msw and lsw to same reg
+                            continue;
+                        if ((s->Sclass == SCfastpar || s->Sclass == SCshadowreg) &&
+                            mask[regmsw] & regparams &&
+                            regmsw != s->Spreg2)
                             continue;
                         #ifdef DEBUG
                         if (debugr)

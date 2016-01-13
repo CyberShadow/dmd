@@ -5,7 +5,7 @@
         <h1>ddoc10</h1>
 <br><br>
 <dl><dt><big><a name="Foo"></a>struct <u>Foo</u>(T);
-<br><a name="Foo"></a>struct <u>Foo</u>(T, U);
+<br>struct <u>Foo</u>(T, U);
 </big></dt>
 <dd>The foo<br><br>
 
@@ -18,14 +18,19 @@
 
 </dd>
 <dt><big><a name="func2"></a>int <u>func2</u>(T, U)(T <i>x</i>, U <i>y</i>);
-<br><a name="func2"></a>int <u>func2</u>(T)(T <i>x</i>);
+<br>int <u>func2</u>(T)(T <i>x</i>);
 </big></dt>
 <dd>This comment is also repeated twice, and the second function signature is
  not very well documented.<br><br>
 
 </dd>
+<dt><big><a name="func2.2"></a>int <u>func2</u>()();
+</big></dt>
+<dd>Separate overload item.<br><br>
+
+</dd>
 <dt><big><a name="func3"></a>int <u>func3</u>(T, U)(T <i>x</i>, U <i>y</i>);
-<br><a name="func3"></a>int <u>func3</u>(T, U = int, V : long)(T <i>x</i>);
+<br>int <u>func3</u>(T, U = int, V : long)(T <i>x</i>);
 </big></dt>
 <dd>This used to work adequately and documented both <u>func3</u> templates
  simultaneously. Now, it documents the first template twice and
@@ -33,13 +38,13 @@
 
 </dd>
 <dt><big><a name="map"></a>void <u>map</u>(char <i>rs</i>);
-<br><a name="map"></a>void <u>map</u>(int <i>rs</i>);
+<br>void <u>map</u>(int <i>rs</i>);
 </big></dt>
 <dd>blah<br><br>
 
 </dd>
 <dt><big><a name="map2"></a>void <u>map2</u>()(char <i>rs</i>);
-<br><a name="map2"></a>void <u>map2</u>()(int <i>rs</i>);
+<br>void <u>map2</u>()(int <i>rs</i>);
 </big></dt>
 <dd>blah<br><br>
 
@@ -67,14 +72,14 @@
 </big></dt>
 <dd>template bodies<br><br>
 
-<dl><dt><big><a name="bar"></a>void <u>bar</u>();
+<dl><dt><big><a name="Foo7.bar"></a>void <u>bar</u>();
 </big></dt>
 <dd>Attempt two:  Inside.
 <br><br>
 Attempt one:  Doc outside static if.<br><br>
 
 </dd>
-<dt><big><a name="abc"></a>void <u>abc</u>();
+<dt><big><a name="Foo7.abc"></a>static void <u>abc</u>();
 </big></dt>
 <dd>the <u>abc</u> function should be static<br><br>
 
@@ -94,7 +99,7 @@ Attempt one:  Doc outside static if.<br><br>
 <dt><big><a name="S"></a>struct <u>S</u>;
 </big></dt>
 <dd><br><br>
-<dl><dt><big><a name="S.this"></a>const pure nothrow  this(long <i>ticks</i>);
+<dl><dt><big><a name="S.this"></a>const pure nothrow this(long <i>ticks</i>);
 </big></dt>
 <dd><br><br>
 </dd>
@@ -121,11 +126,34 @@ Attempt one:  Doc outside static if.<br><br>
 <dt><big><a name="T"></a>struct <u>T</u>;
 </big></dt>
 <dd><br><br>
-<dl><dt><big><a name="T.this"></a> this(A...)(A <i>args</i>);
+<dl><dt><big><a name="T.this"></a>this(A...)(A <i>args</i>);
+</big></dt>
+<dd><br><br>
+</dd>
+<dt><big><a name="T.this.2"></a>this(int);
 </big></dt>
 <dd><br><br>
 </dd>
 </dl>
+</dd>
+<dt><big><a name="x14547"></a>int <u>x14547</u>;
+<br><a name="y14547"></a>enum int <u>y14547</u>;
+</big></dt>
+<dd>doc-comment<br><br>
+
+</dd>
+<dt><big><a name="isInt14547"></a>enum auto <u>isInt14547</u>(T);
+<br><a name="isString14547"></a>enum bool <u>isString14547</u>(T);
+<br><a name="typeName14547"></a>static immutable <u>typeName14547</u>(T);
+<br><a name="storageFor14547"></a>int <u>storageFor14547</u>(T);
+</big></dt>
+<dd>doc-comment<br><br>
+
+</dd>
+<dt><big><a name="foo14547"></a>enum int <u>foo14547</u>(T);
+<br><a name="bar14547"></a>template <u>bar14547</u>(T) if (is(T == int))</big></dt>
+<dd>doc-comment<br><br>
+
 </dd>
 </dl>
 

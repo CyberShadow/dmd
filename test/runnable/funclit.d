@@ -314,7 +314,7 @@ void test10()
 void test11()
 {
     auto a1 = [x => x, (int x) => x * 2];
-    static assert(is(typeof(a1[0]) == int function(int) pure @safe nothrow));
+    static assert(is(typeof(a1[0]) == int function(int) pure @safe nothrow @nogc));
     assert(a1[0](10) == 10);
     assert(a1[1](10) == 20);
 
@@ -358,9 +358,7 @@ void test6714()
     bar6714x((a, b) { return a + b; });
 
     assert(bar6714y((a, b){ return 1.0;  }) == 1);
-    static assert(!__traits(compiles, {
-           bar6714y((a, b){ return 1.0f; });
-    }));
+    assert(bar6714y((a, b){ return 1.0f; }) == 1);
     assert(bar6714y((a, b){ return a;    }) == 2);
 }
 
@@ -395,7 +393,7 @@ void test7288()
         return () => { return x; };
     }
     pragma(msg, typeof(&foo));
-    alias int delegate() nothrow @safe delegate() nothrow @safe delegate() Dg;
+    alias int delegate() pure nothrow @nogc @safe delegate() pure nothrow @nogc @safe delegate() pure nothrow @safe Dg;
     pragma(msg, Dg);
     static assert(is(typeof(&foo) == Dg));  // should pass
 }
@@ -536,10 +534,11 @@ auto foo7743b()
 }
 void test7743()
 {
-    static assert(is(typeof(&foo7743a) == int delegate() nothrow @safe function()));
+    pragma(msg, typeof(&foo7743a));
+    static assert(is(typeof(&foo7743a) == int delegate() pure nothrow @nogc @safe function() pure nothrow @safe));
     assert(foo7743a()() == 10);
 
-    static assert(is(typeof(&foo7743b) == int delegate() nothrow @safe function()));
+    static assert(is(typeof(&foo7743b) == int delegate() pure nothrow @nogc @safe function() pure nothrow @safe));
     assert(foo7743b()() == 10);
 }
 
@@ -550,7 +549,7 @@ enum dg7761 = (int a) pure => 2 * a;
 
 void test7761()
 {
-    static assert(is(typeof(dg7761) == int function(int) pure @safe nothrow));
+    static assert(is(typeof(dg7761) == int function(int) pure @safe nothrow @nogc));
     assert(dg7761(10) == 20);
 }
 
@@ -835,6 +834,55 @@ void test10133()
 }
 
 /***************************************************/
+// 10219
+
+void test10219()
+{
+    interface I { }
+    class C : I { }
+
+    void test_dg(I delegate(C) dg)
+    {
+        C c = new C;
+        void* cptr = cast(void*) c;
+        void* iptr = cast(void*) cast(I) c;
+        void* xptr = cast(void*) dg(c);
+        assert(cptr != iptr);
+        assert(cptr != xptr); // should pass
+        assert(iptr == xptr); // should pass
+    }
+
+    C delegate(C c) dg = delegate C(C c) { return c; };
+    static assert(!__traits(compiles, { test_dg(dg); }));
+    static assert(!__traits(compiles, { test_dg(delegate C(C c) { return c; }); }));
+    static assert(!__traits(compiles, { I delegate(C) dg2 = dg; }));
+
+    // creates I delegate(C)
+    test_dg(c => c);
+    test_dg(delegate(C c) => c);
+
+    void test_fp(I function(C) fp)
+    {
+        C c = new C;
+        void* cptr = cast(void*) c;
+        void* iptr = cast(void*) cast(I) c;
+        void* xptr = cast(void*) fp(c);
+        assert(cptr != iptr);
+        assert(cptr != xptr); // should pass
+        assert(iptr == xptr); // should pass
+    }
+
+    C function(C c) fp = function C(C c) { return c; };
+    static assert(!__traits(compiles, { test_fp(fp); }));
+    static assert(!__traits(compiles, { test_fp(function C(C c) { return c; }); }));
+    static assert(!__traits(compiles, { I function(C) fp2 = fp; }));
+
+    // creates I function(C)
+    test_fp(c => c);
+    test_fp(function(C c) => c);
+}
+
+/***************************************************/
 // 10288
 
 T foo10288(T)(T x)
@@ -953,12 +1001,197 @@ C11230 visit11230()
 }
 
 /***************************************************/
+// 10336
+
+struct S10336
+{
+    template opDispatch(string name)
+    {
+        enum opDispatch = function(int x) {
+            return x;
+        };
+    }
+}
+
+void test10336()
+{
+    S10336 s;
+    assert(s.hello(12) == 12);
+}
+
+/***************************************************/
+// 10928
+
+struct D10928
+{
+    int x;
+    ~this() @nogc {}
+}
+
+void f10928a(D10928 bar)
+{
+    (){ bar.x++; }();
+}
+void f10928b(D10928 bar) @nogc
+{
+    (){ bar.x++; }();
+}
+
+void test10928()
+{
+    f10928a(D10928.init);
+    f10928b(D10928.init);
+}
+
+/***************************************************/
 // 11661
 
 void test11661()
 {
     void delegate() dg = {};  // OK
     void function() fp = {};  // OK <- NG
+}
+
+/***************************************************/
+// 11774
+
+void f11774(T, R)(R delegate(T[]) dg)
+{
+    T[] src;
+    dg(src);
+}
+
+void test11774()
+{
+    int[] delegate(int[]) dg = (int[] a) => a;
+    f11774!int(dg);
+    f11774!Object(a => a);
+    f11774!int(dg);
+}
+
+/***************************************************/
+// 12421
+
+void test12421()
+{
+    void test(string decl, bool polymorphic = true)()
+    {
+        // parse AliasDeclaration in Statement
+        mixin("alias f = " ~ decl ~ ";");
+        assert(f(1) == 1);
+      static if (polymorphic)
+        assert(f("s") == "s");
+
+        // parse AliasDeclaration in DeclDefs
+        mixin("template X() { alias g = " ~ decl ~ "; }");
+        alias g = X!().g;
+        assert(g(1) == 1);
+      static if (polymorphic)
+        assert(g("s") == "s");
+    }
+
+    test!(q{      x  => x });
+    test!(q{ (    x) => x });
+    test!(q{ (int x) => x }, false);
+
+    test!(q{ (    x){ return x; } });
+    test!(q{ (int x){ return x; } }, false);
+
+    test!(q{ function     (    x) => x });
+    test!(q{ function     (int x) => x }, false);
+    test!(q{ function int (    x) => x }, false);
+    test!(q{ function int (int x) => x }, false);
+
+    test!(q{ delegate     (    x) => x });
+    test!(q{ delegate     (int x) => x }, false);
+    test!(q{ delegate int (    x) => x }, false);
+    test!(q{ delegate int (int x) => x }, false);
+
+    test!(q{ function     (    x){ return x; } });
+    test!(q{ function     (int x){ return x; } }, false);
+    test!(q{ function int (    x){ return x; } }, false);
+    test!(q{ function int (int x){ return x; } }, false);
+
+    test!(q{ delegate     (    x){ return x; } });
+    test!(q{ delegate     (int x){ return x; } }, false);
+    test!(q{ delegate int (    x){ return x; } }, false);
+    test!(q{ delegate int (int x){ return x; } }, false);
+
+    // This is problematic case, and should be disallowed in the future.
+    alias f = x => y;
+    int y = 10;
+    assert(f(1) == 10);;
+}
+
+/***************************************************/
+// 12508
+
+interface A12508(T)
+{
+    T getT();
+}
+
+class C12508 : A12508!double
+{
+    double getT() { return 1; }
+}
+
+void f12508(A12508!double delegate() dg)
+{
+    auto a = dg();
+    assert(a !is null);
+    assert(a.getT() == 1.0);    // fails!
+}
+
+void t12508(T)(A12508!T delegate() dg)
+{
+    auto a = dg();
+    assert(a !is null);
+    assert(a.getT() == 1.0);    // fails!
+}
+
+ref alias Dg12508 = A12508!double delegate();
+void t12508(T)(Dg12508 dg) {}
+
+void test12508()
+{
+    f12508({ return new C12508(); });
+    t12508({ return new C12508(); });
+    static assert(!__traits(compiles, x12508({ return new C12508(); })));
+}
+
+/***************************************************/
+// 13879
+
+void test13879()
+{
+    bool function(int)[2] funcs1 = (int x) => true; // OK
+    assert(funcs1[0] is funcs1[1]);
+    funcs1[0] = x => true;                          // OK
+    bool function(int)[2] funcs2 = x => true;       // OK <- Error
+    assert(funcs2[0] is funcs2[1]);
+}
+
+/***************************************************/
+// 14745
+
+void test14745()
+{
+    // qualified nested functions
+    auto foo1() pure immutable { return 0; }
+    auto foo2() pure const { return 0; }
+
+    // qualified lambdas (== implicitly marked as delegate literals)
+    auto lambda1 = () pure immutable { return 0; };
+    auto lambda2 = () pure const { return 0; };
+    static assert(is(typeof(lambda1) : typeof(&foo1)));
+    static assert(is(typeof(lambda2) : typeof(&foo2)));
+
+    // qualified delegate literals
+    auto dg1 = delegate () pure immutable { return 0; };
+    auto dg2 = delegate () pure const { return 0; };
+    static assert(is(typeof(dg1) : typeof(&foo1)));
+    static assert(is(typeof(dg2) : typeof(&foo2)));
 }
 
 /***************************************************/
@@ -1008,8 +1241,16 @@ int main()
     test9628();
     test9928();
     test10133();
+    test10219();
     test10288();
+    test10336();
+    test10928();
     test11661();
+    test11774();
+    test12421();
+    test12508();
+    test13879();
+    test14745();
 
     printf("Success\n");
     return 0;

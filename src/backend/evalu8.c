@@ -188,9 +188,6 @@ int boolres(elem *e)
                 case TYdchar:
                 case TYllong:
                 case TYullong:
-#if JHANDLE
-                case TYjhandle:
-#endif
 #if TARGET_SEGMENTED
                 case TYsptr:
                 case TYcptr:
@@ -200,6 +197,9 @@ int boolres(elem *e)
 #endif
                 case TYnptr:
                     b = el_tolong(e) != 0;
+                    break;
+                case TYnref: // reference can't be converted to bool
+                    assert(0);
                     break;
                 case TYfloat:
                 case TYifloat:
@@ -261,10 +261,9 @@ int boolres(elem *e)
 
                 case TYfloat4:
                 {   b = 0;
-                    targ_float *pf = (targ_float *)&e->EV.Vcent;
                     for (size_t i = 0; i < 4; i++)
                     {
-                        if (isnan(pf[i]) || pf[i] != 0)
+                        if (isnan(e->EV.Vfloat4[i]) || e->EV.Vfloat4[i] != 0)
                         {   b = 1;
                             break;
                         }
@@ -333,7 +332,7 @@ int iffalse(elem *e)
                 }
         }
 }
-
+
 /******************************
  * Constant fold expression tree.
  * Calculate &symbol and &*e1 if we can.
@@ -547,10 +546,8 @@ elem *poptelem(elem *e)
                 if (e2->Eoper == OPconst)
                 {   targ_int i = e2->EV.Vint;
 
-#if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
                     if (i && e1->EV.sp.Vsym->Sfl == FLgot)
                         break;
-#endif
                     if (e->Eoper == OPmin)
                         i = -i;
                     e1->EV.sp.Voffset += i;
@@ -1226,7 +1223,7 @@ elem * evalu8(elem *e, goal_t goal)
     case OPdiv:
         if (!boolres(e2))                       // divide by 0
         {
-#if SCPP
+#if SCPP || MARS
             if (!tyfloating(tym))
 #endif
                 goto div0;
@@ -1401,15 +1398,20 @@ elem * evalu8(elem *e, goal_t goal)
         }
         break;
     case OPmod:
-        if (!boolres(e2))
-        {
-            div0:
-#if SCPP
-                synerr(EM_divby0);
-#else // MARS
-                //error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, e->Esrcpos.Scharnum, "divide by zero");
+#if MARS
+        if (!tyfloating(tym))
 #endif
-                break;
+        {
+            if (!boolres(e2))
+            {
+                div0:
+#if SCPP
+                    synerr(EM_divby0);
+#elif MARS
+                    error(e->Esrcpos.Sfilename, e->Esrcpos.Slinnum, e->Esrcpos.Scharnum, "divide by zero");
+#endif
+                    break;
+            }
         }
         if (uns)
             e->EV.Vullong = ((targ_ullong) l1) % ((targ_ullong) l2);
@@ -1485,6 +1487,7 @@ elem * evalu8(elem *e, goal_t goal)
     {
         targ_llong rem, quo;
 
+        assert(!tyfloating(tym));
         if (!boolres(e2))
             goto div0;
         if (uns)
@@ -1641,7 +1644,7 @@ elem * evalu8(elem *e, goal_t goal)
                 break;
             case TYfloat:
             case TYifloat:
-#if __SC__
+#if __DMC__
                 e->EV.Vfloat = fabsf(e1->EV.Vfloat);
 #else
                 e->EV.Vfloat = fabs(e1->EV.Vfloat);
@@ -1991,6 +1994,29 @@ elem * evalu8(elem *e, goal_t goal)
                      ((i1 <<  8) & 0x00FF0000) |
                      ((i1 << 24) & 0xFF000000);
         break;
+
+    case OPpopcnt:
+    {
+        // Eliminate any unwanted sign extension
+        switch (tysize(tym))
+        {
+            case 1:     l1 &= 0xFF;       break;
+            case 2:     l1 &= 0xFFFF;     break;
+            case 4:     l1 &= 0xFFFFFFFF; break;
+            case 8:     break;
+            default:    assert(0);
+        }
+
+        int popcnt = 0;
+        while (l1)
+        {   // Not efficient, but don't need efficiency here
+            popcnt += (l1 & 1);
+            l1 = (targ_ullong)l1 >> 1;  // shift is unsigned
+        }
+        e->EV.Vllong = popcnt;
+        break;
+    }
+
     case OProl:
     case OPror:
     {   unsigned n = i2;

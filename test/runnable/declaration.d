@@ -28,9 +28,9 @@ void test6905()
     auto foo1() { static int n; return n; }
     auto foo2() {        int n; return n; }
     auto foo3() {               return 1; }
-    static assert(typeof(&foo1).stringof == "int delegate()");
-    static assert(typeof(&foo2).stringof == "int delegate()");
-    static assert(typeof(&foo3).stringof == "int delegate()");
+    static assert(typeof(&foo1).stringof == "int delegate() nothrow @nogc @safe");
+    static assert(typeof(&foo2).stringof == "int delegate() pure nothrow @nogc @safe");
+    static assert(typeof(&foo3).stringof == "int delegate() pure nothrow @nogc @safe");
 
     ref bar1() { static int n; return n; }
   static assert(!__traits(compiles, {
@@ -43,9 +43,9 @@ void test6905()
     auto ref baz1() { static int n; return n; }
     auto ref baz2() {        int n; return n; }
     auto ref baz3() {               return 1; }
-    static assert(typeof(&baz1).stringof == "int delegate() ref");
-    static assert(typeof(&baz2).stringof == "int delegate()");
-    static assert(typeof(&baz3).stringof == "int delegate()");
+    static assert(typeof(&baz1).stringof == "int delegate() nothrow @nogc ref @safe");
+    static assert(typeof(&baz2).stringof == "int delegate() pure nothrow @nogc @safe");
+    static assert(typeof(&baz3).stringof == "int delegate() pure nothrow @nogc @safe");
 }
 
 /***************************************************/
@@ -278,6 +278,120 @@ void test10142()
 }
 
 /***************************************************/
+// 11421
+
+void test11421()
+{
+    // AAs in array
+    const            a1 = [[1:2], [3:4]];   // ok <- error
+    const int[int][] a2 = [[1:2], [3:4]];   // ok
+    static assert(is(typeof(a1) == typeof(a2)));
+
+    // AAs in AA
+    auto aa = [1:["a":1.0], 2:["b":2.0]];
+    static assert(is(typeof(aa) == double[string][int]));
+    assert(aa[1]["a"] == 1.0);
+    assert(aa[2]["b"] == 2.0);
+}
+
+/***************************************************/
+// 13776
+
+enum a13776(T) = __traits(compiles, { T; });
+
+enum b13776(A...) = 1;
+
+template x13776s()
+{
+    struct S;
+    alias x13776s = b13776!(a13776!S);
+}
+template y13776s()
+{
+    struct S;
+    alias x2 = b13776!(a13776!S);
+    alias y13776s = x2;
+}
+template z13776s()
+{
+    struct S;
+    alias x1 = a13776!S;
+    alias x2 = b13776!(x1);
+    alias z13776s = x2;
+}
+
+template x13776c()
+{
+    class C;
+    alias x13776c = b13776!(a13776!C);
+}
+template y13776c()
+{
+    class C;
+    alias x2 = b13776!(a13776!C);
+    alias y13776c = x2;
+}
+template z13776c()
+{
+    class C;
+    alias x1 = a13776!C;
+    alias x2 = b13776!(x1);
+    alias z13776c = x2;
+}
+
+void test13776()
+{
+    alias xs = x13776s!();  // ok <- ng
+    alias ys = y13776s!();  // ok <- ng
+    alias zs = z13776s!();  // ok
+
+    alias xc = x13776c!();  // ok <- ng
+    alias yc = y13776c!();  // ok <- ng
+    alias zc = z13776c!();  // ok
+}
+
+/***************************************************/
+// 14090
+
+template Packed14090(Args...)
+{
+    enum x = __traits(compiles, { Args[0] v; });
+    // Args[0] is an opaque struct Empty, so the variable declaration fails to compile.
+    // The error message creation calls TypeStruct('_Empty')->toChars(), and
+    // it wrongly calls TemplateInstance('RoundRobin!()')->toAlias().
+    // Finally it will cause incorrect "recursive template instantiation" error.
+}
+
+template Map14090(A...)
+{
+    alias Map14090 = A[0];
+}
+
+template RoundRobin14090()
+{
+    struct Empty;
+    alias RoundRobin14090 = Map14090!(Packed14090!(Empty));
+}
+
+alias roundRobin14090 = RoundRobin14090!();
+
+/***************************************************/
+// 13950
+
+template Tuple13950(T...) { alias T Tuple13950; }
+
+void f13950(int x = 0, Tuple13950!() xs = Tuple13950!())
+{
+    assert(x == 0);
+    assert(xs.length == 0);
+}
+
+void test13950()
+{
+    f13950();
+}
+
+/***************************************************/
 
 int main()
 {
@@ -290,6 +404,8 @@ int main()
     test8410();
     test8942();
     test10142();
+    test11421();
+    test13950();
 
     printf("Success\n");
     return 0;

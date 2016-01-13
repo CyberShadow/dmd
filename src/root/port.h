@@ -1,8 +1,11 @@
 
-// Copyright (c) 1999-2012 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
+/* Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved, written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/root/port.h
+ */
 
 #ifndef PORT_H
 #define PORT_H
@@ -39,6 +42,9 @@ struct Port
     static double dbl_min;
     static longdouble ldbl_max;
 
+    static bool yl2x_supported;
+    static bool yl2xp1_supported;
+
     static int isNan(double);
     static int isNan(longdouble);
 
@@ -48,7 +54,11 @@ struct Port
     static int isInfinity(double);
 
     static longdouble fmodl(longdouble x, longdouble y);
+    static longdouble sqrt(longdouble x);
     static int fequal(longdouble x, longdouble y);
+
+    static void yl2x_impl(longdouble* x, longdouble* y, longdouble* res);
+    static void yl2xp1_impl(longdouble* x, longdouble* y, longdouble* res);
 
     static char *strupr(char *);
 
@@ -58,6 +68,13 @@ struct Port
     static float strtof(const char *p, char **endp);
     static double strtod(const char *p, char **endp);
     static longdouble strtold(const char *p, char **endp);
+
+    static void writelongLE(unsigned value, void* buffer);
+    static unsigned readlongLE(void* buffer);
+    static void writelongBE(unsigned value, void* buffer);
+    static unsigned readlongBE(void* buffer);
+    static unsigned readwordLE(void* buffer);
+    static unsigned readwordBE(void* buffer);
 };
 
 #endif

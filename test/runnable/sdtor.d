@@ -2300,6 +2300,7 @@ void g8335(lazy S8335[3] arr)
 {
     assert(S8335.postblit == 0);
     auto x = arr;
+    assert(S8335.postblit == 3);
 }
 
 void h8335(lazy S8335 s)
@@ -2395,37 +2396,44 @@ Foo9320 test9320(Foo9320 a, Foo9320 b, Foo9320 c) {
 struct Test9386
 {
     string name;
-    static string op;
+    static char[25] op;
+    static size_t i;
+
+    static @property string sop() { return cast(string)op[0..i]; }
 
     this(string name)
     {
         this.name = name;
         printf("Created %.*s...\n", name.length, name.ptr);
-        op ~= "a";
+        assert(i + 1 < op.length);
+        op[i++] = 'a';
     }
 
     this(this)
     {
         printf("Copied %.*s...\n", name.length, name.ptr);
-        op ~= "b";
+        assert(i + 1 < op.length);
+        op[i++] = 'b';
     }
 
     ~this()
     {
         printf("Deleted %.*s\n", name.length, name.ptr);
-        op ~= "c";
+        assert(i + 1 < op.length);
+        op[i++] = 'c';
     }
 
     const int opCmp(ref const Test9386 t)
     {
-	return op[0] - t.op[0];
+        return op[0] - t.op[0];
     }
 }
 
 void test9386()
 {
     {
-        Test9386.op = null;
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         Test9386[] tests =
             [ Test9386("one"),
@@ -2433,30 +2441,33 @@ void test9386()
               Test9386("three"),
               Test9386("four") ];
 
-        assert(Test9386.op == "aaaa");
-        Test9386.op = null;
+        assert(Test9386.sop == "aaaa");
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         printf("----\n");
         foreach (Test9386 test; tests)
         {
             printf("\tForeach %.*s\n", test.name.length, test.name.ptr);
-            Test9386.op ~= "x";
+            Test9386.op[Test9386.i++] = 'x';
         }
 
-        assert(Test9386.op == "bxcbxcbxcbxc");
-        Test9386.op = null;
+        assert(Test9386.sop == "bxcbxcbxcbxc");
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         printf("----\n");
         foreach (ref Test9386 test; tests)
         {
             printf("\tForeach %.*s\n", test.name.length, test.name.ptr);
-            Test9386.op ~= "x";
+            Test9386.op[Test9386.i++] = 'x';
         }
-        assert(Test9386.op == "xxxx");
+        assert(Test9386.sop == "xxxx");
     }
     printf("====\n");
     {
-        Test9386.op = null;
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         Test9386[Test9386] tests =
             [ Test9386("1") : Test9386("one"),
@@ -2464,28 +2475,31 @@ void test9386()
               Test9386("3") : Test9386("three"),
               Test9386("4") : Test9386("four") ];
 
-        assert(Test9386.op == "aaaaaaaa");
-        Test9386.op = null;
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         printf("----\n");
         foreach (Test9386 k, Test9386 v; tests)
         {
             printf("\tForeach %.*s : %.*s\n", k.name.length, k.name.ptr,
                                               v.name.length, v.name.ptr);
-            Test9386.op ~= "x";
+            Test9386.op[Test9386.i++] = 'x';
         }
 
-        assert(Test9386.op == "bbxccbbxccbbxccbbxcc");
-        Test9386.op = null;
+        assert(Test9386.sop == "bbxccbbxccbbxccbbxcc");
+        Test9386.op[] = 0;
+        Test9386.i = 0;
 
         printf("----\n");
         foreach (Test9386 k, ref Test9386 v; tests)
         {
             printf("\tForeach %.*s : %.*s\n", k.name.length, k.name.ptr,
                                               v.name.length, v.name.ptr);
-            Test9386.op ~= "x";
+            Test9386.op[Test9386.i++] = 'x';
         }
-        assert(Test9386.op == "bxcbxcbxcbxc");
+        assert(Test9386.sop == "bxcbxcbxcbxc");
+        Test9386.op[] = 0;
+        Test9386.i = 0;
     }
 }
 
@@ -2664,7 +2678,7 @@ void test9985()
     }
     auto p = &(retN());        // OK
     assert(p == &n);
-    alias ref const(int) F1();
+    alias pure nothrow @nogc @safe ref const(int) F1();
     static assert(is(typeof(retN) == F1));
 
     enum const(int) x = 1;
@@ -2673,7 +2687,7 @@ void test9985()
         return x;
     }
     static assert(!__traits(compiles, { auto q = &(retX()); }));
-    alias const(int) F2();
+    alias pure nothrow @nogc @safe const(int) F2();
     static assert(is(typeof(retX) == F2));
 }
 
@@ -2734,7 +2748,7 @@ void test10055a()
     static struct SG { SX sx; SY sy;      nothrow       ~this() {} }
     static struct SH { SX sx; SY sy; pure               ~this() {} }
     static struct SI { SX sx; SY sy;                    ~this() {} }
-    static assert(is( typeof(&check!S1) == void function() pure nothrow @safe ));
+    static assert(is( typeof(&check!S1) == void function() pure nothrow @nogc @safe ));
     static assert(is( typeof(&check!S2) == void function()                    ));
     static assert(is( typeof(&check!SA) == void function() pure nothrow @safe ));
     static assert(is( typeof(&check!SB) == void function() pure nothrow @safe ));
@@ -2783,7 +2797,7 @@ void test10055b()
     static struct SG { SX sx; SY sy;      nothrow       this(this) {} }
     static struct SH { SX sx; SY sy; pure               this(this) {} }
     static struct SI { SX sx; SY sy;                    this(this) {} }
-    static assert(is( typeof(&check!S1) == void function() pure nothrow @safe ));
+    static assert(is( typeof(&check!S1) == void function() pure nothrow @nogc @safe ));
     static assert(is( typeof(&check!S2) == void function()                    ));
     static assert(is( typeof(&check!SA) == void function() pure nothrow @safe ));
     static assert(is( typeof(&check!SB) == void function() pure nothrow @safe ));
@@ -2818,7 +2832,7 @@ void test10055b()
 struct S10160 { this(this) {} }
 
 struct X10160a { S10160 s; const int x;     }
-struct X10160b { S10160 s; const int x = 1; }
+struct X10160b { S10160 s; enum int x = 1; }
 
 void test10160()
 {
@@ -3026,6 +3040,70 @@ void test10789()
 }
 
 /**********************************/
+// 10972
+
+int test10972()
+{
+    string result;
+
+    struct A
+    {
+        this(this)  { result ~= "pA"; version(none) printf("copied A\n"); }
+        ~this()     { result ~= "dA"; version(none) printf("destroy A\n"); }
+    }
+    struct B
+    {
+        this(this)
+        {
+            result ~= "(pB)"; version(none) printf("B says what?\n");
+            throw new Exception("BOOM!");
+        }
+        ~this() { result ~= "dB"; version(none) printf("destroy B\n"); }
+    }
+    struct S
+    {
+        A a;
+        B b;
+    }
+
+    result = "{";
+    {
+        S s1;
+        result ~= "[";
+        try
+        {
+            S s3 = s1;
+            assert(0);
+        }
+        catch (Exception e)
+        {}
+        result ~= "]";
+    }
+    result ~= "}";
+    assert(result == "{[pA(pB)dA]dBdA}", result);
+
+    result = "{";
+    {
+        S s1;
+        S s2;
+        result ~= "[";
+        try
+        {
+            s2 = s1;
+            assert(0);
+        }
+        catch (Exception e)
+        {}
+        result ~= "]";
+    }
+    result ~= "}";
+    assert(result == "{[pA(pB)dA]dBdAdBdA}", result);
+
+    return 1;
+}
+static assert(test10972()); // CTFE
+
+/**********************************/
 // 11134
 
 void test11134()
@@ -3185,6 +3263,943 @@ bool test12045()
 static assert(test12045());
 
 /**********************************/
+// 12591
+
+struct S12591(T)
+{
+    this(this)
+    {}
+}
+
+struct Tuple12591(Types...)
+{
+    Types expand;
+    this(Types values)
+    {
+        expand[] = values[];
+    }
+}
+
+void test12591()
+{
+    alias T1 = Tuple12591!(S12591!int);
+}
+
+/**********************************/
+// 12660
+
+struct X12660
+{
+    this(this) @nogc {}
+    ~this() @nogc {}
+    void opAssign(X12660) @nogc {}
+    @nogc invariant() {}
+}
+struct Y12660
+{
+    X12660 x;
+
+    this(this) @nogc {}
+    ~this() @nogc {}
+    @nogc invariant() {}
+}
+struct Z12660
+{
+    Y12660 y;
+}
+
+class C12660
+{
+    this() @nogc {}
+    @nogc invariant() {}
+}
+
+void test12660() @nogc
+{
+    X12660 x;
+    x = x;
+
+    Y12660 y = { x };
+    y = y;
+
+    Z12660 z = { y };
+    z = z;
+}
+
+/**********************************/
+// 12686
+
+struct Foo12686
+{
+    static int count;
+
+    invariant() { ++count; }
+
+    @disable this(this);
+
+    Foo12686 bar()
+    {
+        Foo12686 f;
+        return f;
+    }
+}
+
+void test12686()
+{
+    Foo12686 f;
+    Foo12686 f2 = f.bar();
+    version (unittest)
+    { }
+    else
+        assert(Foo12686.count == 2);
+}
+
+/**********************************/
+// 13089
+
+struct S13089
+{
+    @disable this(this);    // non nothrow
+}
+
+void* p13089;
+
+S13089[1000] foo13089() nothrow
+{
+    typeof(return) data;
+    p13089 = &data;
+    return data;
+}
+
+void test13089() nothrow
+{
+    immutable data = foo13089();
+    assert(p13089 == &data);
+}
+
+/**********************************/
+
+struct NoDtortest11763 {}
+
+struct HasDtortest11763
+{
+    NoDtortest11763 func()
+    {
+        return NoDtortest11763();
+    }
+    ~this() {}
+}
+
+void test11763()
+{
+    HasDtortest11763().func();
+}
+
+/**********************************/
+
+struct Buf { }
+
+struct Variant
+{
+    ~this() { }
+
+    Buf get() { Buf b; return b; }
+}
+
+Variant value() { Variant v; return v; }
+
+void test13303()
+{
+    value.get();
+}
+
+/**********************************/
+
+struct S13673
+{
+    string _name;
+    ~this() {}
+}
+
+string name13673;
+
+void test13673()
+{
+    S13673(name13673);
+    S13673(name13673);
+}
+
+/**********************************/
+
+void test13586()
+{
+    static struct S {
+        __gshared int count;
+        ~this() { ++count; printf("~S\n"); }
+    }
+
+    static struct T {
+        __gshared int count;
+        ~this() { ++count; printf("~T\n"); }
+    }
+
+    static int foo(bool flag)
+    {
+        if (flag)
+            throw new Exception("hello");
+        return 1;
+    }
+
+    static void func(S s, int f, T t)
+    {
+        printf("func()\n");
+    }
+
+    static class C
+    {
+        this(S s, int f, T t)
+        {
+            printf("C()\n");
+        }
+    }
+
+  {
+    bool threw = false;
+    try
+    {
+        func(S(), foo(true), T());
+        printf("not reach\n");
+    }
+    catch (Exception e)
+    {
+        threw = true;
+    }
+    printf("threw %d S %d T %d\n", threw, S.count, T.count);
+    assert(threw && S.count == 1 && T.count == 0);
+    S.count = 0;
+    T.count = 0;
+  }
+  {
+    bool threw = false;
+    try
+    {
+        func(S(), foo(false), T());
+        printf("reached\n");
+    }
+    catch (Exception e)
+    {
+        threw = true;
+    }
+    printf("threw %d S %d T %d\n", threw, S.count, T.count);
+    assert(!threw && S.count == 1 && T.count == 1);
+    S.count = 0;
+    T.count = 0;
+  }
+  {
+    bool threw = false;
+    try
+    {
+        new C(S(), foo(true), T());
+        printf("not reach\n");
+    }
+    catch (Exception e)
+    {
+        threw = true;
+    }
+    printf("threw %d S %d T %d\n", threw, S.count, T.count);
+    assert(threw && S.count == 1 && T.count == 0);
+    S.count = 0;
+    T.count = 0;
+  }
+}
+
+/**********************************/
+// 14443
+
+T enforce14443(E : Throwable = Exception, T)(T value)
+{
+    if (!value)
+        throw new E("Enforcement failed");
+    return value;
+}
+
+struct RefCounted14443(T)
+if (!is(T == class) && !(is(T == interface)))
+{
+    struct RefCountedStore
+    {
+        private struct Impl
+        {
+            T _payload;
+            size_t _count;
+        }
+
+        private Impl* _store;
+
+        private void initialize(A...)(auto ref A args)
+        {
+            import core.stdc.stdlib : malloc;
+
+            // enforce is necessary
+            _store = cast(Impl*) enforce14443(malloc(Impl.sizeof));
+
+            // emulate 'emplace'
+            static if (args.length > 0)
+                _store._payload.tupleof = args;
+            else
+                _store._payload = T.init;
+
+            _store._count = 1;
+        }
+
+        @property bool isInitialized() const nothrow @safe
+        {
+            return _store !is null;
+        }
+
+        void ensureInitialized()
+        {
+            if (!isInitialized) initialize();
+        }
+
+    }
+    RefCountedStore _refCounted;
+
+    this(A...)(auto ref A args) if (A.length > 0)
+    {
+        _refCounted.initialize(args);
+    }
+
+    this(this)
+    {
+        if (!_refCounted.isInitialized)
+            return;
+        ++_refCounted._store._count;
+        //printf("RefCounted count = %d (inc)\n", _refCounted._store._count);
+    }
+
+    ~this()
+    {
+        if (!_refCounted.isInitialized)
+            return;
+        assert(_refCounted._store._count > 0);
+        if (--_refCounted._store._count)
+        {
+            //printf("RefCounted count = %u\n", _refCounted._store._count);
+            return;
+        }
+
+        import core.stdc.stdlib : free;
+        free(_refCounted._store);
+        _refCounted._store = null;
+    }
+
+    void opAssign(typeof(this) rhs) { assert(0); }
+    void opAssign(T rhs) { assert(0); }
+
+    @property ref T refCountedPayload()
+    {
+        _refCounted.ensureInitialized();
+        return _refCounted._store._payload;
+    }
+
+    alias refCountedPayload this;
+}
+
+struct Path14443
+{
+    struct Payload
+    {
+        int p;
+    }
+    RefCounted14443!Payload data;
+}
+
+struct PathRange14443
+{
+    Path14443 path;
+    size_t i;
+
+    @property PathElement14443 front()
+    {
+        return PathElement14443(this, path.data.p);
+    }
+}
+
+struct PathElement14443
+{
+    PathRange14443 range;
+
+    this(PathRange14443 range, int)
+    {
+        this.range = range;
+    }
+}
+
+void test14443()
+{
+    auto path = Path14443(RefCounted14443!(Path14443.Payload)(12));
+    assert(path.data.p == 12);
+
+    @property refCount() { return path.data._refCounted._store._count; }
+    assert(refCount == 1);
+
+    {
+        auto _r = PathRange14443(path);
+        assert(refCount == 2);
+        // foreach
+        {
+            auto element = _r.front;
+            assert(refCount == 3);  // fail with 2.067
+        }
+        assert(refCount == 2);
+    }
+    assert(refCount == 1);
+}
+
+/**********************************/
+// 13661, 14022, 14023 - postblit/dtor call on static array assignment
+
+bool test13661()
+{
+    string op;
+
+    struct S
+    {
+        char x = 'x';
+        this(this) { op ~= x-0x20; }    // upper case
+        ~this()    { op ~= x; }         // lower case
+
+        ref auto opAssign(T)(T arg)
+        {
+            assert(0);
+            return this;
+        }
+    }
+
+    {
+        S[2] a;
+
+        a[0].x = 'a';
+        a[1].x = 'b';
+        a = a.init;
+        assert(op == "ab");
+        assert(a[0].x == 'x' && a[1].x == 'x');
+
+        a[0].x = 'c';
+        a[1].x = 'd';
+        a = [S(), S()];   // equivalent a = a.init
+        assert(op == "abcd");
+        assert(a[0].x == 'x' && a[1].x == 'x');
+    }
+    assert(op == "abcdxx");
+
+    return true;
+}
+bool test13661a()
+{
+    string op;
+
+    struct S
+    {
+        char x = 'x';
+        this(this) { op ~= x-0x20; }    // upper case
+        ~this()    { op ~= x; }         // lower case
+    }
+
+    {
+        S[3] sa = [S('a'), S('b'), S('c')];
+        S[2] sb = sa[1..3];
+        assert(sa == [S('a'), S('b'), S('c')]);
+        assert(sb == [S('b'), S('c')]);
+        sb[0].x = 'x';
+        sb[1].x = 'y';
+        assert(sa != [S('a'), S('x'), S('y')]); // OK <- incorrectly fails
+        assert(sa == [S('a'), S('b'), S('c')]); // OK <- incorrectly fails
+        assert(sb == [S('x'), S('y')]);
+    }
+    return true;
+}
+static assert(test13661());     // CTFE
+static assert(test13661a());
+
+bool test14022()
+{
+    string op;
+
+    struct S
+    {
+        char x = 'x';
+        this(this) { op ~= x-0x20; }    // upper case
+        ~this()    { op ~= x; }         // lower case
+    }
+
+    S[2] makeSA() { return [S('p'), S('q')]; }
+
+    struct T
+    {
+        S[2] sb;
+
+        this(ref S[2] sa)
+        {
+            assert(op == "");
+            this.sb = sa;   // TOKconstruct
+            assert(op == "BC", op);
+            assert(sb == [S('b'), S('c')]);
+        }
+        void test(ref S[2] sa)
+        {
+            this.sb = sa;    // dotvar: resolveSlice(newva)
+            assert(op == "BxCy");
+        }
+    }
+
+    op = null;
+    {
+        S[2] sa = [S('a'), S('b')];
+        T t;    t.sb[0].x = 'x';
+                t.sb[1].x = 'y';
+        assert(op == "");
+        t.sb = sa;
+        assert(op == "AxBy");
+        t.sb = makeSA();
+        assert(op == "AxByab");
+    }
+    assert(op == "AxByabqpba");
+
+    op = null;
+    {
+        S[3] sa = [S('a'), S('b'), S('c')];
+        T t = T(sa[1..3]);
+        t.sb[0].x = 'x';
+        t.sb[1].x = 'y';
+        assert(sa == [S('a'), S('b'), S('c')]);
+        assert(t.sb == [S('x'), S('y')]);
+        assert(op == "BC");
+    }
+    assert(op == "BCyxcba");
+
+    op = null;
+    {
+        S[3] sx = [S('a'), S('b'), S('c')];
+        T t;    t.sb[0].x = 'x';
+                t.sb[1].x = 'y';
+        t.test(sx[1..3]);
+        assert(op == "BxCy");
+        assert(t.sb == [S('b'), S('c')]);
+    }
+    assert(op == "BxCycbcba");
+
+    return true;
+}
+static assert(test14022());
+
+bool test14023()
+{
+    string op;
+
+    struct S
+    {
+        char x = 'x';
+        this(this) { op ~= x-0x20; }    // upper case
+        ~this()    { op ~= x; }         // lower case
+    }
+
+    S[2] makeSA() { return [S('p'), S('q')]; }
+
+    struct T
+    {
+        S[2][1] sb;
+        this(ref S[2] sa)
+        {
+            assert(op == "");
+            this.sb[0] = sa;   // TOKconstruct
+            assert(sa    == [S('b'), S('c')]);
+            assert(sb[0] == [S('b'), S('c')]);
+        }
+    }
+
+    void test(ref S[2] sa)
+    {
+        S[2][] a;
+        //a.length = 1; // will cause runtine AccessViolation
+        a ~= (S[2]).init;
+        assert(op == "");
+        a[0] = sa;      // index <-- resolveSlice(newva)
+        assert(op == "BxCx");
+        assert(a[0] == [S('b'), S('c')]);
+    }
+
+    op = null;
+    {
+        S[3] sa = [S('a'), S('b'), S('c')];
+        T t = T(sa[1..3]);
+        t.sb[0][0].x = 'x';
+        t.sb[0][1].x = 'y';
+        assert(sa      != [S('a'), S('x'), S('y')]);    // OK <- incorrectly fails
+        assert(sa      == [S('a'), S('b'), S('c')]);    // OK <- incorrectly fails
+        assert(t.sb[0] == [S('x'), S('y')]);
+    }
+
+    op = null;
+    {
+        S[2] sa = [S('a'), S('b')];
+        S[2][] a = [[S('x'), S('y')]];
+        assert(op == "");
+        a[0] = sa;
+        assert(op == "AxBy");
+        a[0] = makeSA();
+        assert(op == "AxByab");
+    }
+    assert(op == "AxByabba");
+
+    op = null;
+    {
+        S[3] sa = [S('a'), S('b'), S('c')];
+        test(sa[1..3]);
+        assert(op == "BxCx");
+    }
+    assert(op == "BxCxcba");
+
+    return true;
+}
+static assert(test14023());
+
+/************************************************/
+// 13669 - dtor call on static array variable
+
+bool test13669()
+{
+    string dtor;
+
+    struct S
+    {
+        char x = 'x';
+        ~this() { dtor ~= x; }
+    }
+
+    { S[2] a; }
+    assert(dtor == "xx");
+    dtor = "";
+
+    { S[2] a = [S('a'), S('b')]; }
+    assert(dtor == "ba");   // reverse order. See also: TypeInfo_StaticArray.destroy()
+
+    return true;
+}
+static assert(test13669());
+
+/**********************************/
+
+__gshared bool b13095 = false;
+
+void bar13095() { throw new Exception(""); }
+
+struct S13095
+{
+    this(int) { printf("ctor %p\n", &this); bar13095(); }
+
+    ~this() { b13095 = true; printf("dtor %p\n", &this); }
+}
+
+void test13095()
+{
+    try {
+        S13095(0);
+    } catch(Exception) { printf("catch\n"); }
+    assert(!b13095);
+}
+
+/**********************************/
+// 14264
+
+void test14264()
+{
+    static int dtor;
+    static struct Foo
+    {
+        ~this() { ++dtor; }
+        T opCast(T:bool)() { return true; }
+    }
+
+    Foo makeFoo()
+    {
+        return Foo();
+    }
+
+    assert(dtor == 0);
+
+    makeFoo();
+    assert(dtor == 1);
+
+    makeFoo;
+    assert(dtor == 2);
+
+    if (makeFoo()) {}
+    assert(dtor == 3);
+
+    if (makeFoo) {}
+    assert(dtor == 4);
+}
+
+/**********************************/
+// 14815
+
+int test14815()
+{
+    uint dtorCount;
+
+    struct S
+    {
+        uint x;
+        ~this() { ++dtorCount; }
+    }
+
+    S[2] sa1;
+    sa1[0].x = 42;
+    sa1 = (S[2]).init;      // S[2] <- rvalue
+    assert(sa1[0].x == 0);
+    assert(dtorCount == 2);
+
+    S[2] sa2;
+    sa2[0].x = 42;
+    S[] da2 = sa2[];
+    da2[] = (S[2]).init[];  // S[] <- rvalue slice
+    assert(sa2[0].x == 0);
+    assert(dtorCount == 4);
+
+    S[2] sa3;
+    S[2] sa4;
+    sa3[0].x = 42;
+    sa3 = sa4;              // S[2] <- lvalue
+    assert(sa3[0].x == 0);
+    assert(dtorCount == 6);
+
+    S[2] sa5;
+    S[] da4 = sa4[];
+    da4[] = sa5[];          // S[] <- lvalue slice
+    assert(sa4[0].x == 0);
+    assert(dtorCount == 8);
+
+    return 1;
+}
+static assert(test14815());
+
+/**********************************/
+// 14860
+
+int test14860()
+{
+    uint dtorCount;
+
+    struct S
+    {
+        uint x;
+        ~this() { ++dtorCount; }
+    }
+
+    S[] a = [S(42)];
+    a[] = S();
+
+    assert(a[0].x == 0);
+    assert(dtorCount == 1);
+
+    return 1;
+}
+static assert(test14860());
+
+/**********************************/
+// 14696
+
+void test14696(int len = 2)
+{
+    string result;
+
+    struct S
+    {
+        int n;
+
+        void* get(void* p = null)
+        {
+            result ~= "get(" ~ cast(char)(n+'0') ~ ").";
+            return null;
+        }
+
+        ~this()
+        {
+            result ~= "dtor(" ~ cast(char)(n+'0') ~ ").";
+        }
+    }
+
+    S makeS(int n)
+    {
+        result ~= "makeS(" ~ cast(char)(n+'0') ~ ").";
+        return S(n);
+    }
+    void foo(void* x, void* y = null)
+    {
+        result ~= "foo.";
+    }
+    void fooThrow(void* x, void* y = null)
+    {
+        result ~= "fooThrow.";
+        throw new Exception("fail!");
+    }
+
+    void check(void delegate() dg, string r, string file = __FILE__, size_t line = __LINE__)
+    {
+        import core.exception;
+
+        result = null;
+        try { dg(); } catch (Exception e) {}
+        if (result != r)
+            throw new AssertError(result, file, line);
+    }
+
+    // temporary in condition
+    check({ foo(len == 2 ?        makeS(1).get() : null); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len == 2 ? null : makeS(1).get()       ); }, "foo.");
+    check({ foo(len != 2 ?        makeS(1).get() : null); }, "foo.");
+    check({ foo(len != 2 ? null : makeS(1).get()       ); }, "makeS(1).get(1).foo.dtor(1).");
+
+    // temporary in nesting conditions
+    check({ foo(len >= 2 ?        (len == 2 ?        makeS(1).get() : null) : null); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len >= 2 ?        (len == 2 ? null : makeS(1).get()       ) : null); }, "foo.");
+    check({ foo(len >= 2 ?        (len != 2 ?        makeS(1).get() : null) : null); }, "foo.");
+    check({ foo(len >= 2 ?        (len != 2 ? null : makeS(1).get()       ) : null); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len >= 2 ? null : (len == 2 ?        makeS(1).get() : null)       ); }, "foo.");
+    check({ foo(len >= 2 ? null : (len == 2 ? null : makeS(1).get()       )       ); }, "foo.");
+    check({ foo(len >= 2 ? null : (len != 2 ?        makeS(1).get() : null)       ); }, "foo.");
+    check({ foo(len >= 2 ? null : (len != 2 ? null : makeS(1).get()       )       ); }, "foo.");
+    check({ foo(len >  2 ?        (len == 2 ?        makeS(1).get() : null) : null); }, "foo.");
+    check({ foo(len >  2 ?        (len == 2 ? null : makeS(1).get()       ) : null); }, "foo.");
+    check({ foo(len >  2 ?        (len != 2 ?        makeS(1).get() : null) : null); }, "foo.");
+    check({ foo(len >  2 ?        (len != 2 ? null : makeS(1).get()       ) : null); }, "foo.");
+    check({ foo(len >  2 ? null : (len == 2 ?        makeS(1).get() : null)       ); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len >  2 ? null : (len == 2 ? null : makeS(1).get()       )       ); }, "foo.");
+    check({ foo(len >  2 ? null : (len != 2 ?        makeS(1).get() : null)       ); }, "foo.");
+    check({ foo(len >  2 ? null : (len != 2 ? null : makeS(1).get()       )       ); }, "makeS(1).get(1).foo.dtor(1).");
+
+    // temporary in condition and throwing callee
+    // check({ fooThrow(len == 2 ?        makeS(1).get() : null); }, "makeS(1).get(1).fooThrow.dtor(1).");
+    // check({ fooThrow(len == 2 ? null : makeS(1).get()       ); }, "fooThrow.");
+    // check({ fooThrow(len != 2 ?        makeS(1).get() : null); }, "fooThrow.");
+    // check({ fooThrow(len != 2 ? null : makeS(1).get()       ); }, "makeS(1).get(1).fooThrow.dtor(1).");
+
+    // temporary in nesting condititions and throwing callee
+    // check({ fooThrow(len >= 2 ?        (len == 2 ?        makeS(1).get() : null) : null); }, "makeS(1).get(1).fooThrow.dtor(1).");
+    // check({ fooThrow(len >= 2 ?        (len == 2 ? null : makeS(1).get()       ) : null); }, "fooThrow.");
+    // check({ fooThrow(len >= 2 ?        (len != 2 ?        makeS(1).get() : null) : null); }, "fooThrow.");
+    // check({ fooThrow(len >= 2 ?        (len != 2 ? null : makeS(1).get()       ) : null); }, "makeS(1).get(1).fooThrow.dtor(1).");
+    // check({ fooThrow(len >= 2 ? null : (len == 2 ?        makeS(1).get() : null)       ); }, "fooThrow.");
+    // check({ fooThrow(len >= 2 ? null : (len == 2 ? null : makeS(1).get()       )       ); }, "fooThrow.");
+    // check({ fooThrow(len >= 2 ? null : (len != 2 ?        makeS(1).get() : null)       ); }, "fooThrow.");
+    // check({ fooThrow(len >= 2 ? null : (len != 2 ? null : makeS(1).get()       )       ); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ?        (len == 2 ?        makeS(1).get() : null) : null); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ?        (len == 2 ? null : makeS(1).get()       ) : null); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ?        (len != 2 ?        makeS(1).get() : null) : null); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ?        (len != 2 ? null : makeS(1).get()       ) : null); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ? null : (len == 2 ?        makeS(1).get() : null)       ); }, "makeS(1).get(1).fooThrow.dtor(1).");
+    // check({ fooThrow(len >  2 ? null : (len == 2 ? null : makeS(1).get()       )       ); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ? null : (len != 2 ?        makeS(1).get() : null)       ); }, "fooThrow.");
+    // check({ fooThrow(len >  2 ? null : (len != 2 ? null : makeS(1).get()       )       ); }, "makeS(1).get(1).fooThrow.dtor(1).");
+
+    // temporaries in each conditions
+    check({ foo(len == 2 ? makeS(1).get() : null, len == 2 ? makeS(2).get() : null); }, "makeS(1).get(1).makeS(2).get(2).foo.dtor(2).dtor(1).");
+    check({ foo(len == 2 ? makeS(1).get() : null, len != 2 ? makeS(2).get() : null); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len != 2 ? makeS(1).get() : null, len == 2 ? makeS(2).get() : null); }, "makeS(2).get(2).foo.dtor(2).");
+    check({ foo(len != 2 ? makeS(1).get() : null, len != 2 ? makeS(2).get() : null); }, "foo.");
+
+    // nesting temporaries in conditions
+    check({ foo(len == 2 ? makeS(1).get(len == 2 ? makeS(2).get() : null) : null); }, "makeS(1).makeS(2).get(2).get(1).foo.dtor(2).dtor(1).");
+    check({ foo(len == 2 ? makeS(1).get(len != 2 ? makeS(2).get() : null) : null); }, "makeS(1).get(1).foo.dtor(1).");
+    check({ foo(len != 2 ? makeS(1).get(len == 2 ? makeS(2).get() : null) : null); }, "foo.");
+    check({ foo(len != 2 ? makeS(1).get(len != 2 ? makeS(2).get() : null) : null); }, "foo.");
+}
+
+/**********************************/
+// 14838
+
+int test14838() pure nothrow @safe
+{
+    int dtor;
+
+    struct S14838(T)
+    {
+        ~this() { ++dtor; }
+    }
+    struct X14838
+    {
+              S14838!int ms;
+        const S14838!int cs;
+
+              S14838!int[2] ma;
+        const S14838!int[2] ca;
+
+              S14838!int[2][2] ma2x2;
+        const S14838!int[2][2] ca2x2;
+
+        // number of S14838 = 1*2 + 2*2 + 4*2 = 14
+    }
+
+    void test(Dg)(scope Dg code)
+    {
+        dtor = 0;
+        code();
+    }
+
+    test(delegate{       S14838!int a; }); assert(dtor == 1);
+    test(delegate{ const S14838!int a; }); assert(dtor == 1);
+
+    test(delegate{       S14838!int[2] a; }); assert(dtor == 2);
+    test(delegate{ const S14838!int[2] a; }); assert(dtor == 2);
+
+    test(delegate{       S14838!int[2][2] a; }); assert(dtor == 4);
+    test(delegate{ const S14838!int[2][2] a; }); assert(dtor == 4);
+
+    test(delegate{       X14838 a; }); assert(dtor == 1 * 14);
+    test(delegate{ const X14838 a; }); assert(dtor == 1 * 14);
+
+    test(delegate{       X14838[2] a; }); assert(dtor == 2 * 14);
+    test(delegate{ const X14838[2] a; }); assert(dtor == 2 * 14);
+
+    test(delegate{       X14838[2][2] a; }); assert(dtor == 4 * 14);
+    test(delegate{ const X14838[2][2] a; }); assert(dtor == 4 * 14);
+
+    return 1;
+}
+static assert(test14838());
+
+/**********************************/
+
+struct S63
+{
+    private long p = 87;
+
+    this(int x)
+    {
+	assert(p == 87);
+	p += x;
+    }
+
+    ~this() { }
+
+    this(this) { }
+
+    void funky() { assert(p == 90); }
+
+    static void tester()
+    {
+	S63(3).funky();
+    }
+}
+
+void test63()
+{
+    S63.tester();
+}
+
+/**********************************/
 
 int main()
 {
@@ -3278,11 +4293,33 @@ int main()
     test10244();
     test10694();
     test10789();
+    test10972();
     test11134();
     test11197();
     test7474();
     test11505();
     test12045();
+    test12591();
+    test12660();
+    test12686();
+    test13089();
+    test11763();
+    test13303();
+    test13673();
+    test13586();
+    test14443();
+    test13661();
+    test13661a();
+    test14022();
+    test14023();
+    test13669();
+    test13095();
+    test14264();
+    test14815();
+    test14860();
+    test14696();
+    test14838();
+    test63();
 
     printf("Success\n");
     return 0;

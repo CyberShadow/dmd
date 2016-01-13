@@ -5,7 +5,7 @@
 // written by Walter Bright
 // http://www.digitalmars.com
 
-import std.c.stdio;
+import core.stdc.stdio;
 
 version (D_PIC)
 {
@@ -6561,6 +6561,19 @@ L1:     pop     RAX;
 
 /****************************************************/
 
+void testconst()
+{
+    ulong result;
+    asm
+    {
+        mov RAX, 0xFFFF_FFFFu;
+        mov result, RAX;
+    }
+    assert (result == 0xFFFF_FFFFu);
+}
+
+/****************************************************/
+
 void test9965()
 {
     ubyte* p;
@@ -6572,6 +6585,7 @@ void test9965()
 	0x40, 0xB5, 0x01,       // mov	BPL,1
 	0x40, 0xB4, 0x01,       // mov	SPL,1
 	0x41, 0xB0, 0x01,       // mov	R8B,1
+	0x40, 0x80, 0xE6, 0x01, // and  SIL,1 (issue 12971)
     ];
 
     asm
@@ -6584,6 +6598,7 @@ void test9965()
 	mov BPL, 1;
 	mov SPL, 1;
 	mov R8B, 1;
+	and SIL, 1;
 
 L1:     pop     RAX;
         mov     p[RBP],RAX;
@@ -6595,6 +6610,55 @@ L1:     pop     RAX;
         assert(p[i] == b);
     }
     assert(p[data.length] == 0x58); // pop RAX
+}
+
+/****************************************************/
+
+void test12849()
+{
+    ulong a = 0xff00ff00ff00ff00L;
+    ulong result;
+    ulong expected = 0b10101010;
+    asm
+    {
+        pxor XMM0, XMM0;
+        movq XMM0, a;
+        pmovmskb RAX, XMM0;
+        mov result, RAX;
+    }
+    assert (result == expected);
+}
+
+/****************************************************/
+
+void test12968()
+{
+    int x;
+    ubyte* p;
+    static ubyte data[] =
+    [
+        0x48, 0x89, 0xF8,
+        0x4C, 0x87, 0xC2,
+        0xC3
+    ];
+
+    asm
+    {
+        call	L1			;
+
+        mov RAX, RDI;
+        xchg RDX, R8;
+        ret;
+
+L1:     pop     RAX;
+        mov     p[RBP],RAX;
+    }
+
+    foreach (ref i, b; data)
+    {
+        //printf("data[%d] = 0x%02x, should be 0x%02x\n", i, p[i], b);
+        assert(p[i] == b);
+    }
 }
 
 /****************************************************/
@@ -6668,6 +6732,9 @@ int main()
     test9866();
     testxadd();
     test9965();
+    test12849();
+    test12968();
+    testconst();
 
     printf("Success\n");
     return 0;

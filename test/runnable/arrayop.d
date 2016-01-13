@@ -650,6 +650,18 @@ void test9656()
 }
 
 /************************************************************************/
+// 10282
+
+void test10282()
+{
+    int[3]           a1 = [1, 3, 6];
+    int[3]           a2 = [1, 3, 6] * 3;    // OK
+    const     int[3] a3 = a1[] * 3;         // OK <- Error
+    const     int[3] a4 = [1, 3, 6] * 3;    // OK <- Error
+    immutable int[3] a5 = [1, 3, 6] * 3;    // OK <- Error
+}
+
+/************************************************************************/
 // 10433
 
 void test10433()
@@ -737,6 +749,155 @@ void test11525()
 }
 
 /************************************************************************/
+// 12250
+
+void f12250(inout int[] p, inout int[] q, int[] r)
+{
+    r[] = p[] + q[];
+    assert(r == [5,7,9]);
+    r[] -= p[] - q[];
+    assert(r == [8,10,12]);
+}
+
+void test12250()
+{
+    immutable int[3] x = [1,2,3], y = [4,5,6];
+    int[3] z;
+    f12250(x[], y[], z[]);
+}
+
+/************************************************************************/
+// 12179
+
+void test12179()
+{
+    void foo(int[]) {}
+    int[1] a;
+
+    foo(a[] = a[]);
+    foo(a[] += a[]);
+    foo(a[] -= a[]);
+    foo(a[] *= a[]);
+    foo(a[] /= a[]);
+    foo(a[] %= a[]);
+    foo(a[] ^= a[]);
+    foo(a[] &= a[]);
+    foo(a[] |= a[]);
+    foo(a[] ^^= a[]);
+
+    // from issue 11992
+    int[]   arr1;
+    int[][] arr2;
+    arr1 ~= (a[] = [1] + a[]); // OK
+    arr2 ~= (a[] = [1] + a[]); // OK
+}
+
+/************************************************************************/
+// 12780
+
+void test12780()
+{
+    int ival = 2;
+    int[] iarr = [1, 2, 3];
+    double dval = 2.0;
+    double[] darr = [4, 5, 6];
+
+    double[] oarr = [0, 0, 0];
+
+    // multiply array operations
+    oarr[] = dval * iarr[];
+    assert(oarr == [dval * iarr[0],
+                    dval * iarr[1],
+                    dval * iarr[2]]);
+
+    oarr[] = iarr[] / dval;
+    assert(oarr == [iarr[0] / dval,
+                    iarr[1] / dval,
+                    iarr[2] / dval]);
+
+    oarr[] = dval * (ival + iarr[]);
+    assert(oarr == [dval * (ival + iarr[0]),
+                    dval * (ival + iarr[1]),
+                    dval * (ival + iarr[2])]);
+
+    oarr[] = (iarr[] & ival) / dval;
+    assert(oarr == [(iarr[0] & ival) / dval,
+                    (iarr[1] & ival) / dval,
+                    (iarr[2] & ival) / dval]);
+
+    oarr[] = darr[] + iarr[];
+    assert(oarr == [darr[0] + iarr[0],
+                    darr[1] + iarr[1],
+                    darr[2] + iarr[2]]);
+
+    oarr[] = iarr[] - darr[];
+    assert(oarr == [iarr[0] - darr[0],
+                    iarr[1] - darr[1],
+                    iarr[2] - darr[2]]);
+
+    oarr[] = darr[] * (ival & iarr[]);
+    assert(oarr == [darr[0] * (ival & iarr[0]),
+                    darr[1] * (ival & iarr[1]),
+                    darr[2] * (ival & iarr[2])]);
+
+    oarr[] = (iarr[] ^ ival) / darr[];
+    assert(oarr == [(iarr[0] ^ ival) / darr[0],
+                    (iarr[1] ^ ival) / darr[1],
+                    (iarr[2] ^ ival) / darr[2]]);
+}
+
+/************************************************************************/
+// 13497
+
+void test13497()
+{
+    int[1] a = [2], b = [3];
+    int[1] c1 =  a[] * b[];
+    int[1] c2 = (a[] * b[])[];
+    assert(c1 == [6]);
+    assert(c2 == [6]);
+}
+
+/************************************************************************/
+// 14649
+
+void test14649()
+{
+    char[] a = "abc".dup;
+    char[] b = [char(1), char(2), char(3)];
+    string x = "abc";
+    string y = [char(1), char(2), char(3)];
+    char[] r = new char[](3);
+
+    r[] = a[] + b[];
+    assert(r == "bdf");
+
+    r[] = x[] + y[];
+    assert(r == "bdf");
+
+    r[] = "hel"[] + "lo."[];
+    assert(r == [('h'+'l'), ('e'+'o'), ('l'+'.')]);
+
+    enum s = "abc";
+    r[] = s[0..3] + "def"[0..3];
+    assert(r == [('a'+'d'), ('b'+'e'), ('c'+'f')]);
+}
+
+/************************************************************************/
+// 14851
+
+void test14851()
+{
+    int[8] a, b, c;
+
+    c   = a[] | b[];    // OK <- NG from 2.068.0-b2
+    c   = a[] ^ b[];    // OK <- NG from 2.068.0-b2
+
+    c[] = a[] | b[];    // OK
+    c[] = a[] ^ b[];    // OK
+}
+
+/************************************************************************/
 
 int main()
 {
@@ -749,10 +910,16 @@ int main()
     test8390();
     test8651();
     test9656();
+    test10282();
     test10433();
     test10684a();
     test10684b();
     test11525();
+    test12250();
+    test12780();
+    test13497();
+    test14649();
+    test14851();
 
     printf("Success\n");
     return 0;

@@ -618,7 +618,7 @@ void test9993b()
     }
               A ma = new           A;   assert(ma.x == 13);
     immutable A ia = new immutable A;   assert(ia.x == 42);
-    static assert(!__traits(compiles, { immutable A ia = new A; }));
+    static assert(__traits(compiles, { immutable A ia = new A; }));
 
     static class B
     {
@@ -628,7 +628,7 @@ void test9993b()
     }
     const B mb = new       B;           assert(mb.x == 13);
     const B cb = new const B;           assert(cb.x == 42);
-    static assert(!__traits(compiles, { immutable B ib = new B; }));
+    static assert(__traits(compiles, { immutable B ib = new B; }));
 
     static class C
     {
@@ -642,19 +642,20 @@ void test9993b()
 }
 
 /********************************************/
+// 1914
 
 struct Bug1914a
 {
     const char[10] i = [1,0,0,0,0,0,0,0,0,0];
     char[10] x = i;
-    int y=5;
+    int y = 5;
 }
 
 struct Bug1914b
 {
     const char[10] i = [0,0,0,0,0,0,0,0,0,0];
     char[10] x = i;
-    int y=5;
+    int y = 5;
 }
 
 struct Bug1914c
@@ -667,36 +668,69 @@ struct Bug1914c
     int y = 5;
     char[2][3] z = j;
     char[2][3] w = k;
-    int v=27;
+    int v = 27;
     char[2][3] u = l;
     int t = 718;
 }
 
-struct T3198 {
-   int g = 1;
+struct T3198
+{
+    int g = 1;
 }
 
-class Foo3198 {
-   int[5] x = 6;
-   T3198[5] y = T3198(4);
+class Foo3198
+{
+    int[5] x = 6;
+    T3198[5] y = T3198(4);
 }
 
 void test3198and1914()
 {
     Bug1914a a;
-    assert(a.y==5, "bug 1914, non-zero init");
+    assert(a.y == 5, "bug 1914, non-zero init");
     Bug1914b b;
-    assert(b.y==5, "bug 1914, zero init");
+    assert(b.y == 5, "bug 1914, zero init");
     Bug1914c c;
-    assert(c.y==5, "bug 1914, multilevel init");
-    assert(c.v==27, "bug 1914, multilevel init2");
-    assert(c.x[2][1]=='b');
-    assert(c.t==718, "bug 1914, multi3");
-    assert(c.u[1][0]=='p');
-    assert(c.u[1][1]==char.init);
+    assert(c.y == 5, "bug 1914, multilevel init");
+    assert(c.v == 27, "bug 1914, multilevel init2");
+    assert(c.x[2][1] == 'b');
+    assert(c.t == 718, "bug 1914, multi3");
+    assert(c.u[1][0] == 'p');
+    assert(c.u[1][1] == char.init);
     auto f = new Foo3198();
-    assert(f.x[0]==6);
-    assert(f.y[0].g==4, "bug 3198");
+    assert(f.x[0] == 6);
+    assert(f.y[0].g == 4, "bug 3198");
+}
+
+/********************************************/
+// 14996
+
+enum E14996a : string { confirm = "confirm" }
+enum E14996b : long[] { confirm = [1,2,3,4] }
+
+struct S14996
+{
+    E14996a[1] data1;
+    E14996b[1] data2;
+}
+
+/********************************************/
+// 2427
+
+void test2427()
+{
+    struct S
+    {
+        int x;
+    }
+
+    int foo(int i)
+    {
+        return i;
+    }
+
+    int i;
+    S s = { foo(i) };
 }
 
 /********************************************/
@@ -849,6 +883,51 @@ void test6937()
     auto py2 = new Y(y.x);
     assert(py2.x.v == 2);
 }
+
+/********************************************/
+// 12681
+
+struct HasUnion12774
+{
+    union
+    {
+        int a, b;
+    }
+}
+
+bool test12681()
+{
+    immutable int x = 42;
+
+    static struct S1
+    {
+        immutable int *p;
+    }
+    immutable s1 = new S1(&x);
+    assert(s1.p == &x);
+
+    struct S2
+    {
+        immutable int *p;
+        void foo() {}
+    }
+    auto s2 = new S2(&x);
+    assert(s2.p == &x);
+
+    struct S3
+    {
+        immutable int *p;
+        int foo() { return x; }
+    }
+    auto s3 = new S3(&x);
+    assert(s3.p == &x);
+    assert(s3.foo() == 42);
+
+    auto x12774 = new HasUnion12774();
+
+    return true;
+}
+static assert(test12681());
 
 /********************************************/
 // 3991
@@ -1009,6 +1088,23 @@ void test7021()
   static assert(!is(typeof({
     auto s = S7021();
   })));
+}
+
+/********************************************/
+// 8738
+
+void test8738()
+{
+    int[3] a = [1, 2, 3];
+
+    struct S { int a, b, c; }
+    S s = S(1, 2, 3);
+
+    a = [4, a[0], 6];
+    s = S(4, s.a, 6);
+
+    assert(a == [4, 1, 6]);
+    assert(s == S(4, 1, 6));
 }
 
 /********************************************/
@@ -1260,6 +1356,93 @@ int foo11427() @safe
 }
 
 /********************************************/
+// 12011
+
+struct S12011a
+{
+    int f() { return i; }
+    enum e = this.init.f();
+    int i = 1, j = 2;
+}
+
+struct S12011b
+{
+    int f() { return i; }
+    enum e = S12011b().f();
+    int i = 1, j = 2;
+}
+
+void test12011()
+{
+    static assert(S12011a.e == 1);
+    static assert(S12011b.e == 1);
+}
+
+/********************************************/
+// 13021
+
+void test13021()
+{
+    static union U1
+    {
+        float a;
+        int b;
+    }
+
+    static union U2
+    {
+        double a;
+        long b;
+    }
+
+    static union U3
+    {
+        real a;
+        struct B { long b1, b2; } // ICE happens only if B.sizeof == real.sizeof
+        B b;
+    }
+
+    static union U4
+    {
+        real a;
+        long[2] b; // ditto
+    }
+
+    auto f = U1(1.0);  auto ok = f.b;
+
+    auto fail1 = U1(1.0).b; // OK <- Internal error: e2ir.c 1162
+    auto fail2 = U2(1.0).b; // OK <- Internal error: e2ir.c 1162
+    auto fail3 = U3(1.0).b; // OK <- Internal error: e2ir.c 1162
+    auto fail4 = U4(1.0).b; // OK <- Internal error: backend/el.c 2904
+}
+
+/********************************************/
+// 14556
+
+enum E14556 { a = 1 }
+
+struct S14556a
+{
+    this(int) {}
+    E14556[1] data;
+}
+
+struct S14556b
+{
+    this(int) {}
+    void[1] data;
+}
+
+void test14556()
+{
+    auto sa = S14556a(0);
+    assert(sa.data == [E14556.a]);
+
+    auto sb = S14556b(0);
+    assert(sb.data[] == cast(ubyte[1])[0]);
+}
+
+/********************************************/
 
 int main()
 {
@@ -1285,14 +1468,17 @@ int main()
     test9993a();
     test9993b();
     test3198and1914();
+    test2427();
     test5885();
     test5889();
     test4247();
     test6937();
+    test12681();
     test3991();
     test7727();
     test7929();
     test7021();
+    test8738();
     test8763();
     test8902();
     test9116();
@@ -1301,6 +1487,8 @@ int main()
     test11105();
     test11147();
     test11256();
+    test13021();
+    test14556();
 
     printf("Success\n");
     return 0;

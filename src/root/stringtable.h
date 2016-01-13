@@ -1,12 +1,11 @@
 
-// Copyright (c) 1999-2011 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
-
+/* Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved, written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/root/stringtable.h
+ */
 
 #ifndef STRINGTABLE_H
 #define STRINGTABLE_H
@@ -16,52 +15,51 @@
 #endif
 
 #include "root.h"
+#include "rmem.h"   // for d_size_t
 
 struct StringEntry;
 
-// StringValue is a variable-length structure as indicated by the last array
-// member with unspecified size.  It has neither proper c'tors nor a factory
-// method because the only thing which should be creating these is StringTable.
+// StringValue is a variable-length structure. It has neither proper c'tors nor a
+// factory method because the only thing which should be creating these is StringTable.
 struct StringValue
 {
     void *ptrvalue;
-private:
     size_t length;
+    char *lstring() { return (char *)(this + 1); }
 
-#ifndef IN_GCC
-    // Disable warning about nonstandard extension
-    #pragma warning (disable : 4200)
-#endif
-    char lstring[];
-
-public:
     size_t len() const { return length; }
-    const char *toDchars() const { return lstring; }
+    const char *toDchars() const { return (const char *)(this + 1); }
 
-private:
-    friend struct StringEntry;
     StringValue();  // not constructible
-    // This is more like a placement new c'tor
-    void ctor(const char *p, size_t length);
 };
 
 struct StringTable
 {
 private:
-    void **table;
-    size_t count;
+    StringEntry *table;
     size_t tabledim;
 
+    uint8_t **pools;
+    size_t npools;
+    size_t nfill;
+
+    size_t count;
+
 public:
-    void _init(size_t size = 37);
+    void _init(d_size_t size = 0);
+    void reset(d_size_t size = 0);
     ~StringTable();
 
-    StringValue *lookup(const char *s, size_t len);
-    StringValue *insert(const char *s, size_t len);
-    StringValue *update(const char *s, size_t len);
+    StringValue *lookup(const char *s, d_size_t len);
+    StringValue *insert(const char *s, d_size_t len);
+    StringValue *update(const char *s, d_size_t len);
+    int apply(int (*fp)(StringValue *));
 
 private:
-    void **search(const char *s, size_t len);
+    uint32_t allocValue(const char *p, d_size_t length);
+    StringValue *getValue(uint32_t validx);
+    size_t findSlot(hash_t hash, const char *s, d_size_t len);
+    void grow();
 };
 
 #endif

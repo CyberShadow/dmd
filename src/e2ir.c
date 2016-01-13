@@ -1,12 +1,13 @@
 
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2013 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// License for redistribution is by either the Artistic License
-// in artistic.txt, or the GNU General Public License in gnu.txt.
-// See the included readme.txt for details.
+/* Compiler implementation of the D programming language
+ * Copyright (c) 1999-2014 by Digital Mars
+ * All Rights Reserved
+ * written by Walter Bright
+ * http://www.digitalmars.com
+ * Distributed under the Boost Software License, Version 1.0.
+ * http://www.boost.org/LICENSE_1_0.txt
+ * https://github.com/D-Programming-Language/dmd/blob/master/src/e2ir.c
+ */
 
 #include        <stdio.h>
 #include        <string.h>
@@ -15,7 +16,6 @@
 #include        "port.h"
 #include        "target.h"
 
-#include        "lexer.h"
 #include        "expression.h"
 #include        "mtype.h"
 #include        "dsymbol.h"
@@ -41,17 +41,40 @@
 #include        "type.h"
 #include        "toir.h"
 #include        "ctfe.h"
-static char __file__[] = __FILE__;      /* for tassert.h                */
-#include        "tassert.h"
 
 typedef Array<elem *> Elems;
+RET retStyle(TypeFunction *tf);
 
 elem *addressElem(elem *e, Type *t, bool alwaysCopy = false);
 elem *array_toPtr(Type *t, elem *e);
-elem *appendDtors(IRState *irs, elem *er, size_t starti, size_t endi);
 VarDeclarations *VarDeclarations_create();
 type *Type_toCtype(Type *t);
 elem *toElemDtor(Expression *e, IRState *irs);
+unsigned totym(Type *tx);
+Symbol *toSymbol(Dsymbol *s);
+elem *toElem(Expression *e, IRState *irs);
+dt_t **Expression_toDt(Expression *e, dt_t **pdt);
+Symbol *toStringSymbol(const char *str, size_t len, size_t sz);
+Symbol *toStringSymbol(StringExp *se);
+void toObjFile(Dsymbol *ds, bool multiobj);
+Symbol *toModuleAssert(Module *m);
+Symbol *toModuleUnittest(Module *m);
+Symbol *toModuleArray(Module *m);
+Symbol *toImport(Dsymbol *ds);
+Symbol *toInitializer(AggregateDeclaration *ad);
+Symbol *aaGetSymbol(TypeAArray *taa, const char *func, int flags);
+Symbol* toSymbol(StructLiteralExp *sle);
+Symbol* toSymbol(ClassReferenceExp *cre);
+elem *filelinefunction(IRState *irs, Expression *e);
+void toTraceGC(IRState *irs, elem *e, Loc *loc);
+void genTypeInfo(Type *t, Scope *sc);
+
+int callSideEffectLevel(FuncDeclaration *f);
+int callSideEffectLevel(Type *t);
+
+void objc_callfunc_setupMethodSelector(Type *tret, FuncDeclaration *fd, Type *t, elem *ehidden, elem **esel);
+void objc_callfunc_setupMethodCall(elem **ec, elem *ehidden, elem *ethis, TypeFunction *tf);
+void objc_callfunc_setupEp(elem *esel, elem **ep, int reverse);
 
 #define el_setLoc(e,loc)        ((e)->Esrcpos.Sfilename = (char *)(loc).filename, \
                                  (e)->Esrcpos.Slinnum = (loc).linnum, \
@@ -61,7 +84,8 @@ elem *toElemDtor(Expression *e, IRState *irs);
  */
 bool ISREF(Declaration *var, Type *tb)
 {
-    return (var->isParameter() && config.exe == EX_WIN64 && (var->type->size(Loc()) > REGSIZE || var->storage_class & STClazy))
+    return (config.exe == EX_WIN64 && var->isParameter() &&
+            (var->type->size(Loc()) > REGSIZE || var->storage_class & STClazy))
             || var->isOut() || var->isRef();
 }
 
@@ -70,8 +94,8 @@ bool ISREF(Declaration *var, Type *tb)
 bool ISWIN64REF(Declaration *var)
 {
     return (config.exe == EX_WIN64 && var->isParameter() &&
-            (var->type->size(Loc()) > REGSIZE || var->storage_class & STClazy)) &&
-            !(var->isOut() || var->isRef());
+            (var->type->size(Loc()) > REGSIZE || var->storage_class & STClazy))
+            && !(var->isOut() || var->isRef());
 }
 
 /******************************************
@@ -103,7 +127,8 @@ elem *callfunc(Loc loc,
         FuncDeclaration *fd,    // if !=NULL, this is the function being called
         Type *t,                // TypeDelegate or TypeFunction for this function
         elem *ehidden,          // if !=NULL, this is the 'hidden' argument
-        Expressions *arguments)
+        Expressions *arguments,
+        elem *esel = NULL)      // selector for Objective-C methods (when not provided by fd)
 {
     elem *ep;
     elem *e;
@@ -139,20 +164,20 @@ elem *callfunc(Loc loc,
         ec = el_same(&ethis);
         ethis = el_una(I64 ? OP128_64 : OP64_32, TYnptr, ethis); // get this
         ec = array_toPtr(t, ec);                // get funcptr
-        ec = el_una(OPind, tf->totym(), ec);
+        ec = el_una(OPind, totym(tf), ec);
     }
     else
     {
         assert(t->ty == Tfunction);
         tf = (TypeFunction *)(t);
     }
-    retmethod = tf->retStyle();
+    retmethod = retStyle(tf);
     ty = ec->Ety;
     if (fd)
-        ty = fd->toSymbol()->Stype->Tty;
+        ty = toSymbol(fd)->Stype->Tty;
     reverse = tyrevfunc(ty);
     ep = NULL;
-    op = (ec->Eoper == OPvar) ? intrinsic_op(ec->EV.sp.Vsym->Sident) : -1;
+    op = fd ? intrinsic_op(fd) : -1;
     if (arguments)
     {
         for (size_t i = 0; i < arguments->dim; i++)
@@ -163,7 +188,7 @@ elem *callfunc(Loc loc,
             if (arg->op == TOKcomma)
             {
                 CommaExp *ce = (CommaExp *)arg;
-                eside = el_combine(eside, ce->e1->toElem(irs));
+                eside = el_combine(eside, toElem(ce->e1, irs));
                 (*arguments)[i] = ce->e2;
                 goto Lagain;
             }
@@ -186,10 +211,9 @@ elem *callfunc(Loc loc,
 
                 if (p->storageClass & (STCout | STCref))
                 {
-                    // Convert argument to a pointer,
-                    // use AddrExp::toElem()
-                    Expression *ae = arg->addressOf(NULL);
-                    ea = ae->toElem(irs);
+                    // Convert argument to a pointer
+                    ea = toElem(arg, irs);
+                    ea = addressElem(ea, arg->type->pointerTo());
                     goto L1;
                 }
             }
@@ -198,11 +222,11 @@ elem *callfunc(Loc loc,
                 /* Copy to a temporary, and make the argument a pointer
                  * to that temporary.
                  */
-                ea = arg->toElem(irs);
+                ea = toElem(arg, irs);
                 ea = addressElem(ea, arg->type, true);
                 goto L1;
             }
-            ea = arg->toElem(irs);
+            ea = toElem(arg, irs);
             if (config.exe == EX_WIN64 && tybasic(ea->Ety) == TYcfloat)
             {
                 /* Treat a cfloat like it was a struct { float re,im; }
@@ -218,6 +242,9 @@ elem *callfunc(Loc loc,
         }
     }
 
+    objc_callfunc_setupMethodSelector(tret, fd, t, ehidden, &esel);
+    objc_callfunc_setupEp(esel, &ep, reverse);
+
     if (retmethod == RETstack)
     {
         if (!ehidden)
@@ -230,7 +257,7 @@ elem *callfunc(Loc loc,
                 tret->toBasetype()->ty == Tsarray)
                 tc = Type_toCtype(tret);
             else
-                tc = type_fake(tret->totym());
+                tc = type_fake(totym(tret));
             Symbol *stmp = symbol_genauto(tc);
             ehidden = el_ptr(stmp);
             eresult = ehidden;
@@ -275,9 +302,13 @@ elem *callfunc(Loc loc,
             // Evaluate ec for side effects
             eside = el_combine(ec, eside);
         }
-        Symbol *sfunc = fd->toSymbol();
+        Symbol *sfunc = toSymbol(fd);
 
-        if (!fd->isVirtual() ||
+        if (esel)
+        {
+            objc_callfunc_setupMethodCall(&ec, ehidden, ethis, tf);
+        }
+        else if (!fd->isVirtual() ||
             directcall ||               // BUG: fix
             fd->isFinalFunc()
            /* Future optimization: || (whole program analysis && not overridden)
@@ -313,7 +344,7 @@ if (I32) assert(tysize[TYnptr] == 4);
     if (ehidden)
         ep = el_param(ep, ehidden);     // if ehidden goes last
 
-    tyret = tret->totym();
+    tyret = totym(tret);
 
     // Look for intrinsic functions
     if (ec->Eoper == OPvar && op != -1)
@@ -324,7 +355,12 @@ if (I32) assert(tysize[TYnptr] == 4);
             ep->Eoper = op;
             ep->Ety = tyret;
             e = ep;
-#if TX86
+            if (op == OPeq)
+            {   /* This was a volatileStore(ptr, value) operation, rewrite as:
+                 *   *ptr = value
+                 */
+                e->E1 = el_una(OPind, e->E2->Ety | mTYvolatile, e->E1);
+            }
             if (op == OPscale)
             {
                 elem *et = e->E1;
@@ -338,7 +374,6 @@ if (I32) assert(tysize[TYnptr] == 4);
                 e->E1 = e->E2;
                 e->E2 = et;
             }
-#endif
         }
         else if (op == OPvector)
         {
@@ -367,11 +402,27 @@ if (I32) assert(tysize[TYnptr] == 4);
             else
                 e = el_una(op,tyret,ep);
         }
+        else if (op == OPind)
+            e = el_una(op,mTYvolatile | tyret,ep);
+        else if (op == OPva_start && global.params.is64bit)
+        {
+            assert(I64);
+            // (OPparam &va &arg)
+            // call as (OPva_start &va)
+            ep->Eoper = op;
+            ep->Ety = tyret;
+            e = ep;
+
+            elem *earg = e->E2;
+            e->E2 = NULL;
+            e = el_combine(earg, e);
+        }
         else
             e = el_una(op,tyret,ep);
     }
     else
-    {   /* Do not do "no side effect" calls if a hidden parameter is passed,
+    {
+        /* Do not do "no side effect" calls if a hidden parameter is passed,
          * as the return value is stored through the hidden parameter, which
          * is a side effect.
          */
@@ -380,8 +431,9 @@ if (I32) assert(tysize[TYnptr] == 4);
         //printf("\tfd = %s, tf = %s\n", fd->toChars(), tf->toChars());
         /* assert() has 'implicit side effect' so disable this optimization.
          */
-        int ns = ((fd ? fd->isPure() : tf->purity) == PUREstrong &&
-                  tf->isnothrow && (retmethod != RETstack) &&
+        int ns = ((fd ? callSideEffectLevel(fd)
+                      : callSideEffectLevel(t)) == 2 &&
+                  retmethod != RETstack &&
                   !global.params.useAssert && global.params.optimize);
         if (ep)
             e = el_bin(ns ? OPcallns : OPcall, tyret, ec, ep);
@@ -427,6 +479,22 @@ elem *addressElem(elem *e, Type *t, bool alwaysCopy)
     elem **pe;
     for (pe = &e; (*pe)->Eoper == OPcomma; pe = &(*pe)->E2)
         ;
+
+    // For conditional operator, both branches need conversion.
+    if ((*pe)->Eoper == OPcond)
+    {
+        elem *ec = (*pe)->E2;
+
+        ec->E1 = addressElem(ec->E1, t, alwaysCopy);
+        ec->E2 = addressElem(ec->E2, t, alwaysCopy);
+
+        (*pe)->Ejty = (*pe)->Ety = ec->E1->Ety;
+        (*pe)->ET = ec->E1->ET;
+
+        e->Ety = TYnptr;
+        return e;
+    }
+
     if (alwaysCopy || ((*pe)->Eoper != OPvar && (*pe)->Eoper != OPind))
     {
         elem *e2 = *pe;
@@ -624,6 +692,7 @@ elem *sarray_toDarray(Loc loc, Type *tfrom, Type *tto, elem *e)
 
         if ((dim * fsize) % tsize != 0)
         {
+            // have to change to Internal Compiler Error?
             error(loc, "cannot cast %s to %s since sizes don't line up", tfrom->toChars(), tto->toChars());
         }
         dim = (dim * fsize) / tsize;
@@ -634,10 +703,20 @@ elem *sarray_toDarray(Loc loc, Type *tfrom, Type *tto, elem *e)
     return e;
 }
 
-/********************************************
- * Determine if t is an array of structs that need a postblit.
+/************************************
  */
 
+elem *getTypeInfo(Type *t, IRState *irs)
+{
+    assert(t->ty != Terror);
+    genTypeInfo(t, NULL);
+    elem *e = el_ptr(toSymbol(t->vtinfo));
+    return e;
+}
+
+/********************************************
+ * Determine if t is a struct that has postblit.
+ */
 StructDeclaration *needsPostblit(Type *t)
 {
     t = t->baseElemOf();
@@ -645,6 +724,21 @@ StructDeclaration *needsPostblit(Type *t)
     {
         StructDeclaration *sd = ((TypeStruct *)t)->sym;
         if (sd->postblit)
+            return sd;
+    }
+    return NULL;
+}
+
+/********************************************
+ * Determine if t is a struct that has destructor.
+ */
+StructDeclaration *needsDtor(Type *t)
+{
+    t = t->baseElemOf();
+    if (t->ty == Tstruct)
+    {
+        StructDeclaration *sd = ((TypeStruct *)t)->sym;
+        if (sd->dtor)
             return sd;
     }
     return NULL;
@@ -661,7 +755,8 @@ StructDeclaration *needsPostblit(Type *t)
  */
 
 elem *setArray(elem *eptr, elem *edim, Type *tb, elem *evalue, IRState *irs, int op)
-{   int r;
+{
+    int r;
     elem *e;
     unsigned sz = tb->size();
 
@@ -692,10 +787,11 @@ Lagain:
             break;
 
         case Tstruct:
+        {
             if (I32)
                 goto Ldefault;
 
-        {   TypeStruct *tc = (TypeStruct *)tb;
+            TypeStruct *tc = (TypeStruct *)tb;
             StructDeclaration *sd = tc->sym;
             if (sd->arg1type && !sd->arg2type)
             {
@@ -704,6 +800,10 @@ Lagain:
             }
             goto Ldefault;
         }
+
+        case Tvector:
+            r = RTLSYM_MEMSETSIMD;
+            break;
 
         default:
         Ldefault:
@@ -721,17 +821,17 @@ Lagain:
              */
             if (op != TOKblit)
             {
-                StructDeclaration *sd = needsPostblit(tb);
-                if (sd)
-                {   /* Need to do postblit.
+                if (needsPostblit(tb) || needsDtor(tb))
+                {
+                    /* Need to do postblit/destructor.
                      *   void *_d_arraysetassign(void *p, void *value, int dim, TypeInfo ti);
                      */
                     r = (op == TOKconstruct) ? RTLSYM_ARRAYSETCTOR : RTLSYM_ARRAYSETASSIGN;
                     evalue = el_una(OPaddr, TYnptr, evalue);
-                    Expression *ti = tb->getTypeInfo(NULL);
-                    elem *eti = ti->toElem(irs);
+                    // This is a hack so we can call postblits on const/immutable objects.
+                    elem *eti = getTypeInfo(tb->unSharedOf()->mutableOf(), irs);
                     e = el_params(eti, edim, evalue, eptr, NULL);
-                    e = el_bin(OPcall,TYnptr,el_var(rtlsym[r]),e);
+                    e = el_bin(OPcall,TYnptr,el_var(getRtlsym(r)),e);
                     return e;
                 }
             }
@@ -744,10 +844,21 @@ Lagain:
                  * register, but the argument pusher may have other ideas on I64.
                  * MEMSETN is inefficient, though.
                  */
-                if (tybasic(evalue->ET->Tty) == TYstruct &&
-                    !evalue->ET->Ttag->Sstruct->Sarg1type &&
-                    !evalue->ET->Ttag->Sstruct->Sarg2type)
-                    r = RTLSYM_MEMSETN;
+                if (tybasic(evalue->ET->Tty) == TYstruct)
+                {
+                    type *t1 = evalue->ET->Ttag->Sstruct->Sarg1type;
+                    type *t2 = evalue->ET->Ttag->Sstruct->Sarg2type;
+                    if (!t1 && !t2)
+                    {
+                        if (config.exe != EX_WIN64 || sz > 8)
+                            r = RTLSYM_MEMSETN;
+                    }
+                    else if (config.exe != EX_WIN64 &&
+                             r == RTLSYM_MEMSET128ii &&
+                             t1->Tty == TYdouble &&
+                             t2->Tty == TYdouble)
+                        r = RTLSYM_MEMSET128;
+                }
             }
 
             if (r == RTLSYM_MEMSETN)
@@ -756,7 +867,7 @@ Lagain:
                 evalue = el_una(OPaddr, TYnptr, evalue);
                 elem *esz = el_long(TYsize_t, sz);
                 e = el_params(esz, edim, evalue, eptr, NULL);
-                e = el_bin(OPcall,TYnptr,el_var(rtlsym[r]),e);
+                e = el_bin(OPcall,TYnptr,el_var(getRtlsym(r)),e);
                 return e;
             }
             break;
@@ -784,37 +895,27 @@ Lagain:
     else
     {
         e = el_params(edim, evalue, eptr, NULL);
-        e = el_bin(OPcall,TYnptr,el_var(rtlsym[r]),e);
+        e = el_bin(OPcall,TYnptr,el_var(getRtlsym(r)),e);
     }
     return e;
 }
 
-struct StringTab
-{
-    Module *m;          // module we're generating code for
-    Symbol *si;
-    void *string;
-    size_t sz;
-    size_t len;
-};
 
-#define STSIZE 16
-StringTab stringTab[STSIZE];
-size_t stidx;
+StringTable *stringTab;
 
-static Symbol *assertexp_sfilename = NULL;
-static const char *assertexp_name = NULL;
-static Module *assertexp_mn = NULL;
-
+/********************************
+ * Reset stringTab[] between object files being emitted, because the symbols are local.
+ */
 void clearStringTab()
 {
     //printf("clearStringTab()\n");
-    memset(stringTab, 0, sizeof(stringTab));
-    stidx = 0;
-
-    assertexp_sfilename = NULL;
-    assertexp_name = NULL;
-    assertexp_mn = NULL;
+    if (stringTab)
+        stringTab->reset(1000);             // 1000 is arbitrary guess
+    else
+    {
+        stringTab = new StringTable();
+        stringTab->_init(1000);
+    }
 }
 
 elem *toElem(Expression *e, IRState *irs)
@@ -847,12 +948,11 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(SymbolExp *se)
         {
             elem *e;
-            tym_t tym;
             Type *tb = (se->op == TOKsymoff) ? se->var->type->toBasetype() : se->type->toBasetype();
             int offset = (se->op == TOKsymoff) ? ((SymOffExp*)se)->offset : 0;
             VarDeclaration *v = se->var->isVarDeclaration();
 
-            //printf("SymbolExp::toElem('%s') %p, %s\n", toChars(), se, se->type->toChars());
+            //printf("[%s] SymbolExp::toElem('%s') %p, %s\n", se->loc.toChars(), se->toChars(), se, se->type->toChars());
             //printf("\tparent = '%s'\n", se->var->parent ? se->var->parent->toChars() : "null");
             if (se->op == TOKvar && se->var->needThis())
             {
@@ -865,11 +965,11 @@ elem *toElem(Expression *e, IRState *irs)
              */
             if (se->op == TOKvar && v && v->ident == Id::ctfe)
             {
-                result = el_long(se->type->totym(), 0);
+                result = el_long(totym(se->type), 0);
                 return;
             }
 
-            Symbol *s = se->var->toSymbol();
+            Symbol *s = toSymbol(se->var);
             FuncDeclaration *fd = NULL;
             if (se->var->toParent2())
                 fd = se->var->toParent2()->isFuncDeclaration();
@@ -889,8 +989,28 @@ elem *toElem(Expression *e, IRState *irs)
                     elem *ethis = getEthis(se->loc, irs, fd);
                     ethis = el_una(OPaddr, TYnptr, ethis);
 
+                    /* Bugzilla 9383: If 's' is a virtual function parameter
+                     * placed in closure, and actually accessed from in/out
+                     * contract, instead look at the original stack data.
+                     */
+                    bool forceStackAccess = false;
+                    if (s->Sclass == SCparameter &&
+                        fd->isVirtual() && (fd->fdrequire || fd->fdensure))
+                    {
+                        Dsymbol *sx = irs->getFunc();
+                        while (sx != fd)
+                        {
+                            if (sx->ident == Id::require || sx->ident == Id::ensure)
+                            {
+                                forceStackAccess = true;
+                                break;
+                            }
+                            sx = sx->toParent2();
+                        }
+                    }
+
                     int soffset;
-                    if (v && v->offset)
+                    if (v && v->offset && !forceStackAccess)
                         soffset = v->offset;
                     else
                     {
@@ -902,7 +1022,7 @@ elem *toElem(Expression *e, IRState *irs)
                          */
                         if (fd->vthis)
                         {
-                            symbol *vs = fd->vthis->toSymbol();
+                            symbol *vs = toSymbol(fd->vthis);
                             //printf("vs = %s, offset = %x, %p\n", vs->Sident, (int)vs->Soffset, vs);
                             soffset -= vs->Soffset;
                         }
@@ -935,7 +1055,7 @@ elem *toElem(Expression *e, IRState *irs)
                 e = el_bin(OPadd, TYnptr, e, el_long(TYsize_t, v->offset));
                 if (se->op == TOKvar)
                 {
-                    e = el_una(OPind, se->type->totym(), e);
+                    e = el_una(OPind, totym(se->type), e);
                     if (tybasic(e->Ety) == TYstruct)
                         e->ET = Type_toCtype(se->type);
                     el_setLoc(e, se->loc);
@@ -966,12 +1086,11 @@ elem *toElem(Expression *e, IRState *irs)
             if (se->var->isImportedSymbol())
             {
                 assert(se->op == TOKvar);
-                e = el_var(se->var->toImport());
+                e = el_var(toImport(se->var));
                 e = el_una(OPind,s->ty(),e);
             }
             else if (ISREF(se->var, tb))
             {
-                // Static arrays are really passed as pointers to the array
                 // Out parameters are really references
                 e = el_var(s);
                 e->Ety = TYnptr;
@@ -995,13 +1114,17 @@ elem *toElem(Expression *e, IRState *irs)
                     e->Ety = TYnptr;
                     e = el_una(OPind, 0, e);
                 }
-                if (tb->ty == Tfunction)
-                {
+
+                tym_t tym;
+                if (se->var->storage_class & STClazy)
+                    tym = TYdelegate;       // Tdelegate as C type
+                else if (tb->ty == Tfunction)
                     tym = s->Stype->Tty;
-                }
                 else
-                    tym = se->type->totym();
+                    tym = totym(se->type);
+
                 e->Ejty = e->Ety = tym;
+
                 if (tybasic(tym) == TYstruct)
                 {
                     e->ET = Type_toCtype(se->type);
@@ -1032,7 +1155,7 @@ elem *toElem(Expression *e, IRState *irs)
                 fe->fd->tok = TOKfunction;
                 fe->fd->vthis = NULL;
             }
-            Symbol *s = fe->fd->toSymbol();
+            Symbol *s = toSymbol(fe->fd);
             elem *e = el_ptr(s);
             if (fe->fd->isNested())
             {
@@ -1047,8 +1170,36 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(DeclarationExp *de)
         {
-            //printf("DeclarationExp::toElem() %s\n", detoChars());
+            //printf("DeclarationExp::toElem() %s\n", de->toChars());
             result = Dsymbol_toElem(de->declaration);
+        }
+
+        /***************************************
+         */
+
+        void visit(TypeidExp *e)
+        {
+            //printf("TypeidExp::toElem() %s\n", e->toChars());
+            if (Type *t = isType(e->obj))
+            {
+                result = getTypeInfo(t, irs);
+                result = el_bin(OPadd, result->Ety, result, el_long(TYsize_t, t->vtinfo->offset));
+                return;
+            }
+            if (Expression *ex = isExpression(e->obj))
+            {
+                Type *t = ex->type->toBasetype();
+                assert(t->ty == Tclass);
+                // generate **classptr to get the classinfo
+                result = toElem(ex, irs);
+                result = el_una(OPind,TYnptr,result);
+                result = el_una(OPind,TYnptr,result);
+                // Add extra indirection for interfaces
+                if (((TypeClass *)t)->sym->isInterfaceDeclaration())
+                    result = el_una(OPind,TYnptr,result);
+                return;
+            }
+            assert(0);
         }
 
         /***************************************
@@ -1084,7 +1235,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(IntegerExp *ie)
         {
-            elem *e = el_long(ie->type->totym(), ie->value);
+            elem *e = el_long(totym(ie->type), ie->getInteger());
             el_setLoc(e,ie->loc);
             result = e;
         }
@@ -1097,7 +1248,7 @@ elem *toElem(Expression *e, IRState *irs)
             //printf("RealExp::toElem(%p) %s\n", re, re->toChars());
             union eve c;
             memset(&c, 0, sizeof(c));
-            tym_t ty = re->type->toBasetype()->totym();
+            tym_t ty = totym(re->type->toBasetype());
             switch (tybasic(ty))
             {
                 case TYfloat:
@@ -1154,7 +1305,7 @@ elem *toElem(Expression *e, IRState *irs)
             real_t re = creall(ce->value);
             real_t im = cimagl(ce->value);
 
-            tym_t ty = ce->type->totym();
+            tym_t ty = totym(ce->type);
             switch (tybasic(ty))
             {
                 case TYcfloat:
@@ -1211,7 +1362,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(NullExp *ne)
         {
-            result = el_long(ne->type->totym(), 0);
+            result = el_long(totym(ne->type), 0);
         }
 
         /***************************************
@@ -1227,83 +1378,26 @@ elem *toElem(Expression *e, IRState *irs)
             Type *tb = se->type->toBasetype();
             if (tb->ty == Tarray)
             {
-                Symbol *si;
-                dt_t *dt;
-                StringTab *st;
-
-        #if 0
-                printf("irs->m = %p\n", irs->m);
-                printf(" m   = %s\n", irs->m->toChars());
-                printf(" len = %d\n", se->len);
-                printf(" sz  = %d\n", se->sz);
-        #endif
-                for (size_t i = 0; i < STSIZE; i++)
-                {
-                    st = &stringTab[(stidx + i) % STSIZE];
-                    //if (!st->m) continue;
-                    //printf(" st.m   = %s\n", st->m->toChars());
-                    //printf(" st.len = %d\n", st->len);
-                    //printf(" st.sz  = %d\n", st->sz);
-                    if (st->m == irs->m &&
-                        st->si &&
-                        st->len == se->len &&
-                        st->sz == se->sz &&
-                        memcmp(st->string, se->string, se->sz * se->len) == 0)
-                    {
-                        //printf("use cached value\n");
-                        si = st->si;    // use cached value
-                        goto L1;
-                    }
-                }
-
-                stidx = (stidx + 1) % STSIZE;
-                st = &stringTab[stidx];
-
-                dt = NULL;
-                se->toDt(&dt);
-
-                si = symbol_generate(SCstatic,type_fake(TYdarray));
-                si->Sdt = dt;
-                si->Sfl = FLdata;
-                out_readonly(si);
-                outdata(si);
-
-                st->m = irs->m;
-                st->si = si;
-                st->string = se->string;
-                st->len = se->len;
-                st->sz = se->sz;
-            L1:
-                e = el_var(si);
+                Symbol *si = toStringSymbol(se);
+                e = el_pair(TYdarray, el_long(TYsize_t, se->numberOfCodeUnits()), el_ptr(si));
             }
             else if (tb->ty == Tsarray)
             {
-                dt_t *dt = NULL;
-
-                se->toDt(&dt);
-                dtnzeros(&dt, se->sz);              // leave terminating 0
-
-                ::type *t = type_static_array(se->sz * se->len, tschar);
-                Symbol *si = symbol_generate(SCstatic, t);
-                si->Sdt = dt;
-                si->Sfl = FLdata;
-                out_readonly(si);
-                outdata(si);
-
+                Symbol *si = toStringSymbol(se);
                 e = el_var(si);
-
                 e->Ejty = e->Ety = TYstruct;
-                e->ET = t;
-                t->Tcount++;
+                e->ET = si->Stype;
+                e->ET->Tcount++;
             }
             else if (tb->ty == Tpointer)
             {
                 e = el_calloc();
                 e->Eoper = OPstring;
                 // freed in el_free
-                e->EV.ss.Vstring = (char *)mem_malloc((se->len + 1) * se->sz);
-                memcpy(e->EV.ss.Vstring, se->string, (se->len + 1) * se->sz);
-                e->EV.ss.Vstrlen = (se->len + 1) * se->sz;
+                unsigned len = (se->numberOfCodeUnits() + 1) * se->sz;
+                e->EV.ss.Vstring = (char *)mem_malloc(len);
+                se->writeTo(e->EV.ss.Vstring, true);
+                e->EV.ss.Vstrlen = len;
                 e->Ety = TYnptr;
             }
             else
@@ -1339,6 +1433,7 @@ elem *toElem(Expression *e, IRState *irs)
 
                 elem *ex = NULL;
                 elem *ey = NULL;
+                elem *ezprefix = NULL;
                 elem *ez = NULL;
 
                 if (ne->allocator || ne->onstack)
@@ -1359,12 +1454,12 @@ elem *toElem(Expression *e, IRState *irs)
                     }
                     else
                     {
-                        ex = el_var(ne->allocator->toSymbol());
+                        ex = el_var(toSymbol(ne->allocator));
                         ex = callfunc(ne->loc, irs, 1, ne->type, ex, ne->allocator->type,
                                 ne->allocator, ne->allocator->type, NULL, ne->newargs);
                     }
 
-                    Symbol *si = tclass->sym->toInitializer();
+                    Symbol *si = toInitializer(tclass->sym);
                     elem *ei = el_var(si);
 
                     if (cd->isNested())
@@ -1383,8 +1478,9 @@ elem *toElem(Expression *e, IRState *irs)
                 }
                 else
                 {
-                    Symbol *csym = cd->toSymbol();
-                    ex = el_bin(OPcall,TYnptr,el_var(rtlsym[RTLSYM_NEWCLASS]),el_ptr(csym));
+                    Symbol *csym = toSymbol(cd);
+                    ex = el_bin(OPcall,TYnptr,el_var(getRtlsym(RTLSYM_NEWCLASS)),el_ptr(csym));
+                    toTraceGC(irs, ex, &ne->loc);
                     ectype = NULL;
 
                     if (cd->isNested())
@@ -1417,7 +1513,7 @@ elem *toElem(Expression *e, IRState *irs)
                         int i = cdp->isClassDeclaration()->isBaseOf(cdthis, &offset);
                         assert(i);
                     }
-                    elem *ethis = ne->thisexp->toElem(irs);
+                    elem *ethis = toElem(ne->thisexp, irs);
                     if (offset)
                         ethis = el_bin(OPadd, TYnptr, ethis, el_long(TYsize_t, offset));
 
@@ -1445,11 +1541,14 @@ elem *toElem(Expression *e, IRState *irs)
 
                 if (ne->member)
                 {
+                    if (ne->argprefix)
+                        ezprefix = toElem(ne->argprefix, irs);
                     // Call constructor
                     ez = callfunc(ne->loc, irs, 1, ne->type, ez, ectype, ne->member, ne->member->type, NULL, ne->arguments);
                 }
 
                 e = el_combine(ex, ey);
+                e = el_combine(e, ezprefix);
                 e = el_combine(e, ez);
             }
             else if (t->ty == Tpointer && t->nextOf()->toBasetype()->ty == Tstruct)
@@ -1457,7 +1556,7 @@ elem *toElem(Expression *e, IRState *irs)
                 t = ne->newtype->toBasetype();
                 assert(t->ty == Tstruct);
                 TypeStruct *tclass = (TypeStruct *)t;
-                StructDeclaration *cd = tclass->sym;
+                StructDeclaration *sd = tclass->sym;
 
                 /* Things to do:
                  * 1) ex: call allocator
@@ -1467,135 +1566,160 @@ elem *toElem(Expression *e, IRState *irs)
 
                 elem *ex = NULL;
                 elem *ey = NULL;
+                elem *ezprefix = NULL;
                 elem *ez = NULL;
 
                 if (ne->allocator)
                 {
 
-                    ex = el_var(ne->allocator->toSymbol());
+                    ex = el_var(toSymbol(ne->allocator));
                     ex = callfunc(ne->loc, irs, 1, ne->type, ex, ne->allocator->type,
                                 ne->allocator, ne->allocator->type, NULL, ne->newargs);
 
-                    Symbol *si = tclass->sym->toInitializer();
-                    elem *ei = el_var(si);
-
-                    if (cd->isNested())
-                    {
-                        ey = el_same(&ex);
-                        ez = el_copytree(ey);
-                    }
-                    else if (ne->member)
-                        ez = el_same(&ex);
-
-                    if (!ne->member)
-                    {
-                        /* Statically intialize with default initializer
-                         */
-                        ex = el_una(OPind, TYstruct, ex);
-                        ex = el_bin(OPstreq, TYnptr, ex, ei);
-                        ex->ET = Type_toCtype(tclass);
-                        ex = el_una(OPaddr, TYnptr, ex);
-                    }
                     ectype = tclass;
                 }
                 else
                 {
-                    d_uns64 elemsize = cd->size(ne->loc);
+                    d_uns64 elemsize = sd->size(ne->loc);
 
                     // call _d_newitemT(ti)
-                    e = ne->type->getTypeInfo(NULL)->toElem(irs);
+                    e = getTypeInfo(ne->newtype, irs);
 
                     int rtl = t->isZeroInit() ? RTLSYM_NEWITEMT : RTLSYM_NEWITEMIT;
-                    ex = el_bin(OPcall,TYnptr,el_var(rtlsym[rtl]),e);
+                    ex = el_bin(OPcall,TYnptr,el_var(getRtlsym(rtl)),e);
+                    toTraceGC(irs, ex, &ne->loc);
 
                     ectype = NULL;
-
-                    if (cd->isNested())
-                    {
-                        ey = el_same(&ex);
-                        ez = el_copytree(ey);
-                    }
-                    else if (ne->member)
-                        ez = el_same(&ex);
-                    //elem_print(ex);
-                    //elem_print(ey);
-                    //elem_print(ez);
                 }
 
-                if (cd->isNested())
-                {
-                    /* Initialize cd->vthis:
-                     *  *(ey + cd.vthis.offset) = this;
-                     */
-                    ey = setEthis(ne->loc, irs, ey, cd);
-                }
+                elem *ev = el_same(&ex);
 
+                if (ne->argprefix)
+                        ezprefix = toElem(ne->argprefix, irs);
                 if (ne->member)
                 {
+                    if (sd->isNested())
+                    {
+                        ey = el_copytree(ev);
+
+                        /* Initialize sd->vthis:
+                         *  *(ey + sd.vthis.offset) = this;
+                         */
+                        ey = setEthis(ne->loc, irs, ey, sd);
+                    }
+
                     // Call constructor
-                    ez = callfunc(ne->loc, irs, 1, ne->type, ez, ectype, ne->member, ne->member->type, NULL, ne->arguments);
+                    ez = callfunc(ne->loc, irs, 1, ne->type, ev, ectype, ne->member, ne->member->type, NULL, ne->arguments);
                     /* Structs return a ref, which gets automatically dereferenced.
                      * But we want a pointer to the instance.
                      */
                     ez = el_una(OPaddr, TYnptr, ez);
                 }
+                else
+                {
+                    StructLiteralExp *se = StructLiteralExp::create(ne->loc, sd, ne->arguments, t);
+
+                    Symbol *symSave = se->sym;
+                    size_t soffsetSave = se->soffset;
+                    int fillHolesSave = se->fillHoles;
+
+                    se->sym = ev->EV.sp.Vsym;
+                    se->soffset = 0;
+                    se->fillHoles = 0;
+
+                    ez = toElem(se, irs);
+
+                    se->sym = symSave;
+                    se->soffset = soffsetSave;
+                    se->fillHoles = fillHolesSave;
+                }
+                //elem_print(ex);
+                //elem_print(ey);
+                //elem_print(ez);
 
                 e = el_combine(ex, ey);
+                e = el_combine(e, ezprefix);
                 e = el_combine(e, ez);
             }
             else if (t->ty == Tarray)
             {
                 TypeDArray *tda = (TypeDArray *)t;
 
+                elem *ezprefix = ne->argprefix ? toElem(ne->argprefix, irs) : NULL;
+
                 assert(ne->arguments && ne->arguments->dim >= 1);
                 if (ne->arguments->dim == 1)
                 {
                     // Single dimension array allocations
                     Expression *arg = (*ne->arguments)[0]; // gives array length
-                    e = arg->toElem(irs);
-                    d_uns64 elemsize = tda->next->size();
+                    e = toElem(arg, irs);
 
                     // call _d_newT(ti, arg)
-                    e = el_param(e, ne->type->getTypeInfo(NULL)->toElem(irs));
+                    e = el_param(e, getTypeInfo(ne->type, irs));
                     int rtl = tda->next->isZeroInit() ? RTLSYM_NEWARRAYT : RTLSYM_NEWARRAYIT;
-                    e = el_bin(OPcall,TYdarray,el_var(rtlsym[rtl]),e);
+                    e = el_bin(OPcall,TYdarray,el_var(getRtlsym(rtl)),e);
+                    toTraceGC(irs, e, &ne->loc);
                 }
                 else
                 {
                     // Multidimensional array allocations
-                    e = el_long(TYsize_t, ne->arguments->dim);
                     for (size_t i = 0; i < ne->arguments->dim; i++)
                     {
-                        Expression *arg = (*ne->arguments)[i];     // gives array length
-                        e = el_param(arg->toElem(irs), e);
                         assert(t->ty == Tarray);
                         t = t->nextOf();
                         assert(t);
                     }
 
-                    e = el_param(e, ne->type->getTypeInfo(NULL)->toElem(irs));
+                    // Allocate array of dimensions on the stack
+                    Symbol *sdata = NULL;
+                    elem *earray = ExpressionsToStaticArray(ne->loc, ne->arguments, &sdata);
 
-                    int rtl = t->isZeroInit() ? RTLSYM_NEWARRAYMT : RTLSYM_NEWARRAYMIT;
-                    e = el_bin(OPcall,TYdarray,el_var(rtlsym[rtl]),e);
-                    e->Eflags |= EFLAGS_variadic;
+                    e = el_pair(TYdarray, el_long(TYsize_t, ne->arguments->dim), el_ptr(sdata));
+                    if (config.exe == EX_WIN64)
+                        e = addressElem(e, Type::tsize_t->arrayOf());
+                    e = el_param(e, getTypeInfo(ne->type, irs));
+                    int rtl = t->isZeroInit() ? RTLSYM_NEWARRAYMTX : RTLSYM_NEWARRAYMITX;
+                    e = el_bin(OPcall,TYdarray,el_var(getRtlsym(rtl)),e);
+                    toTraceGC(irs, e, &ne->loc);
+
+                    e = el_combine(earray, e);
                 }
+                e = el_combine(ezprefix, e);
             }
             else if (t->ty == Tpointer)
             {
                 TypePointer *tp = (TypePointer *)t;
-                d_uns64 elemsize = tp->next->size();
                 Expression *di = tp->next->defaultInit();
-                d_uns64 disize = di->type->size();
+                elem *ezprefix = ne->argprefix ? toElem(ne->argprefix, irs) : NULL;
 
                 // call _d_newitemT(ti)
-                e = ne->type->getTypeInfo(NULL)->toElem(irs);
+                e = getTypeInfo(ne->newtype, irs);
 
                 int rtl = tp->next->isZeroInit() ? RTLSYM_NEWITEMT : RTLSYM_NEWITEMIT;
-                e = el_bin(OPcall,TYnptr,el_var(rtlsym[rtl]),e);
+                e = el_bin(OPcall,TYnptr,el_var(getRtlsym(rtl)),e);
+                toTraceGC(irs, e, &ne->loc);
+
+                if (ne->arguments && ne->arguments->dim == 1)
+                {
+                    /* ezprefix, ts=_d_newitemT(ti), *ts=arguments[0], ts
+                     */
+                    elem *e2 = toElem((*ne->arguments)[0], irs);
+
+                    symbol *ts = symbol_genauto(Type_toCtype(tp));
+                    elem *eeq1 = el_bin(OPeq, TYnptr, el_var(ts), e);
+
+                    elem *ederef = el_una(OPind, e2->Ety, el_var(ts));
+                    elem *eeq2 = el_bin(OPeq, e2->Ety, ederef, e2);
+
+                    e = el_combine(eeq1, eeq2);
+                    e = el_combine(e, el_var(ts));
+                    //elem_print(e);
+                }
+                e = el_combine(ezprefix, e);
             }
             else
             {
-                ne->error("ICE: cannot new type %s\n", t->toChars());
+                ne->error("Internal Compiler Error: cannot new type %s\n", t->toChars());
                 assert(0);
             }
 
@@ -1610,7 +1734,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(NegExp *ne)
         {
-            elem *e = ne->e1->toElem(irs);
+            elem *e = toElem(ne->e1, irs);
             Type *tb1 = ne->e1->type->toBasetype();
 
             assert(tb1->ty != Tarray && tb1->ty != Tsarray);
@@ -1625,12 +1749,12 @@ elem *toElem(Expression *e, IRState *irs)
                     ez->Ety = e->Ety;
                     ez->EV.Vcent.lsw = 0;
                     ez->EV.Vcent.msw = 0;
-                    e = el_bin(OPmin, ne->type->totym(), ez, e);
+                    e = el_bin(OPmin, totym(ne->type), ez, e);
                     break;
                 }
 
                 default:
-                    e = el_una(OPneg, ne->type->totym(), e);
+                    e = el_una(OPneg, totym(ne->type), e);
                     break;
             }
 
@@ -1643,9 +1767,9 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(ComExp *ce)
         {
-            elem *e1 = ce->e1->toElem(irs);
+            elem *e1 = toElem(ce->e1, irs);
             Type *tb1 = ce->e1->type->toBasetype();
-            tym_t ty = ce->type->totym();
+            tym_t ty = totym(ce->type);
 
             assert(tb1->ty != Tarray && tb1->ty != Tsarray);
 
@@ -1682,7 +1806,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(NotExp *ne)
         {
-            elem *e = el_una(OPnot, ne->type->totym(), ne->e1->toElem(irs));
+            elem *e = el_una(OPnot, totym(ne->type), toElem(ne->e1, irs));
             el_setLoc(e,ne->loc);
             result = e;
         }
@@ -1710,7 +1834,7 @@ elem *toElem(Expression *e, IRState *irs)
             elem *e;
             if (global.params.useAssert)
             {
-                e = ae->e1->toElem(irs);
+                e = toElem(ae->e1, irs);
                 symbol *ts = NULL;
                 elem *einv = NULL;
                 Type *t1 = ae->e1->type->toBasetype();
@@ -1729,7 +1853,7 @@ elem *toElem(Expression *e, IRState *irs)
                         rtl = RTLSYM__DINVARIANT;
                     else
                         rtl = RTLSYM_DINVARIANT;
-                    einv = el_bin(OPcall, TYvoid, el_var(rtlsym[rtl]), el_var(ts));
+                    einv = el_bin(OPcall, TYvoid, el_var(getRtlsym(rtl)), el_var(ts));
                 }
                 else if (global.params.useInvariants &&
                     t1->ty == Tpointer &&
@@ -1759,57 +1883,36 @@ elem *toElem(Expression *e, IRState *irs)
                 elem *ea;
                 if (ae->loc.filename && (ae->msg || strcmp(ae->loc.filename, mname) != 0))
                 {
-                    /* Cache values.
-                     */
-                    //static Symbol *assertexp_sfilename = NULL;
-                    //static char *assertexp_name = NULL;
-                    //static Module *assertexp_mn = NULL;
-
-                    if (!assertexp_sfilename || strcmp(ae->loc.filename, assertexp_name) != 0 || assertexp_mn != m)
-                    {
-
-                        const char *id = ae->loc.filename;
-                        int len = strlen(id);
-                        dt_t *dt = NULL;
-                        dtsize_t(&dt, len);
-                        dtabytes(&dt,TYnptr, 0, len + 1, id);
-
-                        assertexp_sfilename = symbol_generate(SCstatic,type_fake(TYdarray));
-                        assertexp_sfilename->Sdt = dt;
-                        assertexp_sfilename->Sfl = FLdata;
-                        out_readonly(assertexp_sfilename);
-                        outdata(assertexp_sfilename);
-
-                        assertexp_mn = m;
-                        assertexp_name = id;
-                    }
-
-                    elem *efilename = (config.exe == EX_WIN64) ? el_ptr(assertexp_sfilename)
-                                                               : el_var(assertexp_sfilename);
+                    const char *id = ae->loc.filename;
+                    size_t len = strlen(id);
+                    Symbol *si = toStringSymbol(id, len, 1);
+                    elem *efilename = el_pair(TYdarray, el_long(TYsize_t, len), el_ptr(si));
+                    if (config.exe == EX_WIN64)
+                        efilename = addressElem(efilename, Type::tstring, true);
 
                     if (ae->msg)
                     {
                         /* Bugzilla 8360: If the condition is evalated to true,
                          * msg is not evaluated at all. so should use
-                         * toElemDtor(msg, irs) instead of msg->toElem(irs).
+                         * toElemDtor(msg, irs) instead of toElem(msg, irs).
                          */
                         elem *emsg = toElemDtor(ae->msg, irs);
                         emsg = array_toDarray(ae->msg->type, emsg);
                         if (config.exe == EX_WIN64)
                             emsg = addressElem(emsg, Type::tvoid->arrayOf(), false);
 
-                        ea = el_var(rtlsym[ud ? RTLSYM_DUNITTEST_MSG : RTLSYM_DASSERT_MSG]);
+                        ea = el_var(getRtlsym(ud ? RTLSYM_DUNITTEST_MSG : RTLSYM_DASSERT_MSG));
                         ea = el_bin(OPcall, TYvoid, ea, el_params(el_long(TYint, ae->loc.linnum), efilename, emsg, NULL));
                     }
                     else
                     {
-                        ea = el_var(rtlsym[ud ? RTLSYM_DUNITTEST : RTLSYM_DASSERT]);
+                        ea = el_var(getRtlsym(ud ? RTLSYM_DUNITTEST : RTLSYM_DASSERT));
                         ea = el_bin(OPcall, TYvoid, ea, el_param(el_long(TYint, ae->loc.linnum), efilename));
                     }
                 }
                 else
                 {
-                    Symbol *sassert = ud ? m->toModuleUnittest() : m->toModuleAssert();
+                    Symbol *sassert = ud ? toModuleUnittest(m) : toModuleAssert(m);
                     ea = el_bin(OPcall,TYvoid,el_var(sassert),
                         el_long(TYint, ae->loc.linnum));
                 }
@@ -1835,8 +1938,8 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(PostExp *pe)
         {
             //printf("PostExp::toElem() '%s'\n", pe->toChars());
-            elem *e = pe->e1->toElem(irs);
-            elem *einc = pe->e2->toElem(irs);
+            elem *e = toElem(pe->e1, irs);
+            elem *einc = toElem(pe->e2, irs);
             e = el_bin((pe->op == TOKplusplus) ? OPpostinc : OPpostdec,
                         e->Ety,e,einc);
             el_setLoc(e,pe->loc);
@@ -1860,11 +1963,73 @@ elem *toElem(Expression *e, IRState *irs)
                      tb2->ty != Tvoid &&
                      op != OPeq && op != OPandand && op != OPoror));
 
-            tym_t tym = be->type->totym();
+            tym_t tym = totym(be->type);
 
-            elem *el = be->e1->toElem(irs);
-            elem *er = be->e2->toElem(irs);
+            elem *el = toElem(be->e1, irs);
+            elem *er = toElem(be->e2, irs);
             elem *e = el_bin(op,tym,el,er);
+
+            el_setLoc(e,be->loc);
+            return e;
+        }
+
+        elem *toElemBinAssign(BinAssignExp *be, int op)
+        {
+            //printf("toElemBinAssign() '%s'\n", be->toChars());
+
+            Type *tb1 = be->e1->type->toBasetype();
+            Type *tb2 = be->e2->type->toBasetype();
+
+            assert(!((tb1->ty == Tarray || tb1->ty == Tsarray ||
+                      tb2->ty == Tarray || tb2->ty == Tsarray) &&
+                     tb2->ty != Tvoid &&
+                     op != OPeq && op != OPandand && op != OPoror));
+
+            tym_t tym = totym(be->type);
+
+            elem *el;
+            elem *ev;
+            if (be->e1->op == TOKcast)
+            {
+                int depth = 0;
+                Expression *e1 = be->e1;
+                while (e1->op == TOKcast)
+                {
+                    ++depth;
+                    e1 = ((CastExp *)e1)->e1;
+                }
+                assert(depth > 0);
+
+                el = toElem(e1, irs);
+                el = addressElem(el, e1->type->pointerTo());
+                ev = el_same(&el);
+
+                el = el_una(OPind, totym(e1->type), el);
+
+                ev = el_una(OPind, tym, ev);
+
+                CastExp *ce = (CastExp *)e1;
+                for (size_t d = depth; d > 0; d--)
+                {
+                    e1 = be->e1;
+                    for (size_t i = 1; i < d; i++)
+                        e1 = ((CastExp *)e1)->e1;
+
+                    el = toElemCast((CastExp *)e1, el);
+                }
+            }
+            else
+            {
+                el = toElem(be->e1, irs);
+                el = addressElem(el, be->e1->type->pointerTo());
+                ev = el_same(&el);
+
+                el = el_una(OPind, tym, el);
+                ev = el_una(OPind, tym, ev);
+            }
+            elem *er = toElem(be->e2, irs);
+            elem *e = el_bin(op, tym, el, er);
+            e = el_combine(e, ev);
 
             el_setLoc(e,be->loc);
             return e;
@@ -1892,7 +2057,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         elem *eval_Darray(Expression *e)
         {
-            elem *ex = e->toElem(irs);
+            elem *ex = toElem(e, irs);
             ex = array_toDarray(e->type, ex);
             if (config.exe == EX_WIN64)
             {
@@ -1915,35 +2080,43 @@ elem *toElem(Expression *e, IRState *irs)
             Type *tb2 = ce->e2->type->toBasetype();
 
             Type *ta = (tb1->ty == Tarray || tb1->ty == Tsarray) ? tb1 : tb2;
-            Type *tn = ta->nextOf();
 
             elem *e;
             if (ce->e1->op == TOKcat)
             {
                 CatExp *ex = ce;
-                int n = 2;
 
-                elem *ep = eval_Darray(ex->e2);
+                // Flatten ((a ~ b) ~ c) to [a, b, c]
+                Elems elems;
+                elems.shift(array_toDarray(ex->e2->type, toElem(ex->e2, irs)));
                 do
                 {
-                    n++;
                     ex = (CatExp *)ex->e1;
-                    ep = el_param(ep, eval_Darray(ex->e2));
+                    elems.shift(array_toDarray(ex->e2->type, toElem(ex->e2, irs)));
                 } while (ex->e1->op == TOKcat);
-                ep = el_param(ep, eval_Darray(ex->e1));
-                ep = el_params(ep,
-                               el_long(TYsize_t, n),
-                               ta->getTypeInfo(NULL)->toElem(irs),
-                               NULL);
-                e = el_bin(OPcall, TYdarray, el_var(rtlsym[RTLSYM_ARRAYCATNT]), ep);
-                e->Eflags |= EFLAGS_variadic;
+                elems.shift(array_toDarray(ex->e1->type, toElem(ex->e1, irs)));
+
+                // We can't use ExpressionsToStaticArray because each exp needs
+                // to have array_toDarray called on it first, as some might be
+                // single elements instead of arrays.
+                Symbol *sdata;
+                elem *earr = ElemsToStaticArray(ce->loc, ce->type, &elems, &sdata);
+
+                elem *ep = el_pair(TYdarray, el_long(TYsize_t, elems.dim), el_ptr(sdata));
+                if (config.exe == EX_WIN64)
+                    ep = addressElem(ep, Type::tvoid->arrayOf());
+                ep = el_param(ep, getTypeInfo(ta, irs));
+                e = el_bin(OPcall, TYdarray, el_var(getRtlsym(RTLSYM_ARRAYCATNTX)), ep);
+                toTraceGC(irs, e, &ce->loc);
+                e = el_combine(earr, e);
             }
             else
             {
                 elem *e1 = eval_Darray(ce->e1);
                 elem *e2 = eval_Darray(ce->e2);
-                elem *ep = el_params(e2, e1, ta->getTypeInfo(NULL)->toElem(irs), NULL);
-                e = el_bin(OPcall, TYdarray, el_var(rtlsym[RTLSYM_ARRAYCATT]), ep);
+                elem *ep = el_params(e2, e1, getTypeInfo(ta, irs), NULL);
+                e = el_bin(OPcall, TYdarray, el_var(getRtlsym(RTLSYM_ARRAYCATT)), ep);
+                toTraceGC(irs, e, &ce->loc);
             }
             el_setLoc(e,ce->loc);
             result = e;
@@ -2025,10 +2198,10 @@ elem *toElem(Expression *e, IRState *irs)
                 elem *ea1 = eval_Darray(ce->e1);
                 elem *ea2 = eval_Darray(ce->e2);
 
-                elem *ep = el_params(telement->arrayOf()->getInternalTypeInfo(NULL)->toElem(irs),
+                elem *ep = el_params(getTypeInfo(telement->arrayOf(), irs),
                         ea2, ea1, NULL);
                 int rtlfunc = RTLSYM_ARRAYCMP2;
-                e = el_bin(OPcall, TYint, el_var(rtlsym[rtlfunc]), ep);
+                e = el_bin(OPcall, TYint, el_var(getRtlsym(rtlfunc)), ep);
                 e = el_bin(eop, TYint, e, el_long(TYint, 0));
                 el_setLoc(e,ce->loc);
             }
@@ -2067,11 +2240,16 @@ elem *toElem(Expression *e, IRState *irs)
 
             //printf("EqualExp::toElem()\n");
             elem *e;
-            if (t1->ty == Tstruct)
+            if (t1->ty == Tstruct && ((TypeStruct *)t1)->sym->fields.dim == 0)
+            {
+                // we can skip the compare if the structs are empty
+                e = el_long(TYbool, ee->op == TOKequal);
+            }
+            else if (t1->ty == Tstruct)
             {
                 // Do bit compare of struct's
-                elem *es1 = ee->e1->toElem(irs);
-                elem *es2 = ee->e2->toElem(irs);
+                elem *es1 = toElem(ee->e1, irs);
+                elem *es2 = toElem(ee->e2, irs);
                 es1 = addressElem(es1, t1);
                 es2 = addressElem(es2, t2);
                 e = el_param(es1, es2);
@@ -2091,12 +2269,12 @@ elem *toElem(Expression *e, IRState *irs)
                     // Optimize comparisons of arrays of basic types
                     // For arrays of integers/characters, and void[],
                     // replace druntime call with:
-                    // For a==b: a.length==b.length && memcmp(a.ptr, b.ptr, size)==0
-                    // For a!=b: a.length!=b.length || memcmp(a.ptr, b.ptr, size)!=0
+                    // For a==b: a.length==b.length && (a.length == 0 || memcmp(a.ptr, b.ptr, size)==0)
+                    // For a!=b: a.length!=b.length || (a.length != 0 || memcmp(a.ptr, b.ptr, size)!=0)
                     // size is a.length*sizeof(a[0]) for dynamic arrays, or sizeof(a) for static arrays.
 
-                    elem *earr1 = ee->e1->toElem(irs);
-                    elem *earr2 = ee->e2->toElem(irs);
+                    elem *earr1 = toElem(ee->e1, irs);
+                    elem *earr2 = toElem(ee->e2, irs);
                     elem *eptr1, *eptr2; // Pointer to data, to pass to memcmp
                     elem *elen1, *elen2; // Length, for comparison
                     elem *esiz1, *esiz2; // Data size, to pass to memcmp
@@ -2136,6 +2314,10 @@ elem *toElem(Expression *e, IRState *irs)
                     e = el_bin(OPmemcmp, TYint, e, esize);
                     e = el_bin(eop, TYint, e, el_long(TYint, 0));
 
+                    elem *elen = t2->ty == Tsarray ? elen2 : elen1;
+                    elem *esizecheck = el_bin(eop, TYint, el_same(&elen), el_long(TYsize_t, 0));
+                    e = el_bin(ee->op == TOKequal ? OPoror : OPandand, TYint, esizecheck, e);
+
                     if (t1->ty == Tsarray && t2->ty == Tsarray)
                         assert(t1->size() == t2->size());
                     else
@@ -2155,10 +2337,10 @@ elem *toElem(Expression *e, IRState *irs)
                 elem *ea1 = eval_Darray(ee->e1);
                 elem *ea2 = eval_Darray(ee->e2);
 
-                elem *ep = el_params(telement->arrayOf()->getInternalTypeInfo(NULL)->toElem(irs),
+                elem *ep = el_params(getTypeInfo(telement->arrayOf(), irs),
                         ea2, ea1, NULL);
                 int rtlfunc = RTLSYM_ARRAYEQ2;
-                e = el_bin(OPcall, TYint, el_var(rtlsym[rtlfunc]), ep);
+                e = el_bin(OPcall, TYint, el_var(getRtlsym(rtlfunc)), ep);
                 if (ee->op == TOKnotequal)
                     e = el_bin(OPxor, TYint, e, el_long(TYint, 1));
                 el_setLoc(e,ee->loc);
@@ -2166,10 +2348,10 @@ elem *toElem(Expression *e, IRState *irs)
             else if (t1->ty == Taarray && t2->ty == Taarray)
             {
                 TypeAArray *taa = (TypeAArray *)t1;
-                Symbol *s = taa->aaGetSymbol("Equal", 0);
-                elem *ti = taa->getTypeInfo(NULL)->toElem(irs);
-                elem *ea1 = ee->e1->toElem(irs);
-                elem *ea2 = ee->e2->toElem(irs);
+                Symbol *s = aaGetSymbol(taa, "Equal", 0);
+                elem *ti = getTypeInfo(taa, irs);
+                elem *ea1 = toElem(ee->e1, irs);
+                elem *ea2 = toElem(ee->e2, irs);
                 // aaEqual(ti, e1, e2)
                 elem *ep = el_params(ea2, ea1, ti, NULL);
                 e = el_bin(OPcall, TYnptr, el_var(s), ep);
@@ -2202,12 +2384,17 @@ elem *toElem(Expression *e, IRState *irs)
             //printf("IdentityExp::toElem() %s\n", toChars());
 
             elem *e;
-            if (t1->ty == Tstruct || t1->isfloating())
+            if (t1->ty == Tstruct && ((TypeStruct *)t1)->sym->fields.dim == 0)
+            {
+                // we can skip the compare if the structs are empty
+                e = el_long(TYbool, ie->op == TOKidentity);
+            }
+            else if (t1->ty == Tstruct || t1->isfloating())
             {
                 // Do bit compare of struct's
-                elem *es1 = ie->e1->toElem(irs);
+                elem *es1 = toElem(ie->e1, irs);
                 es1 = addressElem(es1, ie->e1->type);
-                elem *es2 = ie->e2->toElem(irs);
+                elem *es2 = toElem(ie->e2, irs);
                 es2 = addressElem(es2, ie->e2->type);
                 e = el_param(es1, es2);
                 elem *ecount = el_long(TYsize_t, t1->size());
@@ -2219,12 +2406,12 @@ elem *toElem(Expression *e, IRState *irs)
                      (t2->ty == Tarray || t2->ty == Tsarray))
             {
 
-                elem *ea1 = ie->e1->toElem(irs);
+                elem *ea1 = toElem(ie->e1, irs);
                 ea1 = array_toDarray(t1, ea1);
-                elem *ea2 = ie->e2->toElem(irs);
+                elem *ea2 = toElem(ie->e2, irs);
                 ea2 = array_toDarray(t2, ea2);
 
-                e = el_bin(eop, ie->type->totym(), ea1, ea2);
+                e = el_bin(eop, totym(ie->type), ea1, ea2);
                 el_setLoc(e, ie->loc);
             }
             else
@@ -2238,16 +2425,16 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(InExp *ie)
         {
-            elem *key = ie->e1->toElem(irs);
-            elem *aa = ie->e2->toElem(irs);
+            elem *key = toElem(ie->e1, irs);
+            elem *aa = toElem(ie->e2, irs);
             TypeAArray *taa = (TypeAArray *)ie->e2->type->toBasetype();
 
             // aaInX(aa, keyti, key);
             key = addressElem(key, ie->e1->type);
-            Symbol *s = taa->aaGetSymbol("InX", 0);
-            elem *keyti = taa->index->getInternalTypeInfo(NULL)->toElem(irs);
+            Symbol *s = aaGetSymbol(taa, "InX", 0);
+            elem *keyti = getTypeInfo(taa->index, irs);
             elem *ep = el_params(key, keyti, aa, NULL);
-            elem *e = el_bin(OPcall, ie->type->totym(), el_var(s), ep);
+            elem *e = el_bin(OPcall, totym(ie->type), el_var(s), ep);
 
             el_setLoc(e, ie->loc);
             result = e;
@@ -2261,12 +2448,12 @@ elem *toElem(Expression *e, IRState *irs)
             Type *tb = re->e1->type->toBasetype();
             assert(tb->ty == Taarray);
             TypeAArray *taa = (TypeAArray *)tb;
-            elem *ea = re->e1->toElem(irs);
-            elem *ekey = re->e2->toElem(irs);
+            elem *ea = toElem(re->e1, irs);
+            elem *ekey = toElem(re->e2, irs);
 
             ekey = addressElem(ekey, re->e1->type);
-            Symbol *s = taa->aaGetSymbol("DelX", 0);
-            elem *keyti = taa->index->getInternalTypeInfo(NULL)->toElem(irs);
+            Symbol *s = aaGetSymbol(taa, "DelX", 0);
+            elem *keyti = getTypeInfo(taa->index, irs);
             elem *ep = el_params(ekey, keyti, ea, NULL);
             elem *e = el_bin(OPcall, TYnptr, el_var(s), ep);
 
@@ -2279,7 +2466,11 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(AssignExp *ae)
         {
-            //printf("AssignExp::toElem('%s')\n", ae->toChars());
+        #if 0
+            if (ae->op == TOKblit)      printf("BlitExp::toElem('%s')\n", ae->toChars());
+            if (ae->op == TOKassign)    printf("AssignExp::toElem('%s')\n", ae->toChars());
+            if (ae->op == TOKconstruct) printf("ConstructExp::toElem('%s')\n", ae->toChars());
+        #endif
             Type *t1b = ae->e1->type->toBasetype();
 
             elem *e;
@@ -2292,18 +2483,22 @@ elem *toElem(Expression *e, IRState *irs)
 
                 ArrayLengthExp *ale = (ArrayLengthExp *)ae->e1;
 
-                elem *p1 = ae->e2->toElem(irs);
-                elem *p3 = ale->e1->toElem(irs);
+                elem *p1 = toElem(ae->e2, irs);
+                elem *p3 = toElem(ale->e1, irs);
                 p3 = addressElem(p3, NULL);
                 Type *t1 = ale->e1->type->toBasetype();
 
                 // call _d_arraysetlengthT(ti, e2, &ale->e1);
-                elem *p2 = t1->getTypeInfo(NULL)->toElem(irs);
+                elem *p2 = getTypeInfo(t1, irs);
                 elem *ep = el_params(p3, p1, p2, NULL); // c function
                 int r = t1->nextOf()->isZeroInit() ? RTLSYM_ARRAYSETLENGTHT : RTLSYM_ARRAYSETLENGTHIT;
 
-                e = el_bin(OPcall, ae->type->totym(), el_var(rtlsym[r]), ep);
-                goto Lret;
+                e = el_bin(OPcall, totym(ae->type), el_var(getRtlsym(r)), ep);
+                toTraceGC(irs, e, &ae->loc);
+
+                el_setLoc(e, ae->loc);
+                result = e;
+                return;
             }
 
             // Look for array[]=n
@@ -2314,150 +2509,17 @@ elem *toElem(Expression *e, IRState *irs)
                 Type *t2 = ae->e2->type->toBasetype();
                 Type *ta = are->e1->type->toBasetype();
 
-                /* Optimize static array assignment with array literal.
-                 * Rewrite:
-                 *      sa[] = [a, b, ...];
-                 * as:
-                 *      sa[0] = a, sa[1] = b, ...;
-                 *
-                 * If the same values are contiguous, that will be rewritten
-                 * to block assignment.
-                 * Rewrite:
-                 *      sa[] = [x, a, a, b, ...];
-                 * as:
-                 *      sa[0] = x, sa[1..2] = a, sa[3] = b, ...;
-                 */
-                if (are->lwr == NULL && ta->ty == Tsarray &&
-                    ae->e2->op == TOKarrayliteral &&
-                    ae->op == TOKconstruct &&   // Bugzilla 11238: avoid aliasing issue
-                    t2->nextOf()->mutableOf()->implicitConvTo(ta->nextOf()))
-                {
-                    ArrayLiteralExp *ale = (ArrayLiteralExp *)ae->e2;
-                    TypeSArray *tsa = (TypeSArray *)ta;
-
-                    size_t dim = ale->elements->dim;
-                    if (dim == 0)
-                    {
-                        goto Lx;
-                    #if 0
-                        /* This code doesn't work with -O switch. Because backend optimizer
-                         * will eliminate this useless initializing code for zero-length
-                         * static array completely, then the variable kept in "unset".
-                         * Instead to fallback to the __d_arrayliteral call.
-                         */
-                        symbol *stmp = symbol_genauto(TYnptr);
-                        e = are->e1->toElem(irs);
-                        e = addressElem(e, tsa);
-                        e = el_bin(OPeq, TYnptr, el_var(stmp), e);
-
-                        elem *e1 = el_var(stmp);
-                        e1 = el_una(OPind, tsa->totym(), e1);
-                        e1->ET = Type_toCtype(tsa);
-                        elem *e2 = el_long(tsa->totym(), 0);
-
-                        elem *ex = el_bin(OPstreq, TYstruct, e1, e2);
-                        ex->ET = Type_toCtype(tsa);
-                        e = el_combine(e, ex);
-                        goto Lret;
-                    #endif
-                    }
-
-                    Type *tn = tsa->nextOf()->toBasetype();
-                    bool postblit = needsPostblit(tn) != NULL;
-                    tym_t ty = tn->totym();
-
-                    symbol *stmp = symbol_genauto(TYnptr);
-                    e = are->e1->toElem(irs);
-                    e = addressElem(e, tsa);
-                    e = el_bin(OPeq, TYnptr, el_var(stmp), e);
-
-                    size_t esz = tn->size();
-                    for (size_t i = 0; i < dim; )
-                    {
-                        Expression *en = (*ale->elements)[i];
-                        size_t j = i + 1;
-                        if (!postblit)
-                        {
-                            // If the elements are same literal and elaborate copy
-                            // is not necessary, do memcpy.
-                            while (j < dim && en->equals((*ale->elements)[j])) { j++; }
-                        }
-
-                        elem *e1 = el_var(stmp);
-                        if (i > 0)
-                            e1 = el_bin(OPadd, TYnptr, e1, el_long(TYsize_t, i * esz));
-                        elem *ex;
-                        if (j == i + 1)
-                        {
-                            e1 = el_una(OPind, ty, e1);
-                            if (tybasic(ty) == TYstruct)
-                                e1->ET = Type_toCtype(tn);
-                            ex = el_bin(OPeq, e1->Ety, e1, en->toElem(irs));
-                            if (tybasic(ty) == TYstruct)
-                            {
-                                ex->Eoper = OPstreq;
-                                ex->ET = Type_toCtype(tn);
-                            }
-                        }
-                        else
-                        {
-                            assert(j - i >= 2);
-                            elem *edim = el_long(TYsize_t, j - i);
-                            ex = setArray(e1, edim, tn, en->toElem(irs), irs, ae->op);
-                        }
-                        e = el_combine(e, ex);
-                        i = j;
-                    }
-                    goto Lret;
-                }
-            Lx:
-
-                if (ae->op == TOKconstruct && !ae->ismemset)
-                {
-                    Expression *e1x = are->e1;
-                    Expression *e2x = ae->e2;
-                    if (e2x->op == TOKcast)
-                    {
-                        Expression *e2y = ((CastExp *)e2x)->e1;
-                        if (Type *t2n = e2y->type->toBasetype()->nextOf())
-                        {
-                            Type *t1n = e1x->type->toBasetype()->nextOf();
-                            assert(t1n);
-                            Type *t1 = t1n->arrayOf()->immutableOf();
-                            Type *t2 = t2n->arrayOf()->immutableOf();
-                            if (t1->equals(t2))
-                                e2x = e2y;
-                        }
-                    }
-                    if (e2x->op == TOKcall)
-                    {
-                        CallExp *ce = (CallExp *)e2x;
-
-                        TypeFunction *tf = (TypeFunction *)ce->e1->type->toBasetype();
-                        if (tf->ty == Tfunction && tf->retStyle() == RETstack)
-                        {
-                            elem *ehidden = e1x->toElem(irs);
-                            ehidden = el_una(OPaddr, TYnptr, ehidden);
-                            assert(!irs->ehidden);
-                            irs->ehidden = ehidden;
-                            e = ce->toElem(irs);
-                            goto Lret;
-                        }
-                    }
-                }
-
                 // which we do if the 'next' types match
-                if (ae->ismemset)
+                if (ae->memset & MemorySet_blockAssign)
                 {
                     // Do a memset for array[]=v
                     //printf("Lpair %s\n", ae->toChars());
                     Type *tb = ta->nextOf()->toBasetype();
                     unsigned sz = tb->size();
-                    tym_t tym = ae->type->totym();
 
-                    elem *n1 = are->e1->toElem(irs);
-                    elem *elwr = are->lwr ? are->lwr->toElem(irs) : NULL;
-                    elem *eupr = are->upr ? are->upr->toElem(irs) : NULL;
+                    elem *n1 = toElem(are->e1, irs);
+                    elem *elwr = are->lwr ? toElem(are->lwr, irs) : NULL;
+                    elem *eupr = are->upr ? toElem(are->upr, irs) : NULL;
 
                     elem *n1x = n1;
 
@@ -2468,7 +2530,7 @@ elem *toElem(Expression *e, IRState *irs)
                     {
                         TypeSArray *ts = (TypeSArray *)ta;
                         n1 = array_toPtr(ta, n1);
-                        enbytes = ts->dim->toElem(irs);
+                        enbytes = toElem(ts->dim, irs);
                         n1x = n1;
                         n1 = el_same(&n1x);
                         einit = resolveLengthVar(are->lengthVar, &n1, ta);
@@ -2509,7 +2571,7 @@ elem *toElem(Expression *e, IRState *irs)
                     einit = el_combine(einit, elwrx);
                     einit = el_combine(einit, euprx);
 
-                    elem *evalue = ae->e2->toElem(irs);
+                    elem *evalue = toElem(ae->e2, irs);
 
         #if 0
                     printf("n1\n");         elem_print(n1);
@@ -2526,7 +2588,7 @@ elem *toElem(Expression *e, IRState *irs)
                         c1 = el_bin(OPandand, TYint, c1, c2);
 
                         // Construct: (c1 || ModuleArray(line))
-                        Symbol *sassert = irs->blx->module->toModuleArray();
+                        Symbol *sassert = toModuleArray(irs->blx->module);
                         elem *ea = el_bin(OPcall,TYvoid,el_var(sassert), el_long(TYint, ae->loc.linnum));
                         elem *eb = el_bin(OPoror,TYvoid,c1,ea);
                         einit = el_combine(einit, eb);
@@ -2548,33 +2610,33 @@ elem *toElem(Expression *e, IRState *irs)
                     e = el_pair(TYdarray, elength, e);
                     e = el_combine(einit, e);
                     //elem_print(e);
-                    goto Lret;
                 }
                 else
                 {
                     /* It's array1[]=array2[]
                      * which is a memcpy
                      */
-                    elem *eto = ae->e1->toElem(irs);
-                    elem *efrom = ae->e2->toElem(irs);
+                    elem *eto = toElem(ae->e1, irs);
+                    elem *efrom = toElem(ae->e2, irs);
 
                     unsigned size = t1->nextOf()->size();
                     elem *esize = el_long(TYsize_t, size);
 
                     /* Determine if we need to do postblit
                      */
-                    int postblit = 0;
+                    bool postblit = false;
                     if (needsPostblit(t1->nextOf()) &&
                         (ae->e2->op == TOKslice && ((UnaExp *)ae->e2)->e1->isLvalue() ||
                          ae->e2->op == TOKcast  && ((UnaExp *)ae->e2)->e1->isLvalue() ||
                          ae->e2->op != TOKslice && ae->e2->isLvalue()))
                     {
-                        postblit = 1;
+                        postblit = true;
                     }
+                    bool destructor = needsDtor(t1->nextOf()) != NULL;
 
                     assert(ae->e2->type->ty != Tpointer);
 
-                    if (!postblit && !irs->arrayBoundsCheck())
+                    if (!postblit && !destructor && !irs->arrayBoundsCheck())
                     {
                         elem *ex = el_same(&eto);
 
@@ -2595,11 +2657,11 @@ elem *toElem(Expression *e, IRState *irs)
                         elem *epto = array_toPtr(ae->e1->type, ex);
                         elem *epfr = array_toPtr(ae->e2->type, efrom);
                         e = el_params(esize, epfr, epto, NULL);
-                        e = el_bin(OPcall,TYnptr,el_var(rtlsym[RTLSYM_MEMCPY]),e);
+                        e = el_bin(OPcall,TYnptr,el_var(getRtlsym(RTLSYM_MEMCPY)),e);
                         e = el_pair(eto->Ety, el_copytree(elen), e);
                         e = el_combine(eto, e);
                     }
-                    else if (postblit && ae->op != TOKblit)
+                    else if ((postblit || destructor) && ae->op != TOKblit)
                     {
                         /* Generate:
                          *      _d_arrayassign(ti, efrom, eto)
@@ -2607,15 +2669,15 @@ elem *toElem(Expression *e, IRState *irs)
                          *      _d_arrayctor(ti, efrom, eto)
                          */
                         el_free(esize);
-                        Expression *ti = t1->nextOf()->toBasetype()->getTypeInfo(NULL);
+                        elem *eti = getTypeInfo(t1->nextOf()->toBasetype(), irs);
                         if (config.exe == EX_WIN64)
                         {
                             eto   = addressElem(eto,   Type::tvoid->arrayOf());
                             efrom = addressElem(efrom, Type::tvoid->arrayOf());
                         }
-                        elem *ep = el_params(eto, efrom, ti->toElem(irs), NULL);
+                        elem *ep = el_params(eto, efrom, eti, NULL);
                         int rtl = (ae->op == TOKconstruct) ? RTLSYM_ARRAYCTOR : RTLSYM_ARRAYASSIGN;
-                        e = el_bin(OPcall, ae->type->totym(), el_var(rtlsym[rtl]), ep);
+                        e = el_bin(OPcall, totym(ae->type), el_var(getRtlsym(rtl)), ep);
                     }
                     else
                     {
@@ -2628,34 +2690,73 @@ elem *toElem(Expression *e, IRState *irs)
                             efrom = addressElem(efrom, Type::tvoid->arrayOf());
                         }
                         elem *ep = el_params(eto, efrom, esize, NULL);
-                        e = el_bin(OPcall, ae->type->totym(), el_var(rtlsym[RTLSYM_ARRAYCOPY]), ep);
+                        e = el_bin(OPcall, totym(ae->type), el_var(getRtlsym(RTLSYM_ARRAYCOPY)), ep);
                     }
-                    el_setLoc(e, ae->loc);
-                    result = e;
-                    return;
                 }
+                el_setLoc(e, ae->loc);
+                result = e;
+                return;
             }
 
             /* Look for reference initializations
              */
-            if (ae->op == TOKconstruct && ae->e1->op == TOKvar)
+            if (ae->memset & MemorySet_referenceInit)
             {
+                assert(ae->op == TOKconstruct || ae->op == TOKblit);
+                assert(ae->e1->op == TOKvar);
+
                 VarExp *ve = (VarExp *)ae->e1;
-                Declaration *s = ve->var;
-                if (s->storage_class & (STCout | STCref))
+                Declaration *d = ve->var;
+                if (d->storage_class & (STCout | STCref))
                 {
-                    e = ae->e2->toElem(irs);
+                    e = toElem(ae->e2, irs);
                     e = addressElem(e, ae->e2->type);
-                    elem *es = ae->e1->toElem(irs);
+                    elem *es = toElem(ae->e1, irs);
                     if (es->Eoper == OPind)
                         es = es->E1;
                     else
                         es = el_una(OPaddr, TYnptr, es);
                     es->Ety = TYnptr;
                     e = el_bin(OPeq, TYnptr, es, e);
-                    // BUG: type is struct, and e2 is TOKint64
-                    goto Lret;
+                    assert(!(t1b->ty == Tstruct && ae->e2->op == TOKint64));
+
+                    el_setLoc(e, ae->loc);
+                    result = e;
+                    return;
                 }
+            }
+
+            tym_t tym = totym(ae->type);
+            elem *e1 = toElem(ae->e1, irs);
+
+            // Create a reference to e1.
+            elem *e1x;
+            if (e1->Eoper == OPvar)
+                e1x = el_same(&e1);
+            else
+            {
+                /* Rewrite to:
+                 *  e1  = *((tmp = &e1), tmp)
+                 *  e1x = *tmp
+                 */
+                e1 = addressElem(e1, NULL);
+                e1x = el_same(&e1);
+                e1 = el_una(OPind, tym, e1);
+                if (tybasic(tym) == TYstruct)
+                    e1->ET = Type_toCtype(ae->e1->type);
+                e1x = el_una(OPind, tym, e1x);
+                if (tybasic(tym) == TYstruct)
+                    e1x->ET = Type_toCtype(ae->e1->type);
+                //printf("e1  = \n"); elem_print(e1);
+                //printf("e1x = \n"); elem_print(e1x);
+            }
+
+            // inlining may generate lazy variable initialization
+            if (ae->e1->op == TOKvar && (((VarExp *)ae->e1)->var->storage_class & STClazy))
+            {
+                assert(ae->op == TOKconstruct || ae->op == TOKblit);
+                e = el_bin(OPeq, tym, e1, toElem(ae->e2, irs));
+                goto Lret;
             }
 
             /* This will work if we can distinguish an assignment from
@@ -2667,23 +2768,24 @@ elem *toElem(Expression *e, IRState *irs)
             {
                 CallExp *ce = (CallExp *)ae->e2;
                 TypeFunction *tf = (TypeFunction *)ce->e1->type->toBasetype();
-                if (tf->ty == Tfunction && tf->retStyle() == RETstack)
+                if (tf->ty == Tfunction && retStyle(tf) == RETstack)
                 {
-                    elem *ehidden = ae->e1->toElem(irs);
+                    elem *ehidden = e1;
                     ehidden = el_una(OPaddr, TYnptr, ehidden);
                     assert(!irs->ehidden);
                     irs->ehidden = ehidden;
-                    e = ae->e2->toElem(irs);
+                    e = toElem(ae->e2, irs);
                     goto Lret;
                 }
             }
 
-            //if (op == TOKconstruct) printf("construct\n");
-            if (t1b->ty == Tstruct || t1b->ty == Tsarray)
+            //if (ae->op == TOKconstruct) printf("construct\n");
+            if (t1b->ty == Tstruct)
             {
-                elem *eleft = ae->e1->toElem(irs);
                 if (ae->e2->op == TOKint64)
                 {
+                    assert(ae->op == TOKblit);
+
                     /* Implement:
                      *  (struct = 0)
                      * with:
@@ -2694,13 +2796,13 @@ elem *toElem(Expression *e, IRState *irs)
                     StructDeclaration *sd = ((TypeStruct *)t1b)->sym;
                     if (sd->isNested() && ae->op == TOKconstruct)
                     {
-                        ey = el_una(OPaddr, TYnptr, eleft);
-                        eleft = el_same(&ey);
+                        ey = el_una(OPaddr, TYnptr, e1);
+                        e1 = el_same(&ey);
                         ey = setEthis(ae->loc, irs, ey, sd);
                         sz = sd->vthis->offset;
                     }
 
-                    elem *el = eleft;
+                    elem *el = e1;
                     elem *enbytes = el_long(TYsize_t, sz);
                     elem *evalue = el_long(TYsize_t, 0);
 
@@ -2709,56 +2811,161 @@ elem *toElem(Expression *e, IRState *irs)
                     e = el_param(enbytes, evalue);
                     e = el_bin(OPmemset,TYnptr,el,e);
                     e = el_combine(ey, e);
-                    el_setLoc(e, ae->loc);
-                    //e = el_una(OPind, TYstruct, e);
+                    goto Lret;
                 }
-                else
+
+                //printf("toElemBin() '%s'\n", ae->toChars());
+
+                elem *ex = e1;
+                if (e1->Eoper == OPind)
+                    ex = e1->E1;
+                if (ae->e2->op == TOKstructliteral &&
+                    ex->Eoper == OPvar && ex->EV.sp.Voffset == 0 &&
+                    ae->op == TOKconstruct)
                 {
-                    //printf("toElemBin() '%s'\n", ae->toChars());
+                    StructLiteralExp *se = (StructLiteralExp *)ae->e2;
 
-                    tym_t tym = ae->type->totym();
+                    Symbol *symSave = se->sym;
+                    size_t soffsetSave = se->soffset;
+                    int fillHolesSave = se->fillHoles;
 
-                    elem *e1 = eleft;
-                    elem *ex = e1;
-                    if (e1->Eoper == OPind)
-                        ex = e1->E1;
-                    if (ae->e2->op == TOKstructliteral &&
-                        ex->Eoper == OPvar && ex->EV.sp.Voffset == 0)
+                    se->sym = ex->EV.sp.Vsym;
+                    se->soffset = 0;
+                    se->fillHoles = (ae->op == TOKconstruct || ae->op == TOKblit) ? 1 : 0;
+
+                    el_free(e1);
+                    e = toElem(ae->e2, irs);
+
+                    se->sym = symSave;
+                    se->soffset = soffsetSave;
+                    se->fillHoles = fillHolesSave;
+                    goto Lret;
+                }
+
+                /* Implement:
+                 *  (struct = struct)
+                 */
+                elem *e2 = toElem(ae->e2, irs);
+
+                e = el_bin(OPstreq, tym, e1, e2);
+                e->ET = Type_toCtype(ae->e1->type);
+                if (type_size(e->ET) == 0)
+                    e->Eoper = OPcomma;
+            }
+            else if (t1b->ty == Tsarray)
+            {
+                /* Implement:
+                 *  (sarray = sarray)
+                 */
+                assert(ae->e2->type->toBasetype()->ty == Tsarray);
+
+                bool postblit = needsPostblit(t1b->nextOf()) != NULL;
+                bool destructor = needsDtor(t1b->nextOf()) != NULL;
+
+                /* Optimize static array assignment with array literal.
+                 * Rewrite:
+                 *      e1 = [a, b, ...];
+                 * as:
+                 *      e1[0] = a, e1[1] = b, ...;
+                 *
+                 * If the same values are contiguous, that will be rewritten
+                 * to block assignment.
+                 * Rewrite:
+                 *      e1 = [x, a, a, b, ...];
+                 * as:
+                 *      e1[0] = x, e1[1..2] = a, e1[3] = b, ...;
+                 */
+                if (ae->op == TOKconstruct &&   // Bugzilla 11238: avoid aliasing issue
+                    ae->e2->op == TOKarrayliteral)
+                {
+                    ArrayLiteralExp *ale = (ArrayLiteralExp *)ae->e2;
+                    if (ale->elements->dim == 0)
                     {
-                        StructLiteralExp *se = (StructLiteralExp *)ae->e2;
-
-                        Symbol *symSave = se->sym;
-                        size_t soffsetSave = se->soffset;
-                        int fillHolesSave = se->fillHoles;
-
-                        se->sym = ex->EV.sp.Vsym;
-                        se->soffset = 0;
-                        se->fillHoles = (ae->op == TOKconstruct || ae->op == TOKblit) ? 1 : 0;
-
-                        el_free(e1);
-                        e = ae->e2->toElem(irs);
-
-                        se->sym = symSave;
-                        se->soffset = soffsetSave;
-                        se->fillHoles = fillHolesSave;
+                        e = e1;
                     }
                     else
                     {
-                        elem *e2 = ae->e2->toElem(irs);
-                        e = el_bin(OPstreq,tym,e1,e2);
-                        e->ET = Type_toCtype(ae->e1->type);
-                        if (type_size(e->ET) == 0)
-                            e->Eoper = OPcomma;
+                        symbol *stmp = symbol_genauto(TYnptr);
+                        e1 = addressElem(e1, t1b);
+                        e1 = el_bin(OPeq, TYnptr, el_var(stmp), e1);
+
+                        // Eliminate _d_arrayliteralTX call in ae->e2.
+                        e = ExpressionsToStaticArray(ale->loc, ale->elements, &stmp, 0, ale->basis);
+                        e = el_combine(e1, e);
                     }
                     goto Lret;
                 }
+
+                /* Bugzilla 13661: Even if the elements in rhs are all rvalues and
+                 * don't have to call postblits, this assignment should call
+                 * destructors on old assigned elements.
+                 */
+                bool lvalueElem = false;
+                if (ae->e2->op == TOKslice && ((UnaExp *)ae->e2)->e1->isLvalue() ||
+                    ae->e2->op == TOKcast  && ((UnaExp *)ae->e2)->e1->isLvalue() ||
+                    ae->e2->op != TOKslice && ae->e2->isLvalue())
+                {
+                    lvalueElem = true;
+                }
+
+                elem *e2 = toElem(ae->e2, irs);
+
+                if (!postblit && !destructor ||
+                    ae->op == TOKconstruct && !lvalueElem && postblit ||
+                    ae->op == TOKblit ||
+                    type_size(e1->ET) == 0)
+                {
+                    e = el_bin(OPstreq, tym, e1, e2);
+                    e->ET = Type_toCtype(ae->e1->type);
+                    if (type_size(e->ET) == 0)
+                        e->Eoper = OPcomma;
+                }
+                else if (ae->op == TOKconstruct)
+                {
+                    e1 = sarray_toDarray(ae->e1->loc, ae->e1->type, NULL, e1);
+                    e2 = sarray_toDarray(ae->e2->loc, ae->e2->type, NULL, e2);
+
+                    /* Generate:
+                     *      _d_arrayctor(ti, e2, e1)
+                     */
+                    elem *eti = getTypeInfo(t1b->nextOf()->toBasetype(), irs);
+                    if (config.exe == EX_WIN64)
+                    {
+                        e1 = addressElem(e1, Type::tvoid->arrayOf());
+                        e2 = addressElem(e2, Type::tvoid->arrayOf());
+                    }
+                    elem *ep = el_params(e1, e2, eti, NULL);
+                    e = el_bin(OPcall, TYdarray, el_var(getRtlsym(RTLSYM_ARRAYCTOR)), ep);
+                }
+                else
+                {
+                    e1 = sarray_toDarray(ae->e1->loc, ae->e1->type, NULL, e1);
+                    e2 = sarray_toDarray(ae->e2->loc, ae->e2->type, NULL, e2);
+
+                    symbol *stmp = symbol_genauto(Type_toCtype(t1b->nextOf()));
+                    elem *etmp = el_una(OPaddr, TYnptr, el_var(stmp));
+
+                    /* Generate:
+                     *      _d_arrayassign_r(ti, e2, e1, etmp)
+                     * or:
+                     *      _d_arrayassign_r(ti, e2, e1, etmp)
+                     */
+                    elem *eti = getTypeInfo(t1b->nextOf()->toBasetype(), irs);
+                    if (config.exe == EX_WIN64)
+                    {
+                        e1 = addressElem(e1, Type::tvoid->arrayOf());
+                        e2 = addressElem(e2, Type::tvoid->arrayOf());
+                    }
+                    elem *ep = el_params(etmp, e1, e2, eti, NULL);
+                    int rtl = lvalueElem ? RTLSYM_ARRAYASSIGN_L : RTLSYM_ARRAYASSIGN_R;
+                    e = el_bin(OPcall, TYdarray, el_var(getRtlsym(rtl)), ep);
+                }
             }
             else
-                e = toElemBin(ae,OPeq);
-            result = e;
-            return;
+                e = el_bin(OPeq, tym, e1, toElem(ae->e2, irs));
 
         Lret:
+            e = el_combine(e, e1x);
             el_setLoc(e, ae->loc);
             result = e;
         }
@@ -2769,7 +2976,7 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(AddAssignExp *e)
         {
             //printf("AddAssignExp::toElem() %s\n", e->toChars());
-            result = toElemBin(e, OPaddass);
+            result = toElemBinAssign(e, OPaddass);
         }
 
 
@@ -2778,7 +2985,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(MinAssignExp *e)
         {
-            result = toElemBin(e, OPminass);
+            result = toElemBinAssign(e, OPminass);
         }
 
         /***************************************
@@ -2795,22 +3002,23 @@ elem *toElem(Expression *e, IRState *irs)
                 (tb1->nextOf()->ty == Tchar || tb1->nextOf()->ty == Twchar))
             {
                 // Append dchar to char[] or wchar[]
-                elem *e1 = ce->e1->toElem(irs);
+                elem *e1 = toElem(ce->e1, irs);
                 e1 = el_una(OPaddr, TYnptr, e1);
 
-                elem *e2 = ce->e2->toElem(irs);
+                elem *e2 = toElem(ce->e2, irs);
 
                 elem *ep = el_params(e2, e1, NULL);
                 int rtl = (tb1->nextOf()->ty == Tchar)
                         ? RTLSYM_ARRAYAPPENDCD
                         : RTLSYM_ARRAYAPPENDWD;
-                e = el_bin(OPcall, TYdarray, el_var(rtlsym[rtl]), ep);
+                e = el_bin(OPcall, TYdarray, el_var(getRtlsym(rtl)), ep);
+                toTraceGC(irs, e, &ce->loc);
                 el_setLoc(e, ce->loc);
             }
             else if (tb1->ty == Tarray || tb2->ty == Tsarray)
             {
-                elem *e1 = ce->e1->toElem(irs);
-                elem *e2 = ce->e2->toElem(irs);
+                elem *e1 = toElem(ce->e1, irs);
+                elem *e2 = toElem(ce->e2, irs);
 
                 Type *tb1n = tb1->nextOf()->toBasetype();
                 if ((tb2->ty == Tarray || tb2->ty == Tsarray) &&
@@ -2819,11 +3027,12 @@ elem *toElem(Expression *e, IRState *irs)
                     // Append array
                     e1 = el_una(OPaddr, TYnptr, e1);
                     if (config.exe == EX_WIN64)
-                        e2 = addressElem(e2, tb2);
+                        e2 = addressElem(e2, tb2, true);
                     else
                         e2 = useOPstrpar(e2);
-                    elem *ep = el_params(e2, e1, ce->e1->type->getTypeInfo(NULL)->toElem(irs), NULL);
-                    e = el_bin(OPcall, TYdarray, el_var(rtlsym[RTLSYM_ARRAYAPPENDT]), ep);
+                    elem *ep = el_params(e2, e1, getTypeInfo(ce->e1->type, irs), NULL);
+                    e = el_bin(OPcall, TYdarray, el_var(getRtlsym(RTLSYM_ARRAYAPPENDT)), ep);
+                    toTraceGC(irs, e, &ce->loc);
                 }
                 else if (tb1n->equals(tb2))
                 {
@@ -2855,9 +3064,10 @@ elem *toElem(Expression *e, IRState *irs)
 
                     // Extend array with _d_arrayappendcTX(TypeInfo ti, e1, 1)
                     e1 = el_una(OPaddr, TYnptr, e1);
-                    elem *ep = el_param(e1, ce->e1->type->getTypeInfo(NULL)->toElem(irs));
+                    elem *ep = el_param(e1, getTypeInfo(ce->e1->type, irs));
                     ep = el_param(el_long(TYsize_t, 1), ep);
-                    e = el_bin(OPcall, TYdarray, el_var(rtlsym[RTLSYM_ARRAYAPPENDCTX]), ep);
+                    e = el_bin(OPcall, TYdarray, el_var(getRtlsym(RTLSYM_ARRAYAPPENDCTX)), ep);
+                    toTraceGC(irs, e, &ce->loc);
                     symbol *stmp = symbol_genauto(Type_toCtype(tb1));
                     e = el_bin(OPeq, TYdarray, el_var(stmp), e);
 
@@ -2890,7 +3100,7 @@ elem *toElem(Expression *e, IRState *irs)
                 }
                 else
                 {
-                    ce->error("ICE: cannot append '%s' to '%s'", tb2->toChars(), tb1->toChars());
+                    ce->error("Internal Compiler Error: cannot append '%s' to '%s'", tb2->toChars(), tb1->toChars());
                     assert(0);
                 }
 
@@ -2906,7 +3116,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(DivAssignExp *e)
         {
-            result = toElemBin(e, OPdivass);
+            result = toElemBinAssign(e, OPdivass);
         }
 
         /***************************************
@@ -2914,7 +3124,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(ModAssignExp *e)
         {
-            result = toElemBin(e, OPmodass);
+            result = toElemBinAssign(e, OPmodass);
         }
 
         /***************************************
@@ -2922,7 +3132,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(MulAssignExp *e)
         {
-            result = toElemBin(e, OPmulass);
+            result = toElemBinAssign(e, OPmulass);
         }
 
         /***************************************
@@ -2930,7 +3140,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(ShlAssignExp *e)
         {
-            result = toElemBin(e, OPshlass);
+            result = toElemBinAssign(e, OPshlass);
         }
 
         /***************************************
@@ -2947,7 +3157,7 @@ elem *toElem(Expression *e, IRState *irs)
                 CastExp *ce = (CastExp *)e->e1;
                 t1 = ce->e1->type;
             }
-            result = toElemBin(e, t1->isunsigned() ? OPshrass : OPashrass);
+            result = toElemBinAssign(e, t1->isunsigned() ? OPshrass : OPashrass);
         }
 
         /***************************************
@@ -2955,7 +3165,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(UshrAssignExp *e)
         {
-            result = toElemBin(e, OPshrass);
+            result = toElemBinAssign(e, OPshrass);
         }
 
         /***************************************
@@ -2963,7 +3173,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(AndAssignExp *e)
         {
-            result = toElemBin(e, OPandass);
+            result = toElemBinAssign(e, OPandass);
         }
 
         /***************************************
@@ -2971,7 +3181,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(OrAssignExp *e)
         {
-            result = toElemBin(e, OPorass);
+            result = toElemBinAssign(e, OPorass);
         }
 
         /***************************************
@@ -2979,7 +3189,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(XorAssignExp *e)
         {
-            result = toElemBin(e, OPxorass);
+            result = toElemBinAssign(e, OPxorass);
         }
 
         /***************************************
@@ -2990,8 +3200,8 @@ elem *toElem(Expression *e, IRState *irs)
             Type *tb1 = e->e1->type->toBasetype();
             assert(tb1->ty != Tarray && tb1->ty != Tsarray);
 
-            e->error("must import std.math to use ^^ operator");
-            result = el_long(e->type->totym(), 0);  // error recovery
+            e->error("^^ operator is not supported");
+            result = el_long(totym(e->type), 0);  // error recovery
         }
 
         /***************************************
@@ -2999,9 +3209,9 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(AndAndExp *aae)
         {
-            tym_t tym = aae->type->totym();
+            tym_t tym = totym(aae->type);
 
-            elem *el = aae->e1->toElem(irs);
+            elem *el = toElem(aae->e1, irs);
             elem *er = toElemDtor(aae->e2, irs);
             elem *e = el_bin(OPandand,tym,el,er);
 
@@ -3017,9 +3227,9 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(OrOrExp *ooe)
         {
-            tym_t tym = ooe->type->totym();
+            tym_t tym = totym(ooe->type);
 
-            elem *el = ooe->e1->toElem(irs);
+            elem *el = toElem(ooe->e1, irs);
             elem *er = toElemDtor(ooe->e2, irs);
             elem *e = el_bin(OPoror,tym,el,er);
 
@@ -3046,8 +3256,8 @@ elem *toElem(Expression *e, IRState *irs)
             Type *tb1 = e->e1->type->toBasetype();
             assert(tb1->ty != Tarray && tb1->ty != Tsarray);
 
-            e->error("must import std.math to use ^^ operator");
-            result = el_long(e->type->totym(), 0);  // error recovery
+            e->error("^^ operator is not supported");
+            result = el_long(totym(e->type), 0);  // error recovery
         }
 
         /***************************************
@@ -3087,10 +3297,10 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(UshrExp *se)
         {
-            elem *eleft  = se->e1->toElem(irs);
+            elem *eleft  = toElem(se->e1, irs);
             eleft->Ety = touns(eleft->Ety);
-            elem *eright = se->e2->toElem(irs);
-            elem *e = el_bin(OPshr, se->type->totym(), eleft, eright);
+            elem *eright = toElem(se->e2, irs);
+            elem *e = el_bin(OPshr, totym(se->type), eleft, eright);
             el_setLoc(e, se->loc);
             result = e;
         }
@@ -3101,8 +3311,8 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(CommaExp *ce)
         {
             assert(ce->e1 && ce->e2);
-            elem *eleft  = ce->e1->toElem(irs);
-            elem *eright = ce->e2->toElem(irs);
+            elem *eleft  = toElem(ce->e1, irs);
+            elem *eright = toElem(ce->e2, irs);
             elem *e = el_combine(eleft, eright);
             if (e)
                 el_setLoc(e, ce->loc);
@@ -3114,14 +3324,14 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(CondExp *ce)
         {
-            elem *ec = ce->econd->toElem(irs);
+            elem *ec = toElem(ce->econd, irs);
 
-            elem *eleft = toElemDtor(ce->e1, irs);
+            elem *eleft = toElem(ce->e1, irs);
             tym_t ty = eleft->Ety;
             if (global.params.cov && ce->e1->loc.linnum)
                 eleft = el_combine(incUsageElem(irs, ce->e1->loc), eleft);
 
-            elem *eright = toElemDtor(ce->e2, irs);
+            elem *eright = toElem(ce->e2, irs);
             if (global.params.cov && ce->e2->loc.linnum)
                 eright = el_combine(incUsageElem(irs, ce->e2->loc), eright);
 
@@ -3154,20 +3364,35 @@ elem *toElem(Expression *e, IRState *irs)
         {
             // *(&e + offset)
 
-            //printf("DotVarExp::toElem('%s')\n", dve->toChars());
+            //printf("[%s] DotVarExp::toElem('%s')\n", dve->loc.toChars(), dve->toChars());
 
             VarDeclaration *v = dve->var->isVarDeclaration();
             if (!v)
             {
                 dve->error("%s is not a field, but a %s", dve->var->toChars(), dve->var->kind());
+                result = el_long(TYint, 0);
+                return;
             }
 
-            elem *e = dve->e1->toElem(irs);
+            // Bugzilla 12900
+            Type *txb = dve->type->toBasetype();
+            Type *tyb = v->type->toBasetype();
+            if (txb->ty == Tvector) txb = ((TypeVector *)txb)->basetype;
+            if (tyb->ty == Tvector) tyb = ((TypeVector *)tyb)->basetype;
+#if DEBUG
+            if (txb->ty != tyb->ty)
+                printf("[%s] dve = %s, dve->type = %s, v->type = %s\n", dve->loc.toChars(), dve->toChars(), dve->type->toChars(), v->type->toChars());
+#endif
+            assert(txb->ty == tyb->ty);
+
+            elem *e = toElem(dve->e1, irs);
             Type *tb1 = dve->e1->type->toBasetype();
             if (tb1->ty != Tclass && tb1->ty != Tpointer)
                 e = addressElem(e, tb1);
-            e = el_bin(OPadd, TYnptr, e, el_long(TYsize_t, v ? v->offset : 0));
-            e = el_una(OPind, dve->type->totym(), e);
+            e = el_bin(OPadd, TYnptr, e, el_long(TYsize_t, v->offset));
+            if (v->storage_class & (STCout | STCref))
+                e = el_una(OPind, TYnptr, e);
+            e = el_una(OPind, totym(dve->type), e);
             if (tybasic(e->Ety) == TYstruct)
             {
                 e->ET = Type_toCtype(dve->type);
@@ -3196,19 +3421,19 @@ elem *toElem(Expression *e, IRState *irs)
             }
 
             elem *ethis;
-            Symbol *sfunc = de->func->toSymbol();
+            Symbol *sfunc = toSymbol(de->func);
             elem *ep;
             if (de->func->isNested())
             {
                 ep = el_ptr(sfunc);
                 if (de->e1->op == TOKnull)
-                    ethis = de->e1->toElem(irs);
+                    ethis = toElem(de->e1, irs);
                 else
                     ethis = getEthis(de->loc, irs, de->func);
             }
             else
             {
-                ethis = de->e1->toElem(irs);
+                ethis = toElem(de->e1, irs);
                 if (de->e1->type->ty != Tclass && de->e1->type->ty != Tpointer)
                     ethis = addressElem(ethis, de->e1->type);
 
@@ -3260,14 +3485,14 @@ elem *toElem(Expression *e, IRState *irs)
         {
             // Just a pass-thru to e1
             //printf("DotTypeExp::toElem() %s\n", dte->toChars());
-            elem *e = dte->e1->toElem(irs);
+            elem *e = toElem(dte->e1, irs);
             el_setLoc(e, dte->loc);
             result = e;
         }
 
         void visit(CallExp *ce)
         {
-            //printf("CallExp::toElem('%s')\n", ce->toChars());
+            //printf("[%s] CallExp::toElem('%s') %p, %s\n", ce->loc.toChars(), ce->toChars(), ce, ce->type->toChars());
             assert(ce->e1->type);
             Type *t1 = ce->e1->type->toBasetype();
             Type *ectype = t1;
@@ -3276,44 +3501,69 @@ elem *toElem(Expression *e, IRState *irs)
             elem *ehidden = irs->ehidden;
             irs->ehidden = NULL;
 
-            int directcall = 0;
             elem *ec;
             FuncDeclaration *fd = NULL;
+            bool dctor = false;
             if (ce->e1->op == TOKdotvar && t1->ty != Tdelegate)
             {
                 DotVarExp *dve = (DotVarExp *)ce->e1;
 
                 fd = dve->var->isFuncDeclaration();
-                Expression *ex = dve->e1;
-                while (1)
-                {
-                    switch (ex->op)
-                    {
-                        case TOKsuper:          // super.member() calls directly
-                        case TOKdottype:        // type.member() calls directly
-                            directcall = 1;
-                            break;
 
-                        case TOKcast:
-                            ex = ((CastExp *)ex)->e1;
-                            continue;
-
-                        default:
-                            //ex->dump(0);
-                            break;
-                    }
-                    break;
-                }
                 if (dve->e1->op == TOKstructliteral)
                 {
                     StructLiteralExp *sle = (StructLiteralExp *)dve->e1;
                     sle->sinit = NULL;          // don't modify initializer
                 }
 
-                ec = dve->e1->toElem(irs);
+                ec = toElem(dve->e1, irs);
                 ectype = dve->e1->type->toBasetype();
 
-                if (ce->arguments && ce->arguments->dim && ec->Eoper != OPvar)
+                /* Recognize:
+                 *   [1] ce:  ((S __ctmp = initializer),__ctmp).ctor(args)
+                 * where the left of the . was turned into [2] or [3] for EH_DWARF:
+                 *   [2] ec:  (dctor info ((__ctmp = initializer),__ctmp)), __ctmp
+                 *   [3] ec:  (dctor info ((_flag=0),((__ctmp = initializer),__ctmp))), __ctmp
+                 * The trouble (Bugzilla 13095) is if ctor(args) throws, then __ctmp is destructed even though __ctmp
+                 * is not a fully constructed object yet. The solution is to move the ctor(args) itno the dctor tree.
+                 * But first, detect [1], then [2], then split up [2] into:
+                 *   eeq: (dctor info ((__ctmp = initializer),__ctmp))
+                 *   eeq: (dctor info ((_flag=0),((__ctmp = initializer),__ctmp)))   for EH_DWARF
+                 *   ec:  __ctmp
+                 */
+                if (fd && fd->isCtorDeclaration())
+                {
+                    //printf("test30 %s\n", dve->e1->toChars());
+                    if (dve->e1->op == TOKcomma)
+                    {
+                        //printf("test30a\n");
+                        if (((CommaExp *)dve->e1)->e1->op == TOKdeclaration && ((CommaExp *)dve->e1)->e2->op == TOKvar)
+                        {   // dve->e1: (declaration , var)
+
+                            //printf("test30b\n");
+                            if (ec->Eoper == OPcomma &&
+                                ec->E1->Eoper == OPinfo &&
+                                ec->E1->E1->Eoper == OPdctor &&
+                                ec->E1->E2->Eoper == OPcomma)
+                            {   // ec: ((dctor info (* , *)) , *)
+
+                                //printf("test30c\n");
+                                dctor = true;                   // remember we detected it
+
+                                // Split ec into eeq and ec per comment above
+                                eeq = ec->E1;                   // (dctor info (*, *))
+                                ec->E1 = NULL;
+                                ec = el_selecte2(ec);           // *
+                            }
+                        }
+                    }
+                }
+
+
+                if (dctor)
+                {
+                }
+                else if (ce->arguments && ce->arguments->dim && ec->Eoper != OPvar)
                 {
                     if (ec->Eoper == OPind && el_sideeffect(ec->E1))
                     {
@@ -3334,7 +3584,7 @@ elem *toElem(Expression *e, IRState *irs)
 
                         Symbol *stmp = symbol_genauto(type_fake(ec->Ety));
                         eeq = el_bin(OPeq, ec->Ety, el_var(stmp), ec);
-                        ec = el_una(OPind, ectype->totym(), el_var(stmp));
+                        ec = el_una(OPind, totym(ectype), el_var(stmp));
                     }
                 }
             }
@@ -3368,11 +3618,11 @@ elem *toElem(Expression *e, IRState *irs)
                 }
         #endif
 
-                ec = ce->e1->toElem(irs);
+                ec = toElem(ce->e1, irs);
             }
             else
             {
-                ec = ce->e1->toElem(irs);
+                ec = toElem(ce->e1, irs);
                 if (ce->arguments && ce->arguments->dim)
                 {
                     /* The idea is to enforce expressions being evaluated left to right,
@@ -3401,11 +3651,41 @@ elem *toElem(Expression *e, IRState *irs)
                     }
                 }
             }
-            ec = callfunc(ce->loc, irs, directcall, ce->type, ec, ectype, fd, t1, ehidden, ce->arguments);
-            el_setLoc(ec, ce->loc);
+            elem *ecall = callfunc(ce->loc, irs, ce->directcall, ce->type, ec, ectype, fd, t1, ehidden, ce->arguments);
+
+            if (dctor && ecall->Eoper == OPind)
+            {
+                /* Continuation of fix outlined above for moving constructor call into dctor tree.
+                 * Given:
+                 *   eeq:   (dctor info ((__ctmp = initializer),__ctmp))
+                 *   eeq:   (dctor info ((_flag=0),((__ctmp = initializer),__ctmp)))   for EH_DWARF
+                 *   ecall: * call(ce, args)
+                 * Rewrite ecall as:
+                 *    * (dctor info ((__ctmp = initializer),call(ce, args)))
+                 *    * (dctor info ((_flag=0),(__ctmp = initializer),call(ce, args)))
+                 */
+                elem *ea = ecall->E1;           // ea: call(ce,args)
+                tym_t ty = ea->Ety;
+                ecall->E1 = eeq;
+                assert(eeq->Eoper == OPinfo);
+                elem *eeqcomma = eeq->E2;
+                assert(eeqcomma->Eoper == OPcomma);
+                while (eeqcomma->E2->Eoper == OPcomma)
+                {
+                    eeqcomma->Ety = ty;
+                    eeqcomma = eeqcomma->E2;
+                }
+                eeq->Ety = ty;
+                el_free(eeqcomma->E2);
+                eeqcomma->E2 = ea;               // replace ,__ctmp with ,call(ce,args)
+                eeqcomma->Ety = ty;
+                eeq = NULL;
+            }
+
+            el_setLoc(ecall, ce->loc);
             if (eeq)
-                ec = el_combine(eeq, ec);
-            result = ec;
+                ecall = el_combine(eeq, ecall);
+            result = ecall;
         }
 
         void visit(AddrExp *ae)
@@ -3417,7 +3697,7 @@ elem *toElem(Expression *e, IRState *irs)
                 //printf("AddrExp::toElem('%s') %d\n", ae->toChars(), ae);
                 //printf("StructLiteralExp(%p); origin:%p\n", sl, sl->origin);
                 //printf("sl->toSymbol() (%p)\n", sl->toSymbol());
-                elem *e = el_ptr(sl->origin->toSymbol());
+                elem *e = el_ptr(toSymbol(sl->origin));
                 e->ET = Type_toCtype(ae->type);
                 el_setLoc(e, ae->loc);
                 result = e;
@@ -3425,9 +3705,9 @@ elem *toElem(Expression *e, IRState *irs)
             }
             else
             {
-                elem *e = ae->e1->toElem(irs);
+                elem *e = toElem(ae->e1, irs);
                 e = addressElem(e, ae->e1->type);
-                e->Ety = ae->type->totym();
+                e->Ety = totym(ae->type);
                 el_setLoc(e, ae->loc);
                 result = e;
                 return;
@@ -3437,8 +3717,8 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(PtrExp *pe)
         {
             //printf("PtrExp::toElem() %s\n", pe->toChars());
-            elem *e = pe->e1->toElem(irs);
-            e = el_una(OPind,pe->type->totym(),e);
+            elem *e = toElem(pe->e1, irs);
+            e = el_una(OPind,totym(pe->type),e);
             if (tybasic(e->Ety) == TYstruct)
             {
                 e->ET = Type_toCtype(pe->type);
@@ -3449,8 +3729,8 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(BoolExp *e)
         {
-            elem *e1 = e->e1->toElem(irs);
-            result = el_una(OPbool, e->type->totym(), e1);
+            elem *e1 = toElem(e->e1, irs);
+            result = el_una(OPbool, totym(e->type), e1);
         }
 
         void visit(DeleteExp *de)
@@ -3465,7 +3745,7 @@ elem *toElem(Expression *e, IRState *irs)
                 assert(tb->ty != Taarray);
             }
             //e1->type->print();
-            elem *e = de->e1->toElem(irs);
+            elem *e = toElem(de->e1, irs);
             tb = de->e1->type->toBasetype();
             int rtl;
             switch (tb->ty)
@@ -3484,14 +3764,13 @@ elem *toElem(Expression *e, IRState *irs)
                         TypeStruct *ts = (TypeStruct *)tv;
                         StructDeclaration *sd = ts->sym;
                         if (sd->dtor)
-                            et = tb->nextOf()->getTypeInfo(NULL)->toElem(irs);
+                            et = getTypeInfo(tb->nextOf(), irs);
                     }
                     if (!et)                            // if no destructors needed
                         et = el_long(TYnptr, 0);        // pass null for TypeInfo
                     e = el_params(et, e, NULL);
                     // call _d_delarray_t(e, et);
-                    e = el_bin(OPcall, TYvoid, el_var(rtlsym[rtl]), e);
-                    goto Lret;
+                    break;
                 }
                 case Tclass:
                     if (de->e1->op == TOKvar)
@@ -3515,15 +3794,25 @@ elem *toElem(Expression *e, IRState *irs)
                 case Tpointer:
                     e = addressElem(e, de->e1->type);
                     rtl = RTLSYM_DELMEMORY;
+                    tb = ((TypePointer *)tb)->next->toBasetype();
+                    if (tb->ty == Tstruct)
+                    {
+                        TypeStruct *ts = (TypeStruct *)tb;
+                        if (ts->sym->dtor)
+                        {
+                            rtl = RTLSYM_DELSTRUCT;
+                            elem *et = getTypeInfo(tb, irs);
+                            e = el_params(et, e, NULL);
+                        }
+                    }
                     break;
 
                 default:
                     assert(0);
                     break;
             }
-            e = el_bin(OPcall, TYvoid, el_var(rtlsym[rtl]), e);
-
-        Lret:
+            e = el_bin(OPcall, TYvoid, el_var(getRtlsym(rtl)), e);
+            toTraceGC(irs, e, &de->loc);
             el_setLoc(e, de->loc);
             result = e;
         }
@@ -3539,26 +3828,25 @@ elem *toElem(Expression *e, IRState *irs)
 
             elem *e = el_calloc();
             e->Eoper = OPconst;
-            e->Ety = ve->type->totym();
+            e->Ety = totym(ve->type);
 
             for (size_t i = 0; i < ve->dim; i++)
             {
                 Expression *elem;
                 if (ve->e1->op == TOKarrayliteral)
-                {
-                    ArrayLiteralExp *ea = (ArrayLiteralExp *)ve->e1;
-                    elem = (*ea->elements)[i];
-                }
+                    elem = ((ArrayLiteralExp *)ve->e1)->getElement(i);
                 else
                     elem = ve->e1;
                 switch (elem->type->toBasetype()->ty)
                 {
                     case Tfloat32:
-                        ((targ_float *)&e->EV.Vcent)[i] = elem->toReal();
+                        // Must not call toReal directly, to avoid dmd bug 14203 from breaking ddmd
+                        e->EV.Vfloat4[i] = creall(elem->toComplex());
                         break;
 
                     case Tfloat64:
-                        ((targ_double *)&e->EV.Vcent)[i] = elem->toReal();
+                        // Must not call toReal directly, to avoid dmd bug 14203 from breaking ddmd
+                        e->EV.Vdouble2[i] = creall(elem->toComplex());
                         break;
 
                     case Tint64:
@@ -3591,18 +3879,23 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(CastExp *ce)
         {
-            tym_t ftym;
-            tym_t ttym;
-            OPER eop;
-
         #if 0
             printf("CastExp::toElem()\n");
             ce->print();
             printf("\tfrom: %s\n", ce->e1->type->toChars());
             printf("\tto  : %s\n", ce->to->toChars());
         #endif
+            elem *e = toElem(ce->e1, irs);
 
-            elem *e = ce->e1->toElem(irs);
+            result = toElemCast(ce, e);
+        }
+
+        elem *toElemCast(CastExp *ce, elem *e)
+        {
+            tym_t ftym;
+            tym_t ttym;
+            OPER eop;
+
             Type *tfrom = ce->e1->type->toBasetype();
             Type *t = ce->to->toBasetype();         // skip over typedef's
 
@@ -3612,8 +3905,8 @@ elem *toElem(Expression *e, IRState *irs)
                 goto Lret;
 
             fty = tfrom->ty;
-            //printf("fty = %d\n", fty);
             tty = t->ty;
+            //printf("fty = %d\n", fty);
 
             if (tty == Tpointer && fty == Tarray)
             {
@@ -3622,7 +3915,7 @@ elem *toElem(Expression *e, IRState *irs)
                     // e1 -> *(&e1 + 4)
                     e = el_una(OPaddr, TYnptr, e);
                     e = el_bin(OPadd, TYnptr, e, el_long(TYsize_t, tysize[TYnptr]));
-                    e = el_una(OPind,t->totym(),e);
+                    e = el_una(OPind,totym(t),e);
                 }
                 else
                 {
@@ -3630,12 +3923,12 @@ elem *toElem(Expression *e, IRState *irs)
                     if (I64)
                     {
                         e = el_bin(OPshr, TYucent, e, el_long(TYint, 64));
-                        e = el_una(OP128_64, t->totym(), e);
+                        e = el_una(OP128_64, totym(t), e);
                     }
                     else
                     {
                         e = el_bin(OPshr, TYullong, e, el_long(TYint, 32));
-                        e = el_una(OP64_32, t->totym(), e);
+                        e = el_una(OP64_32, totym(t), e);
                     }
                 }
                 goto Lret;
@@ -3666,20 +3959,17 @@ elem *toElem(Expression *e, IRState *irs)
                     if (config.exe == EX_WIN64)
                         e = addressElem(e, t, true);
                     elem *ep = el_params(e, el_long(TYsize_t, fsize), el_long(TYsize_t, tsize), NULL);
-                    e = el_bin(OPcall, ce->type->totym(), el_var(rtlsym[RTLSYM_ARRAYCAST]), ep);
+                    e = el_bin(OPcall, totym(ce->type), el_var(getRtlsym(RTLSYM_ARRAYCAST)), ep);
                 }
                 goto Lret;
             }
 
-            // Casting from base class to derived class requires a runtime check
+            // Casting between class/interface may require a runtime check
             if (fty == Tclass && tty == Tclass)
             {
-                // Casting from derived class to base class is a no-op
-                int offset;
-                int rtl = RTLSYM_DYNAMIC_CAST;
-
                 ClassDeclaration *cdfrom = tfrom->isClassHandle();
                 ClassDeclaration *cdto   = t->isClassHandle();
+
                 if (cdfrom->cpp)
                 {
                     if (cdto->cpp)
@@ -3701,13 +3991,14 @@ elem *toElem(Expression *e, IRState *irs)
                     e = el_bin(OPcomma, TYnptr, e, el_long(TYnptr, 0));
                     goto Lret;
                 }
-                if (cdfrom->isInterfaceDeclaration())
-                {
-                    rtl = RTLSYM_INTERFACE_CAST;
-                }
+
+                int offset;
                 if (cdto->isBaseOf(cdfrom, &offset) && offset != OFFSET_RUNTIME)
                 {
-                    /* The offset from cdfrom=>cdto is known at compile time.
+                    /* The offset from cdfrom => cdto is known at compile time.
+                     * Cases:
+                     *  - class => base class (upcast)
+                     *  - class => base interface (upcast)
                      */
 
                     //printf("offset = %d\n", offset);
@@ -3728,13 +4019,26 @@ elem *toElem(Expression *e, IRState *irs)
                             e = el_bin(OPcond, TYnptr, e, ex);
                         }
                     }
-                    goto Lret;                  // no-op
+                    else
+                    {
+                        // Casting from derived class to base class is a no-op
+                    }
                 }
-
-                /* The offset from cdfrom=>cdto can only be determined at runtime.
-                 */
-                elem *ep = el_param(el_ptr(cdto->toSymbol()), e);
-                e = el_bin(OPcall, TYnptr, el_var(rtlsym[rtl]), ep);
+                else
+                {
+                    /* The offset from cdfrom => cdto can only be determined at runtime.
+                     * Cases:
+                     *  - class     => derived class (downcast)
+                     *  - interface => derived class (downcast)
+                     *  - class     => foreign interface (cross cast)
+                     *  - interface => base or foreign interface (cross cast)
+                     */
+                    int rtl = cdfrom->isInterfaceDeclaration()
+                                ? RTLSYM_INTERFACE_CAST
+                                : RTLSYM_DYNAMIC_CAST;
+                    elem *ep = el_param(el_ptr(toSymbol(cdto)), e);
+                    e = el_bin(OPcall, TYnptr, el_var(getRtlsym(rtl)), ep);
+                }
                 goto Lret;
             }
 
@@ -3745,7 +4049,7 @@ elem *toElem(Expression *e, IRState *irs)
             }
 
             ftym = tybasic(e->Ety);
-            ttym = tybasic(t->totym());
+            ttym = tybasic(totym(t));
             if (ftym == ttym)
                 goto Lret;
 
@@ -3775,6 +4079,11 @@ elem *toElem(Expression *e, IRState *irs)
 
             switch (fty)
             {
+                case Tnull:
+                {
+                    // typeof(null) is same with void* in binary level.
+                    goto Lzero;
+                }
                 case Tpointer:  fty = I64 ? Tuns64 : Tuns32;  break;
                 case Tchar:     fty = Tuns8;    break;
                 case Twchar:    fty = Tuns16;   break;
@@ -4220,10 +4529,6 @@ elem *toElem(Expression *e, IRState *irs)
                         fty = Tcomplex64;
                         goto Lagain;
 
-                case X(Tnull, Tarray):
-                case X(Tnull, Taarray):
-                    goto Lzero;
-
                 /* ============================= */
 
                 default:
@@ -4234,8 +4539,7 @@ elem *toElem(Expression *e, IRState *irs)
                     // This error should really be pushed to the front end
                     ce->error("e2ir: cannot cast %s of type %s to type %s", ce->e1->toChars(), ce->e1->type->toChars(), t->toChars());
                     e = el_long(TYint, 0);
-                    result = e;
-                    return;
+                    return e;
 
                 Lzero:
                     e = el_bin(OPcomma, ttym, e, el_long(ttym, 0));
@@ -4252,121 +4556,171 @@ elem *toElem(Expression *e, IRState *irs)
         Lret:
             // Adjust for any type paints
             t = ce->type->toBasetype();
-            e->Ety = t->totym();
+            e->Ety = totym(t);
 
             el_setLoc(e, ce->loc);
-            result = e;
+            return e;
         }
 
         void visit(ArrayLengthExp *ale)
         {
-            elem *e = ale->e1->toElem(irs);
-            e = el_una(I64 ? OP128_64 : OP64_32, ale->type->totym(), e);
+            elem *e = toElem(ale->e1, irs);
+            e = el_una(I64 ? OP128_64 : OP64_32, totym(ale->type), e);
             el_setLoc(e, ale->loc);
+            result = e;
+        }
+
+        void visit(DelegatePtrExp *dpe)
+        {
+            // *cast(void**)(&dg)
+            elem *e = toElem(dpe->e1, irs);
+            Type *tb1 = dpe->e1->type->toBasetype();
+            e = addressElem(e, tb1);
+            e = el_una(OPind, totym(dpe->type), e);
+            el_setLoc(e, dpe->loc);
+            result = e;
+        }
+
+        void visit(DelegateFuncptrExp *dfpe)
+        {
+            // *cast(void**)(&dg + size_t.sizeof)
+            elem *e = toElem(dfpe->e1, irs);
+            Type *tb1 = dfpe->e1->type->toBasetype();
+            e = addressElem(e, tb1);
+            e = el_bin(OPadd, TYnptr, e, el_long(TYsize_t, I64 ? 8 : 4));
+            e = el_una(OPind, totym(dfpe->type), e);
+            el_setLoc(e, dfpe->loc);
             result = e;
         }
 
         void visit(SliceExp *se)
         {
-            //printf("SliceExp::toElem()\n");
+            //printf("SliceExp::toElem() se = %s %s\n", se->type->toChars(), se->toChars());
             Type *tb = se->type->toBasetype();
-            assert(tb->ty == Tarray || tb->ty == Tsarray && se->lwr);
+            assert(tb->ty == Tarray || tb->ty == Tsarray);
             Type *t1 = se->e1->type->toBasetype();
-            elem *e = se->e1->toElem(irs);
+            elem *e = toElem(se->e1, irs);
             if (se->lwr)
             {
-                elem *einit = resolveLengthVar(se->lengthVar, &e, t1);
-
                 unsigned sz = t1->nextOf()->size();
 
-                elem *elwr = se->lwr->toElem(irs);
-                elem *eupr = se->upr->toElem(irs);
+                elem *einit = resolveLengthVar(se->lengthVar, &e, t1);
+                if (t1->ty == Tsarray)
+                    e = array_toPtr(se->e1->type, e);
+                if (!einit)
+                {
+                    einit = e;
+                    e = el_same(&einit);
+                }
+                // e is a temporary, typed:
+                //  TYdarray if t->ty == Tarray
+                //  TYptr if t->ty == Tsarray or Tpointer
 
-                elem *elwr2 = el_same(&elwr);
+                elem *elwr = toElem(se->lwr, irs);
+                elem *eupr = toElem(se->upr, irs);
+                elem *elwr2 = el_sideeffect(eupr) ? el_copytotmp(&elwr) : el_same(&elwr);
+                elem *eupr2 = eupr;
 
-                // Create an array reference where:
-                // length is (upr - lwr)
-                // pointer is (ptr + lwr*sz)
-                // Combine as (length pair ptr)
-
+                //printf("upperIsInBounds = %d lowerIsLessThanUpper = %d\n", se->upperIsInBounds, se->lowerIsLessThanUpper);
                 if (irs->arrayBoundsCheck())
                 {
                     // Checks (unsigned compares):
                     //  upr <= array.length
                     //  lwr <= upr
 
-                    elem *c1;
-                    elem *c2;
-                    elem *eupr2;
-                    elem *elength;
-
-                    if (t1->ty == Tpointer)
+                    elem *c1 = NULL;
+                    if (!se->upperIsInBounds)
                     {
-                        // Just do lwr <= upr check
-
                         eupr2 = el_same(&eupr);
-                        eupr2->Ety = TYsize_t;                    // make sure unsigned comparison
-                        c1 = el_bin(OPle, TYint, elwr2, eupr2);
-                        c1 = el_combine(eupr, c1);
-                        goto L2;
-                    }
-                    else if (t1->ty == Tsarray)
-                    {
-                        TypeSArray *tsa = (TypeSArray *)t1;
-                        dinteger_t length = tsa->dim->toInteger();
+                        eupr2->Ety = TYsize_t;  // make sure unsigned comparison
 
-                        elength = el_long(TYsize_t, length);
-                        goto L1;
-                    }
-                    else if (t1->ty == Tarray)
-                    {
-                        if (se->lengthVar && !(se->lengthVar->storage_class & STCconst))
-                            elength = el_var(se->lengthVar->toSymbol());
-                        else
+                        elem *elen;
+                        if (t1->ty == Tsarray)
                         {
-                            elength = e;
-                            e = el_same(&elength);
-                            elength = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, elength);
+                            TypeSArray *tsa = (TypeSArray *)t1;
+                            elen = el_long(TYsize_t, tsa->dim->toInteger());
                         }
-                    L1:
+                        else if (t1->ty == Tarray)
+                        {
+                            if (se->lengthVar && !(se->lengthVar->storage_class & STCconst))
+                                elen = el_var(toSymbol(se->lengthVar));
+                            else
+                            {
+                                elen = e;
+                                e = el_same(&elen);
+                                elen = el_una(I64 ? OP128_64 : OP64_32, TYsize_t, elen);
+                            }
+                        }
+
+                        c1 = el_bin(OPle, TYint, eupr, elen);
+
+                        if (!se->lowerIsLessThanUpper)
+                        {
+                            c1 = el_bin(OPandand, TYint,
+                                c1, el_bin(OPle, TYint, elwr2, eupr2));
+                            elwr2 = el_copytree(elwr2);
+                            eupr2 = el_copytree(eupr2);
+                        }
+                    }
+                    else if (!se->lowerIsLessThanUpper)
+                    {
                         eupr2 = el_same(&eupr);
-                        c1 = el_bin(OPle, TYint, eupr, elength);
-                        eupr2->Ety = TYsize_t;                    // make sure unsigned comparison
-                        c2 = el_bin(OPle, TYint, elwr2, eupr2);
-                        c1 = el_bin(OPandand, TYint, c1, c2);   // (c1 && c2)
+                        eupr2->Ety = TYsize_t;  // make sure unsigned comparison
 
-                    L2:
-                        // Construct: (c1 || ModuleArray(line))
-                        Symbol *sassert = irs->blx->module->toModuleArray();
-                        elem *ea = el_bin(OPcall,TYvoid,el_var(sassert), el_long(TYint, se->loc.linnum));
-                        elem *eb = el_bin(OPoror,TYvoid,c1,ea);
-                        elwr = el_combine(elwr, eb);
-
+                        c1 = el_bin(OPle, TYint, elwr2, eupr);
                         elwr2 = el_copytree(elwr2);
-                        eupr = el_copytree(eupr2);
+                    }
+
+                    if (c1)
+                    {
+                        // Construct: (c1 || ModuleArray(line))
+                        Symbol *sassert = toModuleArray(irs->blx->module);
+                        elem *ea = el_bin(OPcall, TYvoid, el_var(sassert), el_long(TYint, se->loc.linnum));
+                        elem *eb = el_bin(OPoror, TYvoid, c1, ea);
+
+                        elwr = el_combine(elwr, eb);
                     }
                 }
+                if (t1->ty != Tsarray)
+                    e = array_toPtr(se->e1->type, e);
 
-                elem *eptr = array_toPtr(se->e1->type, e);
+                // Create an array reference where:
+                // length is (upr - lwr)
+                // pointer is (ptr + lwr*sz)
+                // Combine as (length pair ptr)
 
-                elem *elength = el_bin(OPmin, TYsize_t, eupr, elwr2);
-                eptr = el_bin(OPadd, TYnptr, eptr, el_bin(OPmul, TYsize_t, el_copytree(elwr2), el_long(TYsize_t, sz)));
+                elem *eofs = el_bin(OPmul, TYsize_t, elwr2, el_long(TYsize_t, sz));
+                elem *eptr = el_bin(OPadd, TYnptr, e, eofs);
 
                 if (tb->ty == Tarray)
-                    e = el_pair(TYdarray, elength, eptr);
+                {
+                    elem *elen = el_bin(OPmin, TYsize_t, eupr2, el_copytree(elwr2));
+                    e = el_pair(TYdarray, elen, eptr);
+                }
                 else
                 {
                     assert(tb->ty == Tsarray);
-                    e = el_una(OPind, se->type->totym(), eptr);
+                    e = el_una(OPind, totym(se->type), eptr);
                     if (tybasic(e->Ety) == TYstruct)
                         e->ET = Type_toCtype(se->type);
                 }
                 e = el_combine(elwr, e);
                 e = el_combine(einit, e);
+                //elem_print(e);
             }
-            else if (t1->ty == Tsarray)
+            else if (t1->ty == Tsarray && tb->ty == Tarray)
             {
                 e = sarray_toDarray(se->loc, t1, NULL, e);
+            }
+            else
+            {
+                assert(t1->ty == tb->ty);   // Tarray or Tsarray
+
+                // Bugzilla 14672: If se is in left side operand of element-wise
+                // assignment, the element type can be painted to the base class.
+                int offset;
+                assert(t1->nextOf()->equivalent(tb->nextOf()) ||
+                       tb->nextOf()->isBaseOf(t1->nextOf(), &offset) && offset == 0);
             }
             el_setLoc(e, se->loc);
             result = e;
@@ -4375,7 +4729,7 @@ elem *toElem(Expression *e, IRState *irs)
         void visit(IndexExp *ie)
         {
             elem *e;
-            elem *n1 = ie->e1->toElem(irs);
+            elem *n1 = toElem(ie->e1, irs);
             elem *eb = NULL;
 
             //printf("IndexExp::toElem() %s\n", ie->toChars());
@@ -4383,13 +4737,15 @@ elem *toElem(Expression *e, IRState *irs)
             if (t1->ty == Taarray)
             {
                 // set to:
-                //      *aaGetX(aa, keyti, valuesize, &key);
+                //      *aaGetY(aa, aati, valuesize, &key);
+                // or
+                //      *aaGetRvalueX(aa, keyti, valuesize, &key);
 
                 TypeAArray *taa = (TypeAArray *)t1;
                 unsigned vsize = taa->next->size();
 
                 // n2 becomes the index, also known as the key
-                elem *n2 = ie->e2->toElem(irs);
+                elem *n2 = toElem(ie->e2, irs);
 
                 /* Turn n2 into a pointer to the index.  If it's an lvalue,
                  * take the address of it. If not, copy it to a temp and
@@ -4400,43 +4756,43 @@ elem *toElem(Expression *e, IRState *irs)
                 elem *valuesize = el_long(TYsize_t, vsize);
                 //printf("valuesize: "); elem_print(valuesize);
                 Symbol *s;
+                elem *ti;
                 if (ie->modifiable)
                 {
                     n1 = el_una(OPaddr, TYnptr, n1);
-                    s = taa->aaGetSymbol("GetX", 1);
+                    s = aaGetSymbol(taa, "GetY", 1);
+                    ti = getTypeInfo(taa->unSharedOf()->mutableOf(), irs);
                 }
                 else
                 {
-                    s = taa->aaGetSymbol("GetRvalueX", 1);
+                    s = aaGetSymbol(taa, "GetRvalueX", 1);
+                    ti = getTypeInfo(taa->index, irs);
                 }
                 //printf("taa->index = %s\n", taa->index->toChars());
-                elem* keyti = taa->index->getInternalTypeInfo(NULL)->toElem(irs);
-                //keyti = taa->index->getTypeInfo(NULL)->toElem(irs);
-                //printf("keyti:\n");
-                //elem_print(keyti);
-                elem* ep = el_params(n2, valuesize, keyti, n1, NULL);
+                //printf("ti:\n"); elem_print(ti);
+                elem *ep = el_params(n2, valuesize, ti, n1, NULL);
                 e = el_bin(OPcall, TYnptr, el_var(s), ep);
                 if (irs->arrayBoundsCheck())
                 {
                     elem *n = el_same(&e);
 
-                    // Construct: ((e || ModuleAssert(line)),n)
-                    Symbol *sassert = irs->blx->module->toModuleArray();
+                    // Construct: ((e || ModuleArray(line)), n)
+                    Symbol *sassert = toModuleArray(irs->blx->module);
                     elem *ea = el_bin(OPcall,TYvoid,el_var(sassert),
                         el_long(TYint, ie->loc.linnum));
                     e = el_bin(OPoror,TYvoid,e,ea);
                     e = el_bin(OPcomma, TYnptr, e, n);
                 }
-                e = el_una(OPind, ie->type->totym(), e);
+                e = el_una(OPind, totym(ie->type), e);
                 if (tybasic(e->Ety) == TYstruct)
                     e->ET = Type_toCtype(ie->type);
             }
             else
             {
                 elem *einit = resolveLengthVar(ie->lengthVar, &n1, t1);
-                elem *n2 = ie->e2->toElem(irs);
+                elem *n2 = toElem(ie->e2, irs);
 
-                if (irs->arrayBoundsCheck() && !ie->skipboundscheck)
+                if (irs->arrayBoundsCheck() && !ie->indexIsInBounds)
                 {
                     elem *elength;
 
@@ -4458,8 +4814,8 @@ elem *toElem(Expression *e, IRState *irs)
                         n2 = el_same(&n2x);
                         n2x = el_bin(OPlt, TYint, n2x, elength);
 
-                        // Construct: (n2x || ModuleAssert(line))
-                        Symbol *sassert = irs->blx->module->toModuleArray();
+                        // Construct: (n2x || ModuleArray(line))
+                        Symbol *sassert = toModuleArray(irs->blx->module);
                         elem *ea = el_bin(OPcall,TYvoid,el_var(sassert),
                             el_long(TYint, ie->loc.linnum));
                         eb = el_bin(OPoror,TYvoid,n2x,ea);
@@ -4472,7 +4828,7 @@ elem *toElem(Expression *e, IRState *irs)
                     elem *escale = el_long(TYsize_t, t1->nextOf()->size());
                     n2 = el_bin(OPmul, TYsize_t, n2, escale);
                     e = el_bin(OPadd, TYnptr, n1, n2);
-                    e = el_una(OPind, ie->type->totym(), e);
+                    e = el_una(OPind, totym(ie->type), e);
                     if (tybasic(e->Ety) == TYstruct || tybasic(e->Ety) == TYarray)
                     {
                         e->Ety = TYstruct;
@@ -4493,11 +4849,11 @@ elem *toElem(Expression *e, IRState *irs)
             //printf("TupleExp::toElem() %s\n", te->toChars());
             elem *e = NULL;
             if (te->e0)
-                e = te->e0->toElem(irs);
+                e = toElem(te->e0, irs);
             for (size_t i = 0; i < te->exps->dim; i++)
             {
                 Expression *el = (*te->exps)[i];
-                elem *ep = el->toElem(irs);
+                elem *ep = toElem(el, irs);
                 e = el_combine(e, ep);
             }
             result = e;
@@ -4515,8 +4871,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(ArrayLiteralExp *ale)
         {
-            elem *e;
-            size_t dim;
+            size_t dim = ale->elements ? ale->elements->dim : 0;
 
             //printf("ArrayLiteralExp::toElem() %s, type = %s\n", ale->toChars(), ale->type->toChars());
             Type *tb = ale->type->toBasetype();
@@ -4525,11 +4880,13 @@ elem *toElem(Expression *e, IRState *irs)
                 // Convert void[n] to ubyte[n]
                 tb = Type::tuns8->sarrayOf(((TypeSArray *)tb)->dim->toUInteger());
             }
-            if (tb->ty == Tsarray && ale->elements && ale->elements->dim)
+
+            elem *e;
+            if (tb->ty == Tsarray && dim)
             {
-                Symbol *sdata;
-                e = ExpressionsToStaticArray(ale->loc, ale->elements, &sdata);
-                e = el_combine(e, el_ptr(sdata));
+                Symbol *stmp = NULL;
+                e = ExpressionsToStaticArray(ale->loc, ale->elements, &stmp, 0, ale->basis);
+                e = el_combine(e, el_ptr(stmp));
             }
             else if (ale->elements)
             {
@@ -4537,50 +4894,30 @@ elem *toElem(Expression *e, IRState *irs)
                  * array and assign the members inline.
                  * Avoids the whole variadic arg mess.
                  */
-                dim = ale->elements->dim;
-                Elems args;
-                args.setDim(dim);           // +1 for number of args parameter
-                e = el_long(TYsize_t, dim);
-                e = el_param(e, ale->type->getTypeInfo(NULL)->toElem(irs));
+
                 // call _d_arrayliteralTX(ti, dim)
-                e = el_bin(OPcall,TYnptr,el_var(rtlsym[RTLSYM_ARRAYLITERALTX]),e);
+                e = el_bin(OPcall, TYnptr,
+                    el_var(getRtlsym(RTLSYM_ARRAYLITERALTX)),
+                    el_param(el_long(TYsize_t, dim), getTypeInfo(ale->type, irs)));
+                toTraceGC(irs, e, &ale->loc);
+
                 Symbol *stmp = symbol_genauto(Type_toCtype(Type::tvoid->pointerTo()));
-                e = el_bin(OPeq,TYnptr,el_var(stmp),e);
+                e = el_bin(OPeq, TYnptr, el_var(stmp), e);
 
-                targ_size_t sz = tb->nextOf()->size();      // element size
-                ::type *te = Type_toCtype(tb->nextOf());       // element type
-                for (size_t i = 0; i < dim; i++)
-                {
-                    Expression *el = (*ale->elements)[i];
-                    /* Generate: *(stmp + i * sz) = element[i]
-                     */
-                    elem *ep = el->toElem(irs);
-                    elem *ev = el_var(stmp);
-                    ev = el_bin(OPadd, TYnptr, ev, el_long(TYsize_t, i * sz));
-                    ev = el_una(OPind, te->Tty, ev);
-                    elem *eeq = el_bin(OPeq,te->Tty,ev,ep);
+                /* Note: Even if dm == 0, the druntime function will be called so
+                 * GC heap may be allocated. However, currently it's implemented
+                 * to return null for 0 length.
+                 */
+                if (dim)
+                    e = el_combine(e, ExpressionsToStaticArray(ale->loc, ale->elements, &stmp, 0, ale->basis));
 
-                    if (tybasic(te->Tty) == TYstruct)
-                    {
-                        eeq->Eoper = OPstreq;
-                        eeq->ET = te;
-                    }
-                    else if (tybasic(te->Tty) == TYarray)
-                    {
-                        eeq->Eoper = OPstreq;
-                        eeq->Ejty = eeq->Ety = TYstruct;
-                        eeq->ET = te;
-                    }
-                    args[i] = eeq;
-                }
-                e = el_combine(e, el_combines((void **)args.tdata(), dim));
                 e = el_combine(e, el_var(stmp));
             }
             else
             {
-                dim = 0;
                 e = el_long(TYsize_t, 0);
             }
+
             if (tb->ty == Tarray)
             {
                 e = el_pair(TYdarray, el_long(TYsize_t, dim), e);
@@ -4590,7 +4927,7 @@ elem *toElem(Expression *e, IRState *irs)
             }
             else
             {
-                e = el_una(OPind,TYstruct,e);
+                e = el_una(OPind, TYstruct, e);
                 e->ET = Type_toCtype(ale->type);
             }
 
@@ -4627,31 +4964,35 @@ elem *toElem(Expression *e, IRState *irs)
                 if (vd->storage_class & STCmanifest)
                     return NULL;
                 else if (vd->isStatic() || vd->storage_class & (STCextern | STCtls | STCgshared))
-                    vd->toObjFile(0);
+                    toObjFile(vd, false);
                 else
                 {
-                    Symbol *sp = s->toSymbol();
+                    Symbol *sp = toSymbol(s);
                     symbol_add(sp);
                     //printf("\tadding symbol '%s'\n", sp->Sident);
-                    if (vd->init)
+                    if (vd->_init)
                     {
                         ExpInitializer *ie;
 
-                        ie = vd->init->isExpInitializer();
+                        ie = vd->_init->isExpInitializer();
                         if (ie)
-                            e = ie->exp->toElem(irs);
+                            e = toElem(ie->exp, irs);
                     }
 
                     /* Mark the point of construction of a variable that needs to be destructed.
                      */
                     if (vd->edtor && !vd->noscope)
                     {
-                        e = el_dctor(e, vd);
+                        elem *ed = NULL;
+                        e = el_ctor_dtor(e, toElem(vd->edtor, irs), &ed);
 
-                        // Put vd on list of things needing destruction
+                        // ed needs to be inserted into the code later
                         if (!irs->varsInScope)
+                            /* Don't have an Expressions_create(), so press VarDeclarations_create()
+                             * into service. Fix when this file is converted to D.
+                             */
                             irs->varsInScope = VarDeclarations_create();
-                        irs->varsInScope->push(vd);
+                        irs->varsInScope->push((VarDeclaration *)ed);
                     }
                 }
             }
@@ -4693,57 +5034,44 @@ elem *toElem(Expression *e, IRState *irs)
                     }
                 }
             }
-            else if (TypedefDeclaration *tyd = s->isTypedefDeclaration())
-            {
-                irs->deferToObj->push(tyd);
-            }
             else if (EnumDeclaration *ed = s->isEnumDeclaration())
             {
                 irs->deferToObj->push(ed);
+            }
+            else if (TemplateInstance *ti = s->isTemplateInstance())
+            {
+                irs->deferToObj->push(ti);
             }
             return e;
         }
 
         /*************************************************
-         * Allocate a static array, and initialize its members with
-         * exps[].
+         * Allocate a static array, and initialize its members with elems[].
          * Return the initialization expression, and the symbol for the static array in *psym.
          */
-        elem *ExpressionsToStaticArray(Loc loc, Expressions *exps, symbol **psym)
+        elem *ElemsToStaticArray(Loc loc, Type *telem, Elems *elems, symbol **psym)
         {
             // Create a static array of type telem[dim]
-            size_t dim = exps->dim;
+            size_t dim = elems->dim;
+            assert(dim);
 
-            Elems elems;
-            elems.setDim(dim);
+            Type *tsarray = telem->sarrayOf(dim);
+            targ_size_t szelem = telem->size();
+            ::type *te = Type_toCtype(telem);   // stmp[] element type
 
-            Type *telem;
-            Type *tsarray;
-            symbol *stmp;
-            targ_size_t szelem;
-            ::type *te;      // stmp[] element type
+            symbol *stmp = symbol_genauto(Type_toCtype(tsarray));
+            *psym = stmp;
 
+            elem *e = NULL;
             for (size_t i = 0; i < dim; i++)
             {
-                Expression *el = (*exps)[i];
-                if (i == 0)
-                {
-                    telem = el->type;
-                    szelem = telem->size();
-                    te = Type_toCtype(telem);
-
-                    tsarray = telem->sarrayOf(dim);
-                    stmp = symbol_genauto(Type_toCtype(tsarray));
-                    *psym = stmp;
-                }
-
                 /* Generate: *(&stmp + i * szelem) = element[i]
                  */
-                elem *ep = el->toElem(irs);
+                elem *ep = (*elems)[i];
                 elem *ev = el_ptr(stmp);
                 ev = el_bin(OPadd, TYnptr, ev, el_long(TYsize_t, i * szelem));
                 ev = el_una(OPind, te->Tty, ev);
-                elem *eeq = el_bin(OPeq,te->Tty,ev,ep);
+                elem *eeq = el_bin(OPeq, te->Tty, ev, ep);
 
                 if (tybasic(te->Tty) == TYstruct)
                 {
@@ -4756,10 +5084,103 @@ elem *toElem(Expression *e, IRState *irs)
                     eeq->Ejty = eeq->Ety = TYstruct;
                     eeq->ET = te;
                 }
-                elems[i] = eeq;
+                e = el_combine(e, eeq);
             }
+            return e;
+        }
 
-            return el_combines((void **)elems.tdata(), dim);
+        /*************************************************
+         * Allocate a static array, and initialize its members with
+         * exps[].
+         * Return the initialization expression, and the symbol for the static array in *psym.
+         */
+        elem *ExpressionsToStaticArray(Loc loc, Expressions *exps, symbol **psym, size_t offset = 0, Expression *basis = NULL)
+        {
+            // Create a static array of type telem[dim]
+            size_t dim = exps->dim;
+            assert(dim);
+
+            Type *telem = ((*exps)[0] ? (*exps)[0] : basis)->type;
+            Type *tsarray = telem->sarrayOf(dim);
+            targ_size_t szelem = telem->size();
+            ::type *te = Type_toCtype(telem);   // stmp[] element type
+
+            if (!*psym)
+            {
+                Type *tsarray = telem->sarrayOf(dim);
+                *psym = symbol_genauto(Type_toCtype(tsarray));
+                offset = 0;
+            }
+            symbol *stmp = *psym;
+
+            elem *e = NULL;
+            for (size_t i = 0; i < dim; )
+            {
+                Expression *el = (*exps)[i];
+                if (!el)
+                    el = basis;
+                if (el->op == TOKarrayliteral &&
+                    el->type->toBasetype()->ty == Tsarray)
+                {
+                    ArrayLiteralExp *ale = (ArrayLiteralExp *)el;
+                    if (ale->elements && ale->elements->dim)
+                    {
+                        elem *ex = ExpressionsToStaticArray(
+                            ale->loc, ale->elements, &stmp, offset + i * szelem, ale->basis);
+                        e = el_combine(e, ex);
+                    }
+                    i++;
+                    continue;
+                }
+
+                size_t j = i + 1;
+                if (el->isConst() || el->op == TOKnull)
+                {
+                    // If the trivial elements are same values, do memcpy.
+                    while (j < dim)
+                    {
+                        Expression *en = (*exps)[j];
+                        if (!en)
+                            en = basis;
+                        if (!el->equals(en))
+                            break;
+                        j++;
+                    }
+                }
+
+                /* Generate: *(&stmp + i * szelem) = element[i]
+                 */
+                elem *ep = toElem(el, irs);
+                elem *ev = tybasic(stmp->Stype->Tty) == TYnptr ? el_var(stmp) : el_ptr(stmp);
+                ev = el_bin(OPadd, TYnptr, ev, el_long(TYsize_t, offset + i * szelem));
+
+                elem *eeq;
+                if (j == i + 1)
+                {
+                    ev = el_una(OPind, te->Tty, ev);
+                    eeq = el_bin(OPeq, te->Tty, ev, ep);
+
+                    if (tybasic(te->Tty) == TYstruct)
+                    {
+                        eeq->Eoper = OPstreq;
+                        eeq->ET = te;
+                    }
+                    else if (tybasic(te->Tty) == TYarray)
+                    {
+                        eeq->Eoper = OPstreq;
+                        eeq->Ejty = eeq->Ety = TYstruct;
+                        eeq->ET = te;
+                    }
+                }
+                else
+                {
+                    elem *edim = el_long(TYsize_t, j - i);
+                    eeq = setArray(ev, edim, telem, ep, NULL, TOKblit);
+                }
+                e = el_combine(e, eeq);
+                i = j;
+            }
+            return e;
         }
 
         void visit(AssocArrayLiteralExp *aale)
@@ -4791,11 +5212,12 @@ elem *toElem(Expression *e, IRState *irs)
                     ek = addressElem(ek, Type::tvoid->arrayOf());
                 }
                 elem *e = el_params(ev, ek,
-                                    ta->getTypeInfo(NULL)->toElem(irs),
+                                    getTypeInfo(ta, irs),
                                     NULL);
 
                 // call _d_assocarrayliteralTX(ti, keys, values)
-                e = el_bin(OPcall,TYnptr,el_var(rtlsym[RTLSYM_ASSOCARRAYLITERALTX]),e);
+                e = el_bin(OPcall,TYnptr,el_var(getRtlsym(RTLSYM_ASSOCARRAYLITERALTX)),e);
+                toTraceGC(irs, e, &aale->loc);
                 if (t != ta)
                     e = addressElem(e, ta);
                 el_setLoc(e, aale->loc);
@@ -4822,7 +5244,6 @@ elem *toElem(Expression *e, IRState *irs)
          * tries to use aligned int stores whereever possible.
          * Update *poffset to end of initialized hole; *poffset will be >= offset2.
          */
-
         static elem *fillHole(Symbol *stmp, size_t *poffset, size_t offset2, size_t maxoff)
         {
             elem *e = NULL;
@@ -4850,6 +5271,7 @@ elem *toElem(Expression *e, IRState *irs)
                         break;
                     default:
                         ty = TYlong;
+                        // TODO: OPmemset is better if sz is much bigger than 4?
                         break;
                 }
                 e1 = el_bin(OPadd, TYnptr, e1, el_long(TYsize_t, *poffset));
@@ -4863,7 +5285,7 @@ elem *toElem(Expression *e, IRState *irs)
 
         void visit(StructLiteralExp *sle)
         {
-            //printf("StructLiteralExp::toElem() %s\n", sle->toChars());
+            //printf("[%s] StructLiteralExp::toElem() %s\n", sle->loc.toChars(), sle->toChars());
 
             if (sle->sinit)
             {
@@ -4894,27 +5316,95 @@ elem *toElem(Expression *e, IRState *irs)
 
             elem *e = NULL;
 
+            /* If a field has explicit initializer (*sle->elements)[i] != NULL),
+             * any other overlapped fields won't have initializer. It's asserted by
+             * StructDeclaration::fill() function.
+             *
+             *  union U { int x; long y; }
+             *  U u1 = U(1);        // elements = [`1`, NULL]
+             *  U u2 = {y:2};       // elements = [NULL, `2`];
+             *  U u3 = U(1, 2);     // error
+             *  U u4 = {x:1, y:2};  // error
+             */
+            size_t dim = sle->elements ? sle->elements->dim : 0;
+            assert(dim <= sle->sd->fields.dim);
+
             if (sle->fillHoles)
             {
                 /* Initialize all alignment 'holes' to zero.
                  * Do before initializing fields, as the hole filling process
                  * can spill over into the fields.
                  */
+                const size_t structsize = sle->sd->structsize;
                 size_t offset = 0;
-                for (size_t i = 0; i < sle->sd->fields.dim; i++)
+                //printf("-- %s - fillHoles, structsize = %d\n", sle->toChars(), structsize);
+                for (size_t i = 0; i < sle->sd->fields.dim && offset < structsize; )
                 {
                     VarDeclaration *v = sle->sd->fields[i];
 
-                    e = el_combine(e, fillHole(stmp, &offset, v->offset, sle->sd->structsize));
-                    size_t vend = v->offset + v->type->size();
-                    if (offset < vend)
-                        offset = vend;
+                    /* If the field v has explicit initializer, [offset .. v->offset]
+                     * is a hole divided by the initializer.
+                     * However if the field size is zero (e.g. int[0] v;), we can merge
+                     * the two holes in the front and the back of the field v.
+                     */
+                    if (i < dim && (*sle->elements)[i] && v->type->size())
+                    {
+                        //if (offset != v->offset) printf("  1 fillHole, %d .. %d\n", offset, v->offset);
+                        e = el_combine(e, fillHole(stmp, &offset, v->offset, structsize));
+                        offset = v->offset + v->type->size();
+                        i++;
+                        continue;
+                    }
+                    if (!v->overlapped)
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    /* AggregateDeclaration::fields holds the fields by the lexical order.
+                     * This code will minimize each hole sizes. For example:
+                     *
+                     *  struct S {
+                     *    union { uint f1; ushort f2; }   // f1: 0..4,  f2: 0..2
+                     *    union { uint f3; ulong f4; }    // f3: 8..12, f4: 8..16
+                     *  }
+                     *  S s = {f2:x, f3:y};     // filled holes: 2..8 and 12..16
+                     */
+                    size_t vend = sle->sd->fields.dim;
+                Lagain:
+                    size_t holeEnd = structsize;
+                    size_t offset2 = structsize;
+                    for (size_t j = i + 1; j < vend; j++)
+                    {
+                        VarDeclaration *vx = sle->sd->fields[j];
+                        if (!vx->overlapped)
+                        {
+                            vend = j;
+                            break;
+                        }
+                        if (j < dim && (*sle->elements)[j] && vx->type->size())
+                        {
+                            // Find the lowest end offset of the hole.
+                            if (offset <= vx->offset && vx->offset < holeEnd)
+                            {
+                                holeEnd = vx->offset;
+                                offset2 = vx->offset + vx->type->size();
+                            }
+                        }
+                    }
+                    if (holeEnd < structsize)
+                    {
+                        //if (offset != holeEnd) printf("  2 fillHole, %d .. %d\n", offset, holeEnd);
+                        e = el_combine(e, fillHole(stmp, &offset, holeEnd, structsize));
+                        offset = offset2;
+                        goto Lagain;
+                    }
+                    i = vend;
                 }
+                //if (offset != sle->sd->structsize) printf("  3 fillHole, %d .. %d\n", offset, sle->sd->structsize);
                 e = el_combine(e, fillHole(stmp, &offset, sle->sd->structsize, sle->sd->structsize));
             }
 
-            size_t dim = sle->elements ? sle->elements->dim : 0;
-            assert(dim <= sle->sd->fields.dim);
             // CTFE may fill the hidden pointer by NullExp.
             {
                 for (size_t i = 0; i < dim; i++)
@@ -4939,9 +5429,8 @@ elem *toElem(Expression *e, IRState *irs)
                             e1 = el_bin(OPadd, TYnptr, e1, el_long(TYsize_t, sle->soffset));
                     }
                     e1 = el_bin(OPadd, TYnptr, e1, el_long(TYsize_t, v->offset));
-                    elem *ec = e1;                      // pointer to destination
 
-                    elem *ep = el->toElem(irs);
+                    elem *ep = toElem(el, irs);
 
                     Type *t1b = v->type->toBasetype();
                     Type *t2b = el->type->toBasetype();
@@ -4961,7 +5450,7 @@ elem *toElem(Expression *e, IRState *irs)
                     }
                     else
                     {
-                        tym_t ty = v->type->totym();
+                        tym_t ty = totym(v->type);
                         e1 = el_una(OPind, ty, e1);
                         if (tybasic(ty) == TYstruct)
                             e1->ET = Type_toCtype(v->type);
@@ -4980,7 +5469,6 @@ elem *toElem(Expression *e, IRState *irs)
             {
                 // Initialize the hidden 'this' pointer
                 assert(sle->sd->fields.dim);
-                ThisDeclaration *v = sle->sd->fields[sle->sd->fields.dim - 1]->isThisDeclaration();
 
                 elem *e1;
                 if (tybasic(stmp->Stype->Tty) == TYnptr)
@@ -5015,7 +5503,7 @@ elem *toElem(Expression *e, IRState *irs)
         #if 0
             printf("ClassReferenceExp::toElem() %p, value=%p, %s\n", e, e->value, e->toChars());
         #endif
-            result = el_ptr(e->toSymbol());
+            result = el_ptr(toSymbol(e));
         }
 
     };
@@ -5043,13 +5531,11 @@ elem *appendDtors(IRState *irs, elem *er, size_t starti, size_t endi)
     elem *edtors = NULL;
     for (size_t i = starti; i != endi; ++i)
     {
-        VarDeclaration *vd = (*irs->varsInScope)[i];
-        if (vd)
+        elem *ed = (elem *)(*irs->varsInScope)[i];
+        if (ed)
         {
             //printf("appending dtor\n");
             (*irs->varsInScope)[i] = NULL;
-            elem *ed = vd->edtor->toElem(irs);
-            ed = el_ddtor(ed, vd);
             edtors = el_combine(ed, edtors);    // execute in reverse order
         }
     }
@@ -5082,7 +5568,8 @@ elem *appendDtors(IRState *irs, elem *er, size_t starti, size_t endi)
             {
                 *pe = el_combine(edtors, erx);
             }
-            else if (tybasic(erx->Ety) == TYstruct || tybasic(erx->Ety) == TYarray)
+            else if ((tybasic(erx->Ety) == TYstruct || tybasic(erx->Ety) == TYarray) &&
+                     !(erx->ET && type_size(erx->ET) <= 16))
             {
                 /* Expensive to copy, to take a pointer to it instead
                  */
@@ -5113,10 +5600,159 @@ elem *toElemDtor(Expression *e, IRState *irs)
 {
     //printf("Expression::toElemDtor() %s\n", toChars());
     size_t starti = irs->varsInScope ? irs->varsInScope->dim : 0;
-    elem *er = e->toElem(irs);
+    elem *er = toElem(e, irs);
     size_t endi = irs->varsInScope ? irs->varsInScope->dim : 0;
 
     // Add destructors
     er = appendDtors(irs, er, starti, endi);
     return er;
+}
+
+
+/*******************************************************
+ * Write read-only string to object file, create a local symbol for it.
+ * Makes a copy of str's contents, does not keep a reference to it.
+ * Params:
+ *      str = string
+ *      len = number of code units in string
+ *      sz = number of bytes per code unit
+ * Returns:
+ *      Symbol
+ */
+
+Symbol *toStringSymbol(const char *str, size_t len, size_t sz)
+{
+    //printf("toStringSymbol() %p\n", stringTab);
+    StringValue *sv = stringTab->update(str, len * sz);
+    if (!sv->ptrvalue)
+    {
+        Symbol *si = symbol_generate(SCstatic,type_static_array(len * sz, tschar));
+        si->Salignment = 1;
+        si->Sdt = NULL;
+        dt_t **pdt = dtnbytes(&si->Sdt, len * sz, str);
+        dtnzeros(pdt, sz);
+        si->Sfl = FLdata;
+        out_readonly(si);
+        outdata(si);
+        sv->ptrvalue = (void *)si;
+    }
+    return (Symbol *)sv->ptrvalue;
+}
+
+/*******************************************************
+ * Turn StringExp into Symbol.
+ */
+
+Symbol *toStringSymbol(StringExp *se)
+{
+    Symbol *si;
+    int n = se->numberOfCodeUnits();
+    char* p = se->toPtr();
+    if (p)
+    {
+        si = toStringSymbol(p, n, se->sz);
+    }
+    else
+    {
+        p = (char *)mem.xmalloc(n * se->sz);
+        se->writeTo(p, false);
+        si = toStringSymbol(p, n, se->sz);
+        mem.xfree(p);
+    }
+    return si;
+}
+
+/******************************************************
+ * Return an elem that is the file, line, and function suitable
+ * for insertion into the parameter list.
+ */
+
+elem *filelinefunction(IRState *irs, Loc *loc)
+{
+    const char *id = loc->filename;
+    size_t len = strlen(id);
+    Symbol *si = toStringSymbol(id, len, 1);
+    elem *efilename = el_pair(TYdarray, el_long(TYsize_t, len), el_ptr(si));
+    if (config.exe == EX_WIN64)
+        efilename = addressElem(efilename, Type::tstring, true);
+
+    elem *elinnum = el_long(TYint, loc->linnum);
+
+    const char *s = "";
+    FuncDeclaration *fd = irs->getFunc();
+    if (fd)
+    {
+        s = fd->toPrettyChars();
+    }
+
+    len = strlen(s);
+    si = toStringSymbol(s, len, 1);
+    elem *efunction = el_pair(TYdarray, el_long(TYsize_t, len), el_ptr(si));
+    if (config.exe == EX_WIN64)
+        efunction = addressElem(efunction, Type::tstring, true);
+
+    return el_params(efunction, elinnum, efilename, NULL);
+}
+
+/******************************************************
+ * Replace call to GC allocator with call to tracing GC allocator.
+ * Params:
+ *      irs = to get function from
+ *      e = elem to modify
+ *      eloc = to get file/line from
+ */
+
+void toTraceGC(IRState *irs, elem *e, Loc *loc)
+{
+    static const int map[][2] =
+    {
+        { RTLSYM_NEWCLASS, RTLSYM_TRACENEWCLASS },
+        { RTLSYM_NEWITEMT, RTLSYM_TRACENEWITEMT },
+        { RTLSYM_NEWITEMIT, RTLSYM_TRACENEWITEMIT },
+        { RTLSYM_NEWARRAYT, RTLSYM_TRACENEWARRAYT },
+        { RTLSYM_NEWARRAYIT, RTLSYM_TRACENEWARRAYIT },
+        { RTLSYM_NEWARRAYMTX, RTLSYM_TRACENEWARRAYMTX },
+        { RTLSYM_NEWARRAYMITX, RTLSYM_TRACENEWARRAYMITX },
+
+        { RTLSYM_DELCLASS, RTLSYM_TRACEDELCLASS },
+        { RTLSYM_CALLFINALIZER, RTLSYM_TRACECALLFINALIZER },
+        { RTLSYM_CALLINTERFACEFINALIZER, RTLSYM_TRACECALLINTERFACEFINALIZER },
+        { RTLSYM_DELINTERFACE, RTLSYM_TRACEDELINTERFACE },
+        { RTLSYM_DELARRAYT, RTLSYM_TRACEDELARRAYT },
+        { RTLSYM_DELMEMORY, RTLSYM_TRACEDELMEMORY },
+        { RTLSYM_DELSTRUCT, RTLSYM_TRACEDELSTRUCT },
+
+        { RTLSYM_ARRAYLITERALTX, RTLSYM_TRACEARRAYLITERALTX },
+        { RTLSYM_ASSOCARRAYLITERALTX, RTLSYM_TRACEASSOCARRAYLITERALTX },
+
+        { RTLSYM_ARRAYCATT, RTLSYM_TRACEARRAYCATT },
+        { RTLSYM_ARRAYCATNTX, RTLSYM_TRACEARRAYCATNTX },
+
+        { RTLSYM_ARRAYAPPENDCD, RTLSYM_TRACEARRAYAPPENDCD },
+        { RTLSYM_ARRAYAPPENDWD, RTLSYM_TRACEARRAYAPPENDWD },
+        { RTLSYM_ARRAYAPPENDT, RTLSYM_TRACEARRAYAPPENDT },
+        { RTLSYM_ARRAYAPPENDCTX, RTLSYM_TRACEARRAYAPPENDCTX },
+
+        { RTLSYM_ARRAYSETLENGTHT, RTLSYM_TRACEARRAYSETLENGTHT },
+        { RTLSYM_ARRAYSETLENGTHIT, RTLSYM_TRACEARRAYSETLENGTHIT },
+
+        { RTLSYM_ALLOCMEMORY, RTLSYM_TRACEALLOCMEMORY },
+    };
+
+    if (global.params.tracegc && loc->filename)
+    {
+        assert(e->Eoper == OPcall);
+        elem *e1 = e->E1;
+        assert(e1->Eoper == OPvar);
+        for (size_t i = 0; 1; ++i)
+        {
+            assert(i < sizeof(map)/sizeof(map[0]));
+            if (e1->EV.sp.Vsym == getRtlsym(map[i)[0]])
+            {
+                e1->EV.sp.Vsym = getRtlsym(map[i)[1]];
+                break;
+            }
+        }
+        e->E2 = el_param(e->E2, filelinefunction(irs, loc));
+    }
 }

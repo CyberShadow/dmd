@@ -1,7 +1,7 @@
 
 // Test operator overloading
 
-import std.c.stdio;
+import core.stdc.stdio;
 
 /**************************************/
 
@@ -1018,6 +1018,125 @@ void test8522()
     assert(mp == cp);
     assert(cp == mp);   // doesn't work
     assert(cp == cp);   // doesn't work
+}
+
+/**************************************/
+// 12778
+
+struct Vec12778X
+{
+    Vec12778X opBinary(string op)(Vec12778X b) const
+    if (op == "+")
+    {
+        mixin("return Vec12778X(this.x " ~ op ~ " b.x, this.y " ~ op ~ " b.y);");
+    }
+    alias opBinaryRight = opBinary;
+
+    float x = 0, y = 0;
+}
+
+struct Vec12778Y
+{
+    Vec12778Y opAdd()(Vec12778Y b) const
+    {
+        enum op = "+";
+        mixin("return Vec12778Y(this.x " ~ op ~ " b.x, this.y " ~ op ~ " b.y);");
+    }
+    alias opAdd_r = opAdd;
+
+    float x = 0, y = 0;
+}
+
+void test12778()
+{
+    struct S
+    {
+        void test1()
+        {
+            Vec12778X vx = vx1 + vx2;   // ok
+            Vec12778Y vy = vy1 + vy2;   // ok
+        }
+
+        void test2() const
+        {
+            Vec12778X vx = vx1 + vx2;   // ok <- error
+            Vec12778Y vy = vy1 + vy2;   // ok <- error
+        }
+
+        Vec12778X vx1, vx2;
+        Vec12778Y vy1, vy2;
+    }
+}
+
+/**************************************/
+// 14343
+
+struct S14343a
+{
+    int i;
+    immutable(Object) o;
+
+    S14343a opUnary(string op)() { return this; }
+    void opAssign(S14343a other) {}
+}
+
+struct S14343b
+{
+    int i;
+    immutable(Object) o;
+
+    void opAddAssign(int j) { i += j; }
+    S14343b opPostInc() { ++i; return this; }
+    void opAssign(S14343b other) {}
+}
+
+void test14343()
+{
+    {
+        S14343a s, t;
+
+        t = s;  // OK
+        ++s;    // OK
+        s++;    // OK <- Error: cannot modify struct s S with immutable members
+    }
+    {
+        S14343b s;
+        ++s;
+        assert(s.i == 1);
+        s++;
+        assert(s.i == 2);
+    }
+}
+
+/**************************************/
+// 14344
+
+struct S14344
+{
+    S14344 opBinary(string op)(S14344 v)
+    {
+        static assert(0);
+    }
+    S14344 opAssign()(S14344 v)
+    {
+        static assert(0);
+    }
+}
+
+struct S14344Mix
+{
+    S14344 s;
+    alias s this;
+}
+
+class C14344
+{
+    S14344Mix height() { return S14344Mix(); }
+
+    void update()
+    {
+        S14344 height = this.height;
+    }
 }
 
 /**************************************/

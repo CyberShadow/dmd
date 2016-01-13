@@ -589,8 +589,6 @@ void test1900c()
     assert(s.a.mixfoob(10) == 2);   static assert(!__traits(compiles, s.a.mixfoob()));
 }
 
-version(none)   // yet not implemented
-{
 alias merge1900 = imports.template_ovs1.merge1900;
 alias merge1900 = imports.template_ovs2.merge1900;
 
@@ -598,11 +596,6 @@ void test1900d()
 {
     assert( merge1900!double(100) == 1);
     assert(.merge1900!double(100) == 1);
-}
-}
-else
-{
-void test1900d() {} // dummy
 }
 
 mixin template Foo1900e(T)
@@ -649,8 +642,6 @@ void test1900()
     static assert(Value1900b!string == 2);
 }
 
-version(none)   // yet not implemented
-{
 alias imports.template_ovs1.Traits1900 Traits1900X;
 alias imports.template_ovs2.Traits1900 Traits1900X;
 alias imports.template_ovs3.Traits1900 Traits1900X;
@@ -666,7 +657,6 @@ alias Traits1900Y2 Traits1900Y;
 static assert(Traits1900Y!(AClass1900).name == "AClass");
 static assert(!__traits(compiles, Traits1900Y!(BClass1900)));
 static assert(!__traits(compiles, Traits1900Y!(int)));
-}
 
 template Foo1900(T)
 {
@@ -699,6 +689,24 @@ class Foo7780
 void test7780()
 {
     assert(Foo7780.C!0 == 0);
+}
+
+/***************************************************/
+
+auto foo7849(string) { return 1; }
+auto foo7849(dstring) { return 2; }
+
+enum str7849a = "string";
+immutable str7849ai = "string";
+immutable str7849bi = str7849ai;
+enum str7849b = str7849ai;
+enum str7849c = str7849bi;
+
+void test7849()
+{
+    assert(foo7849(str7849a) == 1);
+    assert(foo7849(str7849b) == 1);
+    assert(foo7849(str7849c) == 1);
 }
 
 /***************************************************/
@@ -862,8 +870,6 @@ void test9235a()
 
 // ----
 
-version(none)   // yet not implemented
-{
 mixin template mixA9235()
 {
     int foo(string s)() if (s == "a") { return 1; }
@@ -885,6 +891,88 @@ void test9235b()
     assert(f.foo!"a"() == 1);
     assert(f.foo!"b"() == 2);
 }
+
+/***************************************************/
+// 10658
+
+alias Val10658 = imports.template_ovs1.Val10658;
+alias Val10658 = imports.template_ovs2.Val10658;
+static assert(Val10658!1 == 1);
+static assert(Val10658!1L == 2);
+
+// ----
+
+template Foo10658(T) if (is(T == double)) { enum Foo10658 = 1; }
+template Bar10658(T) if (is(T == string)) { enum Bar10658 = 2; }
+alias Baz10658 = Foo10658;
+alias Baz10658 = Bar10658;
+
+template Voo10658(T) if (is(T == cfloat)) { enum Voo10658 = 5; }
+template Voo10658(T) if (is(T == Object)) { enum Voo10658 = 6; }
+
+alias Vaz10658 = Baz10658;  // OvarDeclaration
+alias Vaz10658 = Voo10658;  // TemplateDeclaration (overnext != NULL)
+
+template Merge10658a(alias A)
+{
+    enum Merge10658a = A!double + A!string;
+}
+template Merge10658b(alias A)
+{
+    enum Merge10658b = A!double + A!string + A!cfloat + A!Object;
+}
+
+void test10658a()
+{
+    static assert(Baz10658!double == 1);
+    static assert(Baz10658!string == 2);
+    static assert(Voo10658!cfloat == 5);
+    static assert(Voo10658!Object == 6);
+
+    // pass OverDeclaration through TemplateAliasParameter
+    static assert(Merge10658a!Baz10658 == 1 + 2);
+    static assert(Merge10658b!Vaz10658 == 1 + 2 + 5 + 6);
+}
+
+// ----
+
+mixin template mix10658A()
+{
+    int f10658(string s)() if (s == "a") { return 1; }
+}
+mixin template mix10658B()
+{
+    int f10658(string s)() if (s == "b") { return 2; }
+}
+mixin mix10658A A10658;
+mixin mix10658B B10658;
+alias A10658.f10658 foo10658;
+alias B10658.f10658 foo10658;
+
+mixin template mix10658C()
+{
+    int f10658(string s, T)(T arg) if (s == "c") { return 3; }
+}
+mixin template mix10658D()
+{
+    int f10658(string s, T)(T arg) if (s == "d") { return 4; }
+}
+struct S10658
+{
+    mixin mix10658C C10658;
+    mixin mix10658D D10658;
+    alias C10658.f10658 foo10658;
+    alias D10658.f10658 foo10658;
+}
+
+void test10658b()
+{
+    assert( foo10658!"a"() == 1);
+    assert(.foo10658!"b"() == 2);
+
+    S10658 s;
+    assert(s.foo10658!"c"(0) == 3);
+    assert(s.foo10658!"d"(0) == 4);
 }
 
 /***************************************************/
@@ -921,6 +1009,80 @@ void test11785()
 }
 
 /***************************************************/
+// 11915
+
+int f11915(    int) { return 1; }
+int f11915(ref int) { return 2; }
+
+int g11915(    int) { return 1; }
+int g11915(out int) { return 2; }
+
+void test11915()
+{
+    const int n = 1;
+    assert(f11915(n) == 1);
+    assert(g11915(n) == 1);
+}
+
+/***************************************************/
+// 11916
+
+auto f11916(T)(    T)            { return 1; }
+auto f11916(T)(out T) if (false) { return 2; }
+
+auto g11916(T)(    T) { return 1; }
+auto g11916(T)(out T) { return 2; }
+
+void test11916()
+{
+    const int c = 1;
+    int m = 2;
+
+    // 'out const int' is invalid function parameter, so (out T) version will be dropped
+    // from overload candidates before template constraint evaluated.
+    assert(f11916(c) == 1);
+
+    // Both (T) and (out T) have valid signatures with T == int, but the 2nd overload will be
+    // dropped from overload candidates because of the template constraint.
+    assert(f11916(m) == 1);
+
+    // 'out const int' parameter is invalid, so non-out version is selected.
+    assert(g11916(c) == 1);
+
+    // MATCHconst for (T) version, and MATCHexact for (out T) version.
+    assert(g11916(m) == 2);
+}
+
+/***************************************************/
+// 13783
+
+enum E13783 { a = 5 }
+
+    inout(int) f(    inout(int) t) { return t * 2; }
+ref inout(int) f(ref inout(int) t) { return t; }
+
+void test13783()
+{
+    const E13783 e = E13783.a;
+    assert(f(e) == 10);
+}
+
+/***************************************************/
+// 14858
+
+int foo14858()() { return 1; }
+int bar14858(int) { return 2; }
+
+alias foobar14858 = foo14858;
+alias foobar14858 = bar14858;
+
+void test14858()
+{
+    assert(foobar14858() == 1);
+    assert(foobar14858(1) == 2); // OK <- NG
+}
+
+/***************************************************/
 
 int main()
 {
@@ -941,13 +1103,20 @@ int main()
     test1900d();
     test1900e();
     test7780();
+    test7849();
     test8352();
     test8441a();
     test8441b();
     test8441c();
     test9235a();
-    //test9235b();
+    test9235b();
+    test10658a();
+    test10658b();
     test11785();
+    test11915();
+    test11916();
+    test13783();
+    test14858();
 
     printf("Success\n");
     return 0;
