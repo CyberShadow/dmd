@@ -28,9 +28,9 @@ void test6905()
     auto foo1() { static int n; return n; }
     auto foo2() {        int n; return n; }
     auto foo3() {               return 1; }
-    static assert(typeof(&foo1).stringof == "int delegate()");
-    static assert(typeof(&foo2).stringof == "int delegate()");
-    static assert(typeof(&foo3).stringof == "int delegate()");
+    static assert(typeof(&foo1).stringof == "int delegate() nothrow @nogc @safe");
+    static assert(typeof(&foo2).stringof == "int delegate() pure nothrow @nogc @safe");
+    static assert(typeof(&foo3).stringof == "int delegate() pure nothrow @nogc @safe");
 
     ref bar1() { static int n; return n; }
   static assert(!__traits(compiles, {
@@ -43,9 +43,9 @@ void test6905()
     auto ref baz1() { static int n; return n; }
     auto ref baz2() {        int n; return n; }
     auto ref baz3() {               return 1; }
-    static assert(typeof(&baz1).stringof == "int delegate() ref");
-    static assert(typeof(&baz2).stringof == "int delegate()");
-    static assert(typeof(&baz3).stringof == "int delegate()");
+    static assert(typeof(&baz1).stringof == "int delegate() nothrow @nogc ref @safe");
+    static assert(typeof(&baz2).stringof == "int delegate() pure nothrow @nogc @safe");
+    static assert(typeof(&baz3).stringof == "int delegate() pure nothrow @nogc @safe");
 }
 
 /***************************************************/
@@ -349,6 +349,31 @@ void test13776()
     alias yc = y13776c!();  // ok <- ng
     alias zc = z13776c!();  // ok
 }
+
+/***************************************************/
+// 14090
+
+template Packed14090(Args...)
+{
+    enum x = __traits(compiles, { Args[0] v; });
+    // Args[0] is an opaque struct Empty, so the variable declaration fails to compile.
+    // The error message creation calls TypeStruct('_Empty')->toChars(), and
+    // it wrongly calls TemplateInstance('RoundRobin!()')->toAlias().
+    // Finally it will cause incorrect "recursive template instantiation" error.
+}
+
+template Map14090(A...)
+{
+    alias Map14090 = A[0];
+}
+
+template RoundRobin14090()
+{
+    struct Empty;
+    alias RoundRobin14090 = Map14090!(Packed14090!(Empty));
+}
+
+alias roundRobin14090 = RoundRobin14090!();
 
 /***************************************************/
 // 13950

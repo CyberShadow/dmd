@@ -59,36 +59,26 @@
 #                        considered to be enabled).
 #                        default: (none, enabled)
 
-ifeq (,$(OS))
-    OS:=$(shell uname)
-    ifeq (Darwin,$(OS))
-        OS:=osx
-    else
-        ifeq (Linux,$(OS))
-            OS:=linux
-        else
-            ifeq (FreeBSD,$(OS))
-                OS:=freebsd
-            else
-                $(error Unrecognized or unsupported OS for uname: $(OS))
-            endif
-        endif
-    endif
-else
-    ifeq (Windows_NT,$(OS))
-        ifeq ($(findstring WOW64, $(shell uname)),WOW64)
-            OS:=win64
-        else
-            OS:=win32
-        endif
-    endif
-    ifeq (Win_32,$(OS))
-	OS:=win32
-    endif
-    ifeq (Win_64,$(OS))
+ifeq (Windows_NT,$(OS))
+    ifeq ($(findstring WOW64, $(shell uname)),WOW64)
 	OS:=win64
+	MODEL:=64
+    else
+	OS:=win32
+	MODEL:=32
     endif
 endif
+ifeq (Win_32,$(OS))
+    OS:=win32
+    MODEL:=32
+endif
+ifeq (Win_64,$(OS))
+    OS:=win64
+    MODEL:=64
+endif
+
+include ../src/osmodel.mak
+
 export OS
 
 ifeq (freebsd,$(OS))
@@ -98,7 +88,7 @@ else
 endif
 QUIET=@
 export RESULTS_DIR=test_results
-export MODEL=32
+export MODEL
 export REQUIRED_ARGS=
 
 ifeq ($(findstring win,$(OS)),win)
@@ -108,38 +98,27 @@ export EXE=.exe
 export OBJ=.obj
 export DSEP=\\
 export SEP=$(subst /,\,/)
+
+DRUNTIME_PATH=..\..\druntime
+PHOBOS_PATH=..\..\phobos
+export DFLAGS=-I$(DRUNTIME_PATH)\import -I$(PHOBOS_PATH)
+export LIB=$(PHOBOS_PATH)
 else
-export ARGS=-inline -release -gc -O -unittest -fPIC
+export ARGS=-inline -release -g -O -unittest -fPIC
 export DMD=../src/dmd
 export EXE=
 export OBJ=.o
 export DSEP=/
 export SEP=/
+
+DRUNTIME_PATH=../../druntime
+PHOBOS_PATH=../../phobos
+export DFLAGS=-I$(DRUNTIME_PATH)/import -I$(PHOBOS_PATH) -L-L$(PHOBOS_PATH)/generated/$(OS)/release/$(MODEL)
 endif
 
 ifeq ($(OS),osx)
 ifeq ($(MODEL),64)
 export D_OBJC=1
-endif
-endif
-
-ifeq ($(OS),freebsd)
-DISABLED_TESTS += dhry
-# runnable/dhry.d(488): Error: undefined identifier dtime
-endif
-
-ifeq ($(OS),win32)
-DISABLED_FAIL_TESTS += fail13939
-endif
-
-ifeq ($(OS),win64)
-DISABLED_TESTS += testxmm
-DISABLED_FAIL_TESTS += fail13939
-endif
-
-ifeq ($(OS),osx)
-ifeq ($(MODEL),64)
-DISABLED_TESTS += test6423
 endif
 endif
 
@@ -154,12 +133,6 @@ fail_compilation_test_results=$(addsuffix .out,$(addprefix $(RESULTS_DIR)/,$(fai
 
 all: run_tests
 
-$(addsuffix .d.out,$(addprefix $(RESULTS_DIR)/runnable/,$(DISABLED_TESTS))): $(RESULTS_DIR)/.created
-	$(QUIET) echo " ... $@ - disabled"
-
-$(addsuffix .sh.out,$(addprefix $(RESULTS_DIR)/runnable/,$(DISABLED_SH_TESTS))): $(RESULTS_DIR)/.created
-	$(QUIET) echo " ... $@ - disabled"
-
 $(RESULTS_DIR)/runnable/%.d.out: runnable/%.d $(RESULTS_DIR)/.created $(RESULTS_DIR)/d_do_test$(EXE) $(DMD)
 	$(QUIET) $(RESULTS_DIR)/d_do_test $(<D) $* d
 
@@ -173,9 +146,6 @@ $(RESULTS_DIR)/compilable/%.d.out: compilable/%.d $(RESULTS_DIR)/.created $(RESU
 $(RESULTS_DIR)/compilable/%.sh.out: compilable/%.sh $(RESULTS_DIR)/.created $(RESULTS_DIR)/d_do_test$(EXE) $(DMD)
 	$(QUIET) echo " ... $(<D)/$*.sh"
 	$(QUIET) ./$(<D)/$*.sh
-
-$(addsuffix .d.out,$(addprefix $(RESULTS_DIR)/fail_compilation/,$(DISABLED_FAIL_TESTS))): $(RESULTS_DIR)/.created
-	$(QUIET) echo " ... $@ - disabled"
 
 $(RESULTS_DIR)/fail_compilation/%.d.out: fail_compilation/%.d $(RESULTS_DIR)/.created $(RESULTS_DIR)/d_do_test$(EXE) $(DMD)
 	$(QUIET) $(RESULTS_DIR)/d_do_test $(<D) $* d
@@ -221,6 +191,6 @@ start_fail_compilation_tests: $(RESULTS_DIR)/.created $(RESULTS_DIR)/d_do_test$(
 $(RESULTS_DIR)/d_do_test$(EXE): d_do_test.d $(RESULTS_DIR)/.created
 	@echo "Building d_do_test tool"
 	@echo "OS: $(OS)"
-	$(QUIET)$(DMD) -m$(MODEL) -unittest -run d_do_test.d -unittest
-	$(QUIET)$(DMD) -m$(MODEL) -od$(RESULTS_DIR) -of$(RESULTS_DIR)$(DSEP)d_do_test$(EXE) d_do_test.d
+	$(QUIET)$(DMD) -conf= $(MODEL_FLAG) -unittest -run d_do_test.d -unittest
+	$(QUIET)$(DMD) -conf= $(MODEL_FLAG) -od$(RESULTS_DIR) -of$(RESULTS_DIR)$(DSEP)d_do_test$(EXE) d_do_test.d
 

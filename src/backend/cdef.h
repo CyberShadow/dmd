@@ -13,7 +13,6 @@
 /* Macros defined by the compiler, not the code:
 
     Compiler:
-        __SC__          Symantec compiler
         __DMC__         Digital Mars compiler
         _MSC_VER        Microsoft compiler
         __GNUC__        Gnu compiler
@@ -40,7 +39,6 @@
         _M_AMD64        AMD 64 processor
 
     Hosts no longer supported:
-        __INTSIZE==2    16 bit compilations
         __OS2__         IBM OS/2
         DOS386          32 bit DOS extended executable
         DOS16RM         Rational Systems 286 DOS extender
@@ -199,7 +197,45 @@ One and only one of these macros must be set by the makefile:
 #endif
 
 #if __GNUC__
-#include "cdeflnx.h"
+#include <time.h>
+
+#define M_UNIX 1
+#define MEMMODELS 1
+#if __GNUC__
+#define _MSC_VER 0
+#endif
+
+#define ERRSTREAM stderr
+#define isleadbyte(c) 0
+
+char *strupr(char *);
+
+//
+//      Attributes
+//
+
+//      Types of attributes
+#define ATTR_LINKMOD    0x0001  // link modifier
+#define ATTR_TYPEMOD    0x0002  // basic type modifier
+#define ATTR_FUNCINFO   0x0004  // function information
+#define ATTR_DATAINFO   0x0008  // data information
+#define ATTR_TRANSU     0x0010  // transparent union
+#define ATTR_IGNORED    0x0020  // attribute can be ignored
+#define ATTR_WARNING    0x0040  // attribute was ignored
+#define ATTR_SEGMENT    0x0080  // segment secified
+
+
+//      attribute location in code
+#define ALOC_DECSTART   0x001   // start of declaration
+#define ALOC_SYMDEF     0x002   // symbol defined
+#define ALOC_PARAM      0x004   // follows function parameter
+#define ALOC_FUNC       0x008   // follows function declaration
+
+#define ATTR_LINK_MODIFIERS (mTYconst|mTYvolatile|mTYcdecl|mTYstdcall)
+#define ATTR_CAN_IGNORE(a) \
+        (((a) & (ATTR_LINKMOD|ATTR_TYPEMOD|ATTR_FUNCINFO|ATTR_DATAINFO|ATTR_TRANSU)) == 0)
+#define LNX_CHECK_ATTRIBUTES(a,x) assert(((a) & ~(x|ATTR_IGNORED|ATTR_WARNING)) == 0)
+
 #endif
 
 #if _WINDLL
@@ -208,10 +244,6 @@ One and only one of these macros must be set by the makefile:
 #define SUFFIX  "a"
 #elif _WIN32
 #define SUFFIX  "n"
-#elif DOS386
-#define SUFFIX  "x"
-#elif DOS16RM
-#define SUFFIX  "r"
 #else
 #define SUFFIX  ""
 #endif
@@ -250,17 +282,9 @@ One and only one of these macros must be set by the makefile:
 #define STATEMENT_SCOPES CPP
 
 #if __GNUC__
-#define LONGLONG        1
-#elif __SC__ > 0 && __SC__ < 0x700
-#define LONGLONG        0
-#else
-#define LONGLONG        1               // add in code to support 64 bit integral types
-#endif
-
-#if __GNUC__
 #define LDOUBLE                 0       // no support for true long doubles
 #else
-#define LDOUBLE         (config.exe == EX_NT)   // support true long doubles
+#define LDOUBLE         (config.exe == EX_WIN32)   // support true long doubles
 #endif
 
 #if _MSC_VER
@@ -346,7 +370,6 @@ typedef long double longdouble;
 #endif
 #define ARG_TRUE
 #define ARG_FALSE
-#define T68000(x)
 #define T80x86(x)       x
 
 // For Share MEM_ macros - default to mem_xxx package
@@ -435,7 +458,7 @@ typedef long double longdouble;
 #endif
 
 #define TOOFFSET(a,b)   (I32 ? TOLONG(a,b) : TOWORD(a,b))
-
+
 /***************************
  * Target machine data types as they appear on the host.
  */
@@ -447,13 +470,8 @@ typedef short           targ_short;
 typedef unsigned short  targ_ushort;
 typedef int             targ_long;
 typedef unsigned        targ_ulong;
-#if LONGLONG
-typedef long long               targ_llong;
+typedef long long       targ_llong;
 typedef unsigned long long      targ_ullong;
-#else
-#define targ_llong      targ_long
-#define targ_ullong     targ_ulong
-#endif
 typedef float           targ_float;
 typedef double          targ_double;
 typedef longdouble      targ_ldouble;
@@ -511,14 +529,13 @@ typedef targ_uns        targ_size_t;    /* size_t for the target machine */
 #define THUNKS          1       /* use thunks for virtual functions     */
 #define SEPNEWDEL       1       // new/delete are not called within the ctor/dtor,
                                 // they are separate
-#define VBTABLES        1       // use Microsoft object model
 #define UNICODE         1       // support Unicode (wchar_t is unsigned short)
 #define DLCMSGS         0       // if 1, have all messages in a file
 #define NEWMANGLE       TARGET_WINDOS   // use MS name mangling scheme
 #define NEWTEMPMANGLE   (!(config.flags4 & CFG4oldtmangle))     // do new template mangling
 #define USEDLLSHELL     _WINDLL
 #define FARCLASSES      1       // support near/far classes
-#define MFUNC           (I32) //0 && config.exe == EX_NT)       // member functions are TYmfunc
+#define MFUNC           (I32) //0 && config.exe == EX_WIN32)       // member functions are TYmfunc
 #define CV3             0       // 1 means support CV3 debug format
 
 /* Object module format
@@ -545,17 +562,10 @@ typedef targ_uns        targ_size_t;    /* size_t for the target machine */
 #define LONGMASK        0xFFFFFFFF
 
 /* Common constants often checked for */
-#if LONGLONG
 #define LLONGMASK       0xFFFFFFFFFFFFFFFFLL
 #define ZEROLL          0LL
 #define MINLL           0x8000000000000000LL
 #define MAXLL           0x7FFFFFFFFFFFFFFFLL
-#else
-#define LLONGMASK       0xFFFFFFFFLL
-#define ZEROLL          0L
-#define MINLL           0x80000000
-#define MAXLL           0x7FFFFFFF
-#endif
 
 #define Smodel 0        /* 64k code, 64k data, or flat model           */
 
@@ -579,9 +589,6 @@ typedef targ_uns        targ_size_t;    /* size_t for the target machine */
 #define UNKNOWN -1      /* unknown segment              */
 #define DGROUPIDX 1     /* group index of DGROUP        */
 
-#define KEEPBITFIELDS 0 /* 0 means code generator cannot handle bit fields, */
-                        /* so replace them with shifts and masks        */
-
 #define REGMAX  29      // registers are numbered 0..10
 
 typedef unsigned        tym_t;          // data type big enough for type masks
@@ -602,7 +609,6 @@ typedef int bool;
 #define _far
 #define __far
 #define __cs
-#define __ss
 #endif
 
 #if _WINDLL
@@ -622,7 +628,7 @@ Written by Walter Bright"
 #endif
 #endif
 #endif
-
+
 /**********************************
  * Configuration
  */
@@ -640,6 +646,18 @@ typedef enum LINKAGE
     LINK_MAXDIM                 /* array dimension                      */
 } linkage_t;
 
+/**********************************
+ * Exception handling method
+ */
+
+enum EHmethod
+{
+    EH_NONE,                    // no exception handling
+    EH_WIN32,                   // Win32 SEH
+    EH_WIN64,                   // Win64 SEH (not supported yet)
+    EH_DM,                      // Digital Mars method
+    EH_DWARF,                   // Dwarf method
+};
 
 // This part of the configuration is saved in the precompiled header for use
 // in comparing to make sure it hasn't changed.
@@ -706,8 +724,8 @@ struct Config
     unsigned objfmt;            // target object format
 #define OBJ_OMF         1
 #define OBJ_MSCOFF      2
-#define OBJ_ELF         3
-#define OBJ_MACH        4
+#define OBJ_ELF         4
+#define OBJ_MACH        8
     unsigned exe;               // target operating system
 #define EX_DOSX         1       // DOSX 386 program
 #define EX_ZPM          2       // ZPM 286 program
@@ -717,7 +735,7 @@ struct Config
 //#define EX_WIN16      0x20    // Windows 3.x 16 bit program
 #define EX_OS2          0x40    // OS/2 2.0 32 bit program
 #define EX_OS1          0x80    // OS/2 1.x 16 bit program
-#define EX_NT           0x100   // NT
+#define EX_WIN32        0x100
 #define EX_MZ           0x200   // MSDOS real mode program
 #define EX_XENIX        0x400
 #define EX_SCOUNIX      0x800
@@ -734,7 +752,7 @@ struct Config
 #define EX_OPENBSD      0x400000
 #define EX_OPENBSD64    0x800000
 
-#define EX_flat         (EX_OS2 | EX_NT | EX_LINUX | EX_WIN64 | EX_LINUX64 | \
+#define EX_flat         (EX_OS2 | EX_WIN32 | EX_LINUX | EX_WIN64 | EX_LINUX64 | \
                          EX_OSX | EX_OSX64 | EX_FREEBSD | EX_FREEBSD64 | \
                          EX_OPENBSD | EX_OPENBSD64 | \
                          EX_SOLARIS | EX_SOLARIS64)
@@ -774,7 +792,6 @@ struct Config
 #define CFG2noobj       0x1000  // we are not generating a .OBJ file
 #define CFG2noerrmax    0x4000  // no error count maximum
 #define CFG2expand      0x8000  // expanded output to list file
-#define CFG2seh         0x10000 // use Win32 SEH to support any exception handling
 #define CFG2stomp       0x20000 // enable stack stomping code
 #define CFG2gms         0x40000 // optimize debug symbols for microsoft debuggers
 #define CFGX2   (CFG2warniserr | CFG2phuse | CFG2phgen | CFG2phauto | \
@@ -869,6 +886,7 @@ struct Config
 #define THRESHMAX 0xFFFF        // if threshold == THRESHMAX, all data defaults
                                 // to near
     enum LINKAGE linkage;       // default function call linkage
+    enum EHmethod ehmethod;     // exception handling method
 };
 
 // Configuration that is not saved in precompiled header
@@ -947,6 +965,8 @@ union eve
         targ_llong      Vllong;
         targ_ullong     Vullong;
         Cent            Vcent;
+        targ_float      Vfloat4[4];
+        targ_double     Vdouble2[2];
         targ_float      Vfloat;
         targ_double     Vdouble;
         targ_ldouble    Vldouble;
@@ -988,13 +1008,11 @@ union eve
             elem *Eright;       // right child for binary nodes
             Symbol *Edtor;      // OPctor: destructor
         } eop;
-#if MARS
         struct
         {
             elem *Eleft;        // left child for OPddtor
             void *Edecl;        // VarDeclaration being constructed
         } ed;                   // OPdctor,OPddtor
-#endif
 };                              // variants for each type of elem
 
 // Symbols
@@ -1005,35 +1023,8 @@ union eve
 #define IDSYMBOL
 #endif
 
-#if SCPP
-#define SYMBOLZERO      0,0,0,
-#elif MARS
-#define SYMBOLZERO      0,0,
-#else
-#define SYMBOLZERO
-#endif
-
-#if TARGET_LINUX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
-#define UNIXFIELDS      (unsigned)-1,(unsigned)-1,0,0,
-#elif TARGET_OSX
-#define UNIXFIELDS      (unsigned)-1,(unsigned)-1,0,0,0,
-#else
-#define UNIXFIELDS
-#endif
-
 typedef unsigned SYMFLGS;
-#if MARS
-#define SYM_PREDEF_SZ 40
-#else
-#define SYM_PREDEF_SZ 22
-#endif
 
-#define SYMBOLY(fl,regsaved,name,flags) \
-        {IDSYMBOL \
-         (symbol *)0,(symbol *)0,(symbol *)0,(dt_t *)0,0,(type *)0,{0},\
-         SYMBOLZERO\
-         UNIXFIELDS\
-         SCextern,(fl),(flags),0,0,0,0,0,0,0,{0},(regsaved),{name}}
 
 /**********************************
  * Storage classes

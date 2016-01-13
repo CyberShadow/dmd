@@ -1,5 +1,5 @@
 
-import std.stdio;
+import core.stdc.stdio;
 
 // Test function inlining
 
@@ -78,10 +78,10 @@ void func(void function () v)
 void test4()
 {
    static void f1() { }
-   
+
    func(&f1);
-   //func(f1);  
-} 
+   //func(f1);
+}
 
 
 /************************************/
@@ -116,7 +116,7 @@ struct Struct
     void bar(out Struct Q)
     {
         if (foo() < 0)
-            Q = this; 
+            Q = this;
     }
 }
 
@@ -464,19 +464,21 @@ void test11322()
 
 debug(NRVO) static void* p11394a, p11394b, p11394c;
 
-static int[3] make11394(in int x) pure
+static int[5] make11394(in int x) pure
 {
     typeof(return) a;
     a[0] = x;
     a[1] = x + 1;
     a[2] = x + 2;
+    a[3] = x + 3;
+    a[4] = x + 4;
     debug(NRVO) p11394a = cast(void*)a.ptr;
     return a;
 }
 
 struct Bar11394
 {
-    immutable int[3] arr;
+    immutable int[5] arr;
 
     this(int x)
     {
@@ -557,6 +559,423 @@ void test13503()
 }
 
 /**********************************/
+// 14267
+
+// EXTRA_SOURCES: imports/a14267.d
+import imports.a14267;
+
+void test14267()
+{
+    foreach (m; __traits(allMembers, SysTime14267))
+    {
+        static if (is(typeof(__traits(getMember, SysTime14267, m))))
+        {
+            foreach (func; __traits(getOverloads, SysTime14267, m))
+            {
+                auto prot = __traits(getProtection, func);
+                static if (__traits(isStaticFunction, func))
+                {
+                    static assert(func.stringof == "min()");
+                    auto result = func;
+                }
+            }
+        }
+    }
+}
+
+/**********************************/
+// 13244
+
+struct MapResult13244(alias fun)
+{
+    int[] input;
+    @property front() { return fun(input[0]); }
+}
+
+int[] array13244(R)(R r)
+{
+    int[] a;
+    a ~= r.front;
+    return a;
+}
+
+void test13244()
+{
+    auto arr = [[cast(ubyte)1]];
+    foreach (ref x; arr)
+    {
+        auto m = MapResult13244!(c => x[c])([0]);
+        array13244(m);
+    }
+}
+
+/**********************************/
+// 14306
+
+struct MapResult(alias fun)
+{
+    void front()
+    {
+//  while (1) { break; }
+        fun(1);
+    }
+}
+
+void bar(R)(R r)
+{
+    foreach (i; 0..100)
+    {
+        r.front();
+    }
+}
+
+struct S
+{
+    int x;
+    int bump()
+    {
+        while (1) { break; }
+        ++x;
+        return x;
+    }
+}
+
+void fun(ref S s)
+{
+    MapResult!(y => s.bump())().bar;
+//  MapResult!((int x) => s.bump())().bar;
+
+    if (s.x != 100)
+        assert(0);
+}
+
+void test14306()
+{
+    S t;
+    fun(t);
+}
+
+/**********************************/
+// 14754
+
+auto aafunc14754(string k)
+{
+    enum aa = [ "K": "V" ];
+    auto p = k in aa;
+    return null;
+}
+
+struct MapResult14754(alias fun, R)
+{
+    R _input;
+
+    @property auto ref front()
+    {
+        return fun(_input[0]);
+    }
+}
+
+auto array14754(R)(R r)
+{
+    alias E = typeof(r.front);
+    E[] result;
+    result ~= r.front;
+    return result;
+}
+
+auto mapfun14754(R)(R words, string k)
+{
+    return array14754(MapResult14754!(s => aafunc14754(k), R)(words));
+}
+
+void test14754()
+{
+    auto r = mapfun14754([""], "");
+}
+
+/**********************************/
+// 14606
+
+struct S14606
+{
+    this(long stdTime)
+    {
+        _stdTime = stdTime;
+    }
+
+    long _stdTime;
+}
+
+S14606 getS14606()
+{
+    S14606 sysTime = S14606(0);
+    return sysTime;
+}
+
+struct T14606
+{
+    this(string)
+    {
+        uint[3] arr;
+        s = getS14606();
+    }
+
+    S14606 s;
+}
+
+void test14606()
+{
+    auto t = T14606(null);
+}
+
+/**********************************/
+// 14753
+
+pragma(inline)
+void test14753(string) { }
+
+/**********************************/
+
+struct S14975
+{
+    int bar;
+
+    pragma(inline, true) this(int bar)
+    {
+        this.bar = bar;
+    }
+}
+
+void test14975()
+{
+    S14975 baz = 1;
+    if (baz.bar != 1)
+        assert(0);
+}
+
+/**********************************/
+// 15210
+
+struct BigInt15210 {}
+
+struct Tuple15210(Types...)
+{
+    Types field;
+
+    void opAssign(R)(R rhs)
+    {
+        field = rhs.field;
+    }
+}
+
+void test15210()
+{
+    alias X = Tuple15210!BigInt15210;
+
+    X[BigInt15210] cache;
+
+    auto x = X();
+
+    cache[BigInt15210()] = x;
+}
+
+/**********************************/
+
+int foo7625(int v)
+{
+    return bar7625(2 * v);
+}
+
+int bar7625(int a)
+{
+    ++a;
+    if (a > 0)
+        return 1;
+    return baz(a);
+}
+
+int baz(int a)
+{
+    if (a > 0)
+        throw new Exception("a > 0");
+    return a - 1;
+}
+
+void test7625()
+{
+    int x = foo7625(1);
+    if (x != 1)
+        assert(0);
+}
+
+/**********************************/
+// 9785 partial fix
+
+void test9785()
+{
+        int j = 3;
+
+        void loop(scope const void function(int x) dg) {
+            pragma(inline, true);
+            dg(++j);
+        }
+
+        loop((x) {
+                pragma(inline, true);
+                printf("%d\n", x);
+                assert(x == 4);
+        });
+}
+
+
+/**********************************/
+// 9785 partial fix
+
+void test9785_2() {
+        int j = 3;
+
+        void loop(scope const void function(int x) dg) {
+            pragma(inline, true);
+            dg(++j);
+        }
+
+        static void func(int x) {
+                pragma(inline, true);
+                printf("%d\n", x);
+                assert(x == 4);
+        }
+
+        loop(&func);
+}
+
+/**********************************/
+// 9785 partial fix
+
+void test9785_3() @nogc
+{
+    int j = 3;
+
+    void loop(scope const void delegate(int x) @nogc dg) @nogc {
+	pragma(inline, true);
+	dg(++j);
+    }
+
+    loop((x) @nogc {
+	    pragma(inline, true);
+	    //printf("%d\n", x + j * 2);
+	    assert(x == 4);
+	    assert(j == 4);
+    });
+
+    j = 3;
+    void func(int x) @nogc {
+	    pragma(inline, true);
+	    //printf("%d\n", x + j * 2);
+	    assert(x == 4);
+	    assert(j == 4);
+    }
+
+    loop(&func);
+}
+
+/**********************************/
+// 15207
+
+struct Vec15207
+{
+    float x, y, z;
+
+    this(float x_, float y_, float z_)
+    {
+        x = x_;
+        y = y_;
+        z = z_;
+    }
+
+    Vec15207 clone()
+    {
+        // When the variable 'res' is replaced with a STCref temporary,
+        // this line was accidentally changed to reference initialization.
+        Vec15207 res = this;
+
+        return res;
+    }
+}
+
+class C15207
+{
+    Vec15207 a;
+
+    this()
+    {
+        a = Vec15207(1, 2, 3).clone();
+
+        assert(a.x == 1);
+        assert(a.y == 2);
+        assert(a.z == 3);
+        printf("%f %f %f\n", a.x, a.y, a.z);
+    }
+}
+
+void test15207()
+{
+    auto c = new C15207();
+}
+
+/**********************************/
+// 15253
+
+struct MessageType15253
+{
+    MessageType15253[] messageTypes;
+
+    const void toString1(scope void delegate(const(char)[]) sink)
+    {
+        messageTypes[0].toString1(sink);
+    }
+}
+
+struct ProtoPackage15253
+{
+    MessageType15253[] messageTypes;
+
+    const void toString1(scope void delegate(const(char)[]) sink)
+    {
+        messageTypes[0].toString1(sink);
+    }
+}
+
+/**********************************/
+// 15296
+
+static int x15296;
+
+struct S15296
+{
+    // Can be expanded only as statements.
+    void bar(size_t , size_t )
+    {
+        for (size_t w = 0; w < 2; w++) { ++x15296; }
+    }
+
+    pragma(inline, true)
+    void foo(size_t a, size_t b)
+    {
+        bar(a, b);
+    }
+}
+
+void test15296()
+{
+    S15296 s;
+
+    // CallExp at the top of ExpStatement
+    x15296 = 0;
+    s.foo(0, 0);
+    assert(x15296 == 2);
+}
+
+/**********************************/
 
 int main()
 {
@@ -578,6 +997,18 @@ int main()
     test11322();
     test11394();
     test13503();
+    test13244();
+    test14306();
+    test14754();
+    test14606();
+    test14975();
+    test15210();
+    test7625();
+    test9785();
+    test9785_2();
+    test9785_3();
+    test15207();
+    test15296();
 
     printf("Success\n");
     return 0;

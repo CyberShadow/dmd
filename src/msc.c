@@ -48,7 +48,8 @@ void out_config_init(
                         // 1: D
                         // 2: fake it with C symbolic debug info
         bool alwaysframe,       // always create standard function frame
-        bool stackstomp         // add stack stomping code
+        bool stackstomp,        // add stack stomping code
+        bool dwarfeh            // use Dwarf exception handling
         );
 
 void out_config_debug(
@@ -98,7 +99,8 @@ void backend_init()
         params->optimize,
         params->symdebug,
         params->alwaysframe,
-        params->stackstomp
+        params->stackstomp,
+        params->dwarfeh
     );
 
 #ifdef DEBUG
@@ -164,6 +166,7 @@ symbol *symboldata(targ_size_t offset,tym_t ty)
     symbol *s = symbol_generate(SClocstat, type_fake(ty));
     s->Sfl = FLdata;
     s->Soffset = offset;
+    s->Stype->Tmangle = mTYman_d; // writes symbol unmodified in Obj::mangle
     symbol_keep(s);             // keep around
     return s;
 }

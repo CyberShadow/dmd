@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2015 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -18,6 +18,7 @@
 
 #include "dsymbol.h"
 #include "mtype.h"
+#include "objc.h"
 
 class Expression;
 class Statement;
@@ -35,6 +36,7 @@ enum LINK;
 enum TOK;
 enum MATCH;
 enum PURE;
+enum PINLINE;
 
 #define STCundefined    0LL
 #define STCstatic       1LL
@@ -66,8 +68,9 @@ enum PURE;
 #define STCtls          0x8000000LL     // thread local
 #define STCalias        0x10000000LL    // alias parameter
 #define STCshared       0x20000000LL    // accessible from multiple threads
-#define STCgshared      0x40000000LL    // accessible from multiple threads
-                                        // but not typed as "shared"
+// accessible from multiple threads
+// but not typed as "shared"
+#define STCgshared      0x40000000LL
 #define STCwild         0x80000000LL    // for "wild" type constructor
 #define STC_TYPECTOR    (STCconst | STCimmutable | STCshared | STCwild)
 #define STC_FUNCATTR    (STCref | STCnothrow | STCnogc | STCpure | STCproperty | STCsafe | STCtrusted | STCsystem)
@@ -85,6 +88,8 @@ enum PURE;
 #define STCnogc          0x40000000000LL // @nogc
 #define STCvolatile      0x80000000000LL // destined for volatile in the back end
 #define STCreturn        0x100000000000LL // 'return ref' for function parameters
+#define STCautoref       0x200000000000LL // Mark for the already deduced 'auto ref' parameter
+#define STCinference     0x400000000000LL // do attribute inference
 
 const StorageClass STCStorageClass = (STCauto | STCscope | STCstatic | STCextern | STCconst | STCfinal |
     STCabstract | STCsynchronized | STCdeprecated | STCoverride | STClazy | STCalias |
@@ -180,6 +185,7 @@ public:
     Dsymbol *syntaxCopy(Dsymbol *);
     const char *kind();
     Type *getType();
+    Dsymbol *toAlias2();
     bool needThis();
 
     TupleDeclaration *isTupleDeclaration() { return this; }
@@ -194,7 +200,6 @@ public:
     Dsymbol *aliassym;
     Dsymbol *overnext;          // next in overload list
     Dsymbol *import;            // !=NULL if unresolved internal alias for selective import
-    int inSemantic;
 
     AliasDeclaration(Loc loc, Identifier *ident, Type *type);
     AliasDeclaration(Loc loc, Identifier *ident, Dsymbol *s);
@@ -204,6 +209,7 @@ public:
     const char *kind();
     Type *getType();
     Dsymbol *toAlias();
+    Dsymbol *toAlias2();
 
     AliasDeclaration *isAliasDeclaration() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -218,7 +224,7 @@ public:
     Dsymbol *aliassym;
     bool hasOverloads;
 
-    OverDeclaration(Dsymbol *s, bool hasOverloads = true);
+    OverDeclaration(Identifier *ident, Dsymbol *s, bool hasOverloads = true);
     const char *kind();
     void semantic(Scope *sc);
     bool equals(RootObject *o);
@@ -236,7 +242,7 @@ public:
 class VarDeclaration : public Declaration
 {
 public:
-    Initializer *init;
+    Initializer *_init;
     unsigned offset;
     bool noscope;                // no auto semantics
     FuncDeclarations nestedrefs; // referenced by these lexically nested functions
@@ -253,10 +259,10 @@ public:
     // When interpreting, these point to the value (NULL if value not determinable)
     // The index of this variable on the CTFE stack, -1 if not allocated
     int ctfeAdrOnStack;
-
-    VarDeclaration *rundtor;    // if !NULL, rundtor is tested at runtime to see
-                                // if the destructor should be run. Used to prevent
-                                // dtor calls on postblitted vars
+    // if !NULL, rundtor is tested at runtime to see
+    // if the destructor should be run. Used to prevent
+    // dtor calls on postblitted vars
+    VarDeclaration *rundtor;
     Expression *edtor;          // if !=NULL, does the destruction of the variable
     IntRange *range;            // if !NULL, the variable is known to be within the range
 
@@ -273,6 +279,7 @@ public:
     bool isDataseg();
     bool isThreadlocal();
     bool isCTFE();
+    bool isOverlappedWith(VarDeclaration *v);
     bool hasPointers();
     bool canTakeAddressOf();
     bool needsAutoDtor();
@@ -280,7 +287,7 @@ public:
     ExpInitializer *getExpInitializer();
     Expression *getConstInitializer(bool needFullType = true);
     void checkCtorConstInit();
-    void checkNestedReference(Scope *sc, Loc loc);
+    bool checkNestedReference(Scope *sc, Loc loc);
     Dsymbol *toAlias();
     // Eliminate need for dynamic_cast
     VarDeclaration *isVarDeclaration() { return (VarDeclaration *)this; }
@@ -300,18 +307,6 @@ public:
 
     // Eliminate need for dynamic_cast
     SymbolDeclaration *isSymbolDeclaration() { return (SymbolDeclaration *)this; }
-    void accept(Visitor *v) { v->visit(this); }
-};
-
-class ClassInfoDeclaration : public VarDeclaration
-{
-public:
-    ClassDeclaration *cd;
-
-    ClassInfoDeclaration(ClassDeclaration *cd);
-    Dsymbol *syntaxCopy(Dsymbol *);
-    void semantic(Scope *sc);
-
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -526,16 +521,19 @@ public:
     FuncDeclaration *fdrequire;         // function that does the in contract
     FuncDeclaration *fdensure;          // function that does the out contract
 
+    const char *mangleString;           // mangled symbol created from mangleExact()
+
     Identifier *outId;                  // identifier for out statement
     VarDeclaration *vresult;            // variable corresponding to outId
     LabelDsymbol *returnLabel;          // where the return goes
 
-    DsymbolTable *localsymtab;          // used to prevent symbols in different
-                                        // scopes from having the same name
+    // used to prevent symbols in different
+    // scopes from having the same name
+    DsymbolTable *localsymtab;
     VarDeclaration *vthis;              // 'this' parameter (member and nested)
     VarDeclaration *v_arguments;        // '_arguments' parameter
+    Objc_FuncDeclaration objc;
 #ifdef IN_GCC
-    VarDeclaration *v_arguments_var;    // '_arguments' variable
     VarDeclaration *v_argptr;           // '_argptr' variable
 #endif
     VarDeclaration *v_argsave;          // save area for args passed in registers for variadic functions
@@ -548,25 +546,29 @@ public:
     bool naked;                         // true if naked
     ILS inlineStatusStmt;
     ILS inlineStatusExp;
+    PINLINE inlining;
 
     CompiledCtfeFunction *ctfeCode;     // Compiled code for interpreter
     int inlineNest;                     // !=0 if nested inline
     bool isArrayOp;                     // true if array operation
-    bool semantic3Errors;               // true if errors in semantic3
-                                        // this function's frame ptr
+    // true if errors in semantic3 this function's frame ptr
+    bool semantic3Errors;
     ForeachStatement *fes;              // if foreach body, this is the foreach
     bool introducing;                   // true if 'introducing' function
-    Type *tintro;                       // if !=NULL, then this is the type
-                                        // of the 'introducing' function
-                                        // this one is overriding
+    // if !=NULL, then this is the type
+    // of the 'introducing' function
+    // this one is overriding
+    Type *tintro;
     bool inferRetType;                  // true if return type is to be inferred
     StorageClass storage_class2;        // storage class for template onemember's
 
     // Things that should really go into Scope
-    int hasReturnExp;                   // 1 if there's a return exp; statement
-                                        // 2 if there's a throw statement
-                                        // 4 if there's an assert(0)
-                                        // 8 if there's inline asm
+
+    // 1 if there's a return exp; statement
+    // 2 if there's a throw statement
+    // 4 if there's an assert(0)
+    // 8 if there's inline asm
+    int hasReturnExp;
 
     // Support for NRVO (named return value optimization)
     bool nrvo_can;                      // true means we can do it
@@ -577,18 +579,17 @@ public:
 
     GotoStatements *gotos;              // Gotos with forward references
 
-    BUILTIN builtin;                    // set if this is a known, builtin
-                                        // function we can evaluate at compile
-                                        // time
+    // set if this is a known, builtin function we can evaluate at compile time
+    BUILTIN builtin;
 
-    int tookAddressOf;                  // set if someone took the address of
-                                        // this function
+    // set if someone took the address of this function
+    int tookAddressOf;
     bool requiresClosure;               // this function needs a closure
-    VarDeclarations closureVars;        // local variables in this function
-                                        // which are referenced by nested
-                                        // functions
-    FuncDeclarations siblingCallers;    // Sibling nested functions which
-                                        // called this one
+
+    // local variables in this function which are referenced by nested functions
+    VarDeclarations closureVars;
+    // Sibling nested functions which called this one
+    FuncDeclarations siblingCallers;
 
     unsigned flags;                     // FUNCFLAGxxxxx
 
@@ -607,6 +608,7 @@ public:
     int findVtblIndex(Dsymbols *vtbl, int dim);
     bool overloadInsert(Dsymbol *s);
     FuncDeclaration *overloadExactMatch(Type *t);
+    FuncDeclaration *overloadModMatch(Loc loc, Type *tthis, Type *&t);
     TemplateDeclaration *findTemplateDeclRoot();
     bool inUnittest();
     MATCH leastAsSpecialized(FuncDeclaration *g);
@@ -617,6 +619,7 @@ public:
     const char *toPrettyChars(bool QualifyTypes = false);
     const char *toFullSignature();  // for diagnostics, e.g. 'int foo(int x, int y) pure'
     bool isMain();
+    bool isCMain();
     bool isWinMain();
     bool isDllMain();
     bool isExport();
@@ -626,7 +629,6 @@ public:
     bool hasOverloads();
     PURE isPure();
     PURE isPureBypassingInference();
-    bool isPureBypassingInferenceX();
     bool setImpure();
     bool isSafe();
     bool isSafeBypassingInference();
@@ -649,7 +651,7 @@ public:
     virtual bool addPostInvariant();
     const char *kind();
     FuncDeclaration *isUnique();
-    void checkNestedReference(Scope *sc, Loc loc);
+    bool checkNestedReference(Scope *sc, Loc loc);
     bool needsClosure();
     bool hasNestedFrameRefs();
     void buildResultVar(Scope *sc, Type *tret);
@@ -678,7 +680,7 @@ public:
     FuncDeclaration *funcalias;
     bool hasOverloads;
 
-    FuncAliasDeclaration(FuncDeclaration *funcalias, bool hasOverloads = true);
+    FuncAliasDeclaration(Identifier *ident, FuncDeclaration *funcalias, bool hasOverloads = true);
 
     FuncAliasDeclaration *isFuncAliasDeclaration() { return this; }
     const char *kind();

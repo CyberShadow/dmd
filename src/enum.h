@@ -18,6 +18,7 @@
 
 #include "root.h"
 #include "dsymbol.h"
+#include "declaration.h"
 #include "tokens.h"
 
 class Identifier;
@@ -50,7 +51,7 @@ public:
 
     EnumDeclaration(Loc loc, Identifier *id, Type *memtype);
     Dsymbol *syntaxCopy(Dsymbol *s);
-    int addMember(Scope *sc, ScopeDsymbol *sds, int memnum);
+    void addMember(Scope *sc, ScopeDsymbol *sds);
     void setScope(Scope *sc);
     void semantic(Scope *sc);
     bool oneMember(Dsymbol **ps, Identifier *ident);
@@ -70,7 +71,7 @@ public:
 };
 
 
-class EnumMember : public Dsymbol
+class EnumMember : public VarDeclaration
 {
 public:
     /* Can take the following forms:
@@ -78,16 +79,17 @@ public:
      *  2. id = value
      *  3. type id = value
      */
-    Expression *value;
-    Expression *origValue;  // A cast() is injected to 'value' after semantic(),
-                            // but 'origValue' will preserve the original value,
-                            // or previous value + 1 if none was specified.
-    Type *type;
+    Expression *&value();
+
+    // A cast() is injected to 'value' after semantic(),
+    // but 'origValue' will preserve the original value,
+    // or previous value + 1 if none was specified.
+    Expression *origValue;
+    Type *origType;
 
     EnumDeclaration *ed;
-    VarDeclaration *vd;
 
-    EnumMember(Loc loc, Identifier *id, Expression *value, Type *type);
+    EnumMember(Loc loc, Identifier *id, Expression *value, Type *origType);
     Dsymbol *syntaxCopy(Dsymbol *s);
     const char *kind();
     void semantic(Scope *sc);

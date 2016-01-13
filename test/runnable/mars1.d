@@ -20,12 +20,12 @@ int testswitch()
     i = 3;
     switch (i)
     {
-	case 0:
-	case 1:
-	default:
-	    assert(0);
-	case 3:
-	    break;
+        case 0:
+        case 1:
+        default:
+            assert(0);
+        case 3:
+            break;
     }
     return 0;
 }
@@ -36,7 +36,7 @@ void testdo()
 
     do
     {
-	x++;
+        x++;
     } while (x < 10);
     printf("x == %d\n", x);
     assert(x == 10);
@@ -49,11 +49,11 @@ void testbreak()
   Louter:
     for (i = 0; i < 10; i++)
     {
-	for (j = 0; j < 10; j++)
-	{
-	    if (j == 3)
-		break Louter;
-	}
+        for (j = 0; j < 10; j++)
+        {
+            if (j == 3)
+                break Louter;
+        }
     }
 
     printf("i = %d, j = %d\n", i, j);
@@ -70,18 +70,18 @@ int foo(string s)
     i = 0;
     switch (s)
     {
-	case "hello":
-	    i = 1;
-	    break;
-	case "goodbye":
-	    i = 2;
-	    break;
-	case "goodb":
-	    i = 3;
-	    break;
-	default:
-	    i = 10;
-	    break;
+        case "hello":
+            i = 1;
+            break;
+        case "goodbye":
+            i = 2;
+            break;
+        case "goodb":
+            i = 3;
+            break;
+        default:
+            i = 10;
+            break;
     }
     return i;
 }
@@ -253,35 +253,35 @@ void testulldiv()
 {
     __gshared ulong[4][] vectors =
     [
-	[10,3,3,1],
-	[10,1,10,0],
-	[3,10,0,3],
-	[10,10,1,0],
-	[10_000_000_000L, 11_000_000_000L, 0, 10_000_000_000L],
-	[11_000_000_000L, 10_000_000_000L, 1, 1_000_000_000L],
-	[11_000_000_000L, 11_000_000_000L, 1, 0],
-	[10_000_000_000L, 10, 1_000_000_000L, 0],
-	[0x8000_0000_0000_0000, 0x8000_0000_0000_0000, 1, 0],
-	[0x8000_0000_0000_0001, 0x8000_0000_0000_0001, 1, 0],
-	[0x8000_0001_0000_0000, 0x8000_0001_0000_0000, 1, 0],
-	[0x8000_0001_0000_0000, 0x8000_0000_0000_0000, 1, 0x1_0000_0000],
-	[0x8000_0001_0000_0000, 0x8000_0000_8000_0000, 1, 0x8000_0000],
-	[0x8000_0000_0000_0000, 0x7FFF_FFFF_FFFF_FFFF, 1, 1],
-	[0x8000_0000_0000_0000, 0x8000_0000_0000_0001, 0, 0x8000_0000_0000_0000],
-	[0x8000_0000_0000_0000, 0x8000_0001_0000_0000, 0, 0x8000_0000_0000_0000],
+        [10,3,3,1],
+        [10,1,10,0],
+        [3,10,0,3],
+        [10,10,1,0],
+        [10_000_000_000L, 11_000_000_000L, 0, 10_000_000_000L],
+        [11_000_000_000L, 10_000_000_000L, 1, 1_000_000_000L],
+        [11_000_000_000L, 11_000_000_000L, 1, 0],
+        [10_000_000_000L, 10, 1_000_000_000L, 0],
+        [0x8000_0000_0000_0000, 0x8000_0000_0000_0000, 1, 0],
+        [0x8000_0000_0000_0001, 0x8000_0000_0000_0001, 1, 0],
+        [0x8000_0001_0000_0000, 0x8000_0001_0000_0000, 1, 0],
+        [0x8000_0001_0000_0000, 0x8000_0000_0000_0000, 1, 0x1_0000_0000],
+        [0x8000_0001_0000_0000, 0x8000_0000_8000_0000, 1, 0x8000_0000],
+        [0x8000_0000_0000_0000, 0x7FFF_FFFF_FFFF_FFFF, 1, 1],
+        [0x8000_0000_0000_0000, 0x8000_0000_0000_0001, 0, 0x8000_0000_0000_0000],
+        [0x8000_0000_0000_0000, 0x8000_0001_0000_0000, 0, 0x8000_0000_0000_0000],
     ];
 
     for (size_t i = 0; i < vectors.length; i++)
     {
-	ulong q = vectors[i][0] / vectors[i][1];
-	if (q != vectors[i][2])
-	    printf("[%d] %lld / %lld = %lld, should be %lld\n",
-		vectors[i][0], vectors[i][1], q, vectors[i][2]);
+        ulong q = vectors[i][0] / vectors[i][1];
+        if (q != vectors[i][2])
+            printf("[%d] %lld / %lld = %lld, should be %lld\n",
+                vectors[i][0], vectors[i][1], q, vectors[i][2]);
 
-	ulong r = vectors[i][0] % vectors[i][1];
-	if (r != vectors[i][3])
-	    printf("[%d] %lld %% %lld = %lld, should be %lld\n",
-		i, vectors[i][0], vectors[i][1], r, vectors[i][3]);
+        ulong r = vectors[i][0] % vectors[i][1];
+        if (r != vectors[i][3])
+            printf("[%d] %lld %% %lld = %lld, should be %lld\n",
+                i, vectors[i][0], vectors[i][1], r, vectors[i][3]);
     }
 }
 
@@ -438,20 +438,20 @@ void test12095(int k)
 
 bool test3918a( float t, real u )
 {
-	printf("%f\n", u );
-	return t && u;
+        printf("%f\n", u );
+        return t && u;
 }
 
 bool test3918b( real t, float u )
 {
-	printf("%f\n", t );
-	return t && u;
+        printf("%f\n", t );
+        return t && u;
 }
 
 void test3918()
 {
-	assert(test3918a(float.nan, real.nan));
-	assert(test3918b(real.nan, float.nan));
+        assert(test3918a(float.nan, real.nan));
+        assert(test3918b(real.nan, float.nan));
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -841,17 +841,17 @@ void testnegcom()
 int oror1(char c)
 {
     return ((((((((((cast(int) c <= 32 || cast(int) c == 46) || cast(int) c == 44)
-		 || cast(int) c == 58) || cast(int) c == 59) || cast(int) c == 60)
-	      || cast(int) c == 62) || cast(int) c == 34) || cast(int) c == 92)
-	   || cast(int) c == 39) != 0);
+                 || cast(int) c == 58) || cast(int) c == 59) || cast(int) c == 60)
+              || cast(int) c == 62) || cast(int) c == 34) || cast(int) c == 92)
+           || cast(int) c == 39) != 0);
 }
 
 int oror2(char c)
 {
     return ((((((((((c <= 32 || c == 46) || c == 44)
-		 || c == 58) || c == 59) || c == 60)
-	         || c == 62) || c == 34) || c == 92)
-	         || c == 39) != 0);
+                 || c == 58) || c == 59) || c == 60)
+                 || c == 62) || c == 34) || c == 92)
+                 || c == 39) != 0);
 }
 
 void testoror()
@@ -928,19 +928,19 @@ void test13383()
 int andand1(int c)
 {
     return (c > 32 && c != 46 && c != 44
-		   && c != 58 && c != 59
-		   && c != 60 && c != 62
+                   && c != 58 && c != 59
+                   && c != 60 && c != 62
                    && c != 34 && c != 92
-	           && c != 39) != 0;
+                   && c != 39) != 0;
 }
 
 bool andand2(long c)
 {
     return (c > 32 && c != 46 && c != 44
-		   && c != 58 && c != 59
-		   && c != 60 && c != 62
+                   && c != 58 && c != 59
+                   && c != 60 && c != 62
                    && c != 34 && c != 92
-	           && c != 39) != 0;
+                   && c != 39) != 0;
 }
 
 int foox3() { return 1; }
@@ -948,12 +948,12 @@ int foox3() { return 1; }
 int andand3(uint op)
 {
     if (foox3() &&
-	op != 7 &&
-	op != 3 &&
-	op != 18 &&
-	op != 30 &&
-	foox3())
-	return 3;
+        op != 7 &&
+        op != 3 &&
+        op != 18 &&
+        op != 30 &&
+        foox3())
+        return 3;
     return 4;
 }
 
@@ -1036,9 +1036,9 @@ void testshrshl()
 
 ////////////////////////////////////////////////////////////////////////
 
-struct S1 
-{ 
-    cdouble val; 
+struct S1
+{
+    cdouble val;
 }
 
 void formatTest(S1 s, double re, double im)
@@ -1187,6 +1187,22 @@ void test13190()
 
 ////////////////////////////////////////////////////////////////////////
 
+double foo13485(double c, double d)
+{
+    // This must not be optimized to c += (d + d)
+    c += d;
+    c += d;
+    return c;
+}
+
+void test13485()
+{
+    enum double d = 0X1P+1023;
+    assert(foo13485(-d, d) == d);
+}
+
+////////////////////////////////////////////////////////////////////////
+
 void test12833a(int a)
 {
     long x = cast(long)a;
@@ -1237,7 +1253,7 @@ void test12057()
 
 
 ////////////////////////////////////////////////////////////////////////
- 
+
 long modulo24 (long ticks)
 {
     ticks %= 864000000000;
@@ -1254,15 +1270,160 @@ void test13784()
 
 ////////////////////////////////////////////////////////////////////////
 
-struct At
-{
-    @property auto info() @safe @nothrow @pure @return const { return this; }
+struct S13969 {
+    int x, y;
+}
 
-    @pure @nothrow @return ref int info2(ref int x) { return x; }
+int test13969(const S13969* f) {
+    return 0 % ((f.y > 0) ? f.x / f.y : f.x / -f.y);
 }
 
 ////////////////////////////////////////////////////////////////////////
- 
+
+int[] arr14436;
+void test14436()
+{
+    assert(arr14436 == null);
+    arr14436 = [1, 2, 3];
+    assert(arr14436 != null);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void test14220()
+{
+    auto a = toString(14);
+
+    printf("a.ptr = %p, a.length = %d\n", a.ptr, cast(int)a.length);
+    return;
+}
+
+auto toString(int value)
+{
+    uint mValue = value;
+
+    char[int.sizeof * 3] buffer = void;
+    size_t index = buffer.length;
+
+    do
+    {
+        uint div = cast(int)(mValue / 10);
+        char mod = mValue % 10 + '0';
+        buffer[--index] = mod;        // Line 22
+        mValue = div;
+    } while (mValue);
+
+    //printf("buffer.ptr = %p, index = %d\n", buffer.ptr, cast(int)index);
+    return dup(buffer[index .. $]);
+}
+
+char[] dup(char[] a)
+{
+    //printf("a.ptr = %p, a.length = %d\n", a.ptr, cast(int)a.length);
+    a[0] = 1;       // segfault
+    return a;
+}
+
+////////////////////////////////////////////////////////////////////////
+
+int stripLeft(int str, int dc)
+{
+    while (true)
+    {
+        int a = str;
+        int s = a;
+        str += 1;
+        if (dc) return s;
+    }
+}
+
+void test14829()
+{
+    if (stripLeft(3, 1) != 3) // fails with -O
+        assert(0);
+}
+
+
+////////////////////////////////////////////////////////////////////////
+
+void test2()
+{
+    void test(cdouble v)
+    {
+            auto x2 = cdouble(v);
+            assert(x2 == v);
+    }
+    test(1.2+3.4i);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void test3()
+{
+    int[6] a;
+    int[] b;
+    b = a;
+    b = (b.ptr + b.length - 5)[0 .. b.ptr + b.length - 1 - a.ptr];
+    assert(b.ptr == a.ptr + 1);
+    assert(b.length == 5);
+}
+
+////////////////////////////////////////////////////////////////////////
+// 14782
+
+
+void test14782()
+{
+    static struct Foo
+    {
+        long a = 8;
+        int b = 7;
+    }
+
+    static Foo[1] fun() { Foo[1] a; return a; }
+
+    auto result = fun();
+    assert(result[0].a == 8);
+    assert(result[0].b == 7);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void test14987()
+{
+    static struct Foo
+    {
+        int b = 7;
+    }
+    static assert((Foo[4]).sizeof == 16);
+
+    static Foo[4] fun() { Foo[4] a; return a; }
+
+    auto result = fun();
+    assert(result[0].b == 7);
+    assert(result[1].b == 7);
+    assert(result[2].b == 7);
+    assert(result[3].b == 7);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void[] calloc15272(size_t bc) nothrow pure
+{
+    assert(bc == 1);
+    return new void[1];
+}
+
+void test15272()
+{
+    void[] scache = cast(void[])"abc";
+    size_t count = 1;
+    void[]* buckets = &scache;
+    *buckets = calloc15272(count)[0 .. count];
+}
+
+////////////////////////////////////////////////////////////////////////
+
 int main()
 {
     testgoto();
@@ -1293,6 +1454,8 @@ int main()
     testshrshl();
     test13383();
     test13190();
+    test13485();
+    test14436();
     test10639();
     test10715();
     test10678();
@@ -1302,6 +1465,14 @@ int main()
     test9449();
     test12057();
     test13784();
+    test14220();
+    test14829();
+    test2();
+    test3();
+    test14782();
+    test14987();
+    test15272();
+
     printf("Success\n");
     return 0;
 }

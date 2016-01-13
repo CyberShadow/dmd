@@ -2421,6 +2421,71 @@ void test13861()
 }
 
 /*******************************************/
+// 14398
+
+void test14398()
+{
+    int outer;
+
+    struct Inner
+    {
+        this(this)
+        {
+            outer += 42;
+        }
+    }
+
+    struct Outer
+    {
+        Inner inner;
+
+        this(int dummy)
+        {
+            inner = Inner();
+
+            // hidden fields correctly set
+            assert(this.tupleof[$-1] !is null);
+            assert(inner.tupleof[$-1] !is null);
+        }
+    }
+
+    Outer[1] arr1 = [Outer(0)];
+    assert(outer == 0);     // no postblit called on arr1 construction
+    auto arr2 = arr1;
+    assert(outer == 42);    // inner is copied successfully
+}
+
+/*******************************************/
+// 14846
+
+void foo14846(Dg)(scope Dg code)
+{
+    static assert(is(Dg == delegate));
+    code();
+}
+
+void test14846()
+{
+    int x;
+
+    struct S
+    {
+        this(int n) { x = n; }
+        ~this() { x = 99; }
+    }
+
+    foo14846({ S s; });
+    foo14846({ S s = S(); });
+    foo14846({ S s = S(1); });
+    foo14846({ S[3] s; });
+
+    foo14846({ S* p = new S(); });
+    foo14846({ S* p = new S(1); });
+    foo14846({ S[] a = [S()]; });
+    foo14846({ S[] a = [S(1)]; });
+}
+
+/*******************************************/
 
 int main()
 {
@@ -2510,6 +2575,8 @@ int main()
     test11297();
     test12234();
     test13861();
+    test14398();
+    test14846();
 
     printf("Success\n");
     return 0;

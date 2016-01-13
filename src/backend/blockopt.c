@@ -62,7 +62,7 @@ block *curblock;        /* current block being read in                  */
 block *block_last;      // last block read in
 
 static block * block_freelist;
-
+
 ////////////////////////////
 // Storage allocator.
 
@@ -207,7 +207,7 @@ void block_goto(block *bgoto,block *bnew)
 }
 
 #endif
-
+
 /**********************************
  * Replace block numbers with block pointers.
  * Also compute numblks and maxblks.
@@ -228,7 +228,7 @@ void block_ptr()
     }
     maxblks = 3 * numblks;              /* allow for increase in # of blocks */
 }
-
+
 /*******************************
  * Build predecessor list (Bpred) for each block.
  */
@@ -241,7 +241,7 @@ void block_pred()
         list_free(&b->Bpred,FPNULL);
 
     for (b = startblock; b; b = b->Bnext)       /* for each block        */
-    {   register list_t bp;
+    {   list_t bp;
 
         //printf("b = %p, BC = ",b); WRBC(b->BC); printf("\n");
         for (bp = b->Bsucc; bp; bp = list_next(bp))
@@ -291,7 +291,7 @@ void block_compbcount()
     block_visit(startblock);                    // visit all reachable blocks
     elimblks();                                 // eliminate unvisited blocks
 }
-
+
 /*******************************
  * Free list of blocks.
  */
@@ -356,6 +356,11 @@ void block_free(block *b)
             type_free(b->Bcatchtype);
             break;
 #endif
+        case BCjcatch:
+#if MARS
+            free(b->BS.BIJCATCH.actionTable);
+#endif
+            break;
         case BCasm:
             code_free(b->Bcode);
             break;
@@ -401,6 +406,10 @@ void blocklist_hydrate(block **pb)
 
             case BC_finally:
                 //(void) ph_hydrate(&b->B_ret);
+                break;
+
+            case BC_lpad:
+                symbol_hydrate(&b->BS.BI_FINALLY.flag);
                 break;
 
             case BCasm:
@@ -453,6 +462,10 @@ void blocklist_dehydrate(block **pb)
 
             case BC_finally:
                 //ph_dehydrate(&b->B_ret);
+                break;
+
+            case BC_lpad:
+                symbol_dehydrate(&b->BS.BI_FINALLY.flag);
                 break;
 
             case BCasm:
@@ -567,7 +580,7 @@ void block_endfunc(int flag)
     curblock = NULL;                    // undefined from now on
     block_last = NULL;
 }
-
+
 /******************************
  * Perform branch optimization on basic blocks.
  */
@@ -584,14 +597,14 @@ void blockopt(int iter)
         count = 0;
         do
         {
-            //printf("changes = %d, count = %d, dfotop = %d\n",changes,count,dfotop);
+            //printf("changes = %d, count = %d, dfotop = %d\n",go.changes,count,dfotop);
 #if MARS
             util_progress();
 #else
             if (controlc_saw)
                 util_exit(EXIT_BREAK);
 #endif
-            changes = 0;
+            go.changes = 0;
             bropt();                    // branch optimization
             brrear();                   // branch rearrangement
             blident();                  // combine identical blocks
@@ -608,7 +621,7 @@ void blockopt(int iter)
                 assert(count < iterationLimit);
                 count++;
             } while (mergeblks());      /* merge together blocks         */
-        } while (changes);
+        } while (go.changes);
 #ifdef DEBUG
         if (debugw)
             for (b = startblock; b; b = b->Bnext)
@@ -655,7 +668,7 @@ void blockopt(int iter)
 #endif
     }
 }
-
+
 /***********************************
  * Try to remove control structure.
  * That is, try to resolve if-else, goto and return statements
@@ -867,12 +880,12 @@ void brcombine()
             }
         }
         if (anychanges)
-        {   changes++;
+        {   go.changes++;
             continue;
         }
     } while (0);
 }
-
+
 /***********************
  * Branch optimization.
  */
@@ -907,7 +920,7 @@ STATIC void bropt()
                                 n->Ety = tym;
                             b->Bsucc = list_reverse(b->Bsucc);
                             cmes("CHANGE: if (!e)\n");
-                            changes++;
+                            go.changes++;
                         }
 
                         /* Take care of IF (constant)                   */
@@ -928,7 +941,7 @@ STATIC void bropt()
                                 /* delete elem if it has no side effects */
                                 b->Belem = doptelem(b->Belem,GOALnone | GOALagain);
                                 cmes("CHANGE: if (const)\n");
-                                changes++;
+                                go.changes++;
                         }
 
                         /* Look for both destinations being the same    */
@@ -939,14 +952,14 @@ STATIC void bropt()
                                 list_subtract(&(b->Bsucc),db);
                                 list_subtract(&(db->Bpred),b);
                                 cmes("CHANGE: if (e) goto L1; else goto L1;\n");
-                                changes++;
+                                go.changes++;
                         }
                 }
                 else if (b->BC == BCswitch)
                 {       /* see we can evaluate this switch now  */
-                        register unsigned i,ncases;
+                        unsigned i,ncases;
                         targ_llong *p,value;
-                        register list_t bl;
+                        list_t bl;
 
                         while (n->Eoper == OPcomma)
                                 n = n->E2;
@@ -985,21 +998,21 @@ STATIC void bropt()
                         b->BC = BCgoto;
                         b->Belem = doptelem(b->Belem,GOALnone | GOALagain);
                         cmes("CHANGE: switch (const)\n");
-                        changes++;
+                        go.changes++;
                 }
         }
 }
-
+
 /*********************************
  * Do branch rearrangement.
  */
 
 STATIC void brrear()
-{       register block *b;
+{       block *b;
 
         cmes("brrear()\n");
         for (b = startblock; b; b = b->Bnext)   /* for each block       */
-        {       register list_t bl;
+        {       list_t bl;
 
                 for (bl = b->Bsucc; bl; bl = list_next(bl))
                 {       /* For each transfer of control block pointer   */
@@ -1052,7 +1065,7 @@ STATIC void brrear()
                 /*      L1:                             */
 
                 if (b->BC == BCiftrue || b->BC == BCiffalse)
-                {       register block *bif,*belse;
+                {       block *bif,*belse;
 
                         bif = list_block(b->Bsucc);
                         belse = list_block(list_next(b->Bsucc));
@@ -1068,7 +1081,7 @@ STATIC void brrear()
 #endif
         } /* for */
 }
-
+
 /*************************
  * Compute depth first order (DFO).
  * Equivalent to Aho & Ullman Fig. 13.8.
@@ -1077,7 +1090,7 @@ STATIC void brrear()
 
 void compdfo()
 {
-  register int i;
+  int i;
 
   cmes("compdfo()\n");
   assert(OPTIMIZER);
@@ -1130,7 +1143,7 @@ STATIC void search(block *b)
   dfo[--dfotop] = b;                    // add to dfo[]
   b->Bdfoidx = dfotop;                  // link back
 }
-
+
 /*************************
  * Remove blocks not marked as visited (they aren't in dfo[]).
  * A block is not in dfo[] if not visited.
@@ -1176,7 +1189,7 @@ STATIC void elimblks()
                 b->Bnext = bf;
                 bf = b;                 /* prepend to deferred list to free */
                 cmes2("CHANGE: block %p deleted\n",b);
-                changes++;
+                go.changes++;
         }
         else
                 pb = &((*pb)->Bnext);
@@ -1262,7 +1275,7 @@ STATIC int mergeblks()
 
                         /* fix up successor list of predecessors        */
                         for (bl = bL2->Bpred; bl; bl = list_next(bl))
-                        {   register list_t bs;
+                        {   list_t bs;
 
                             for (bs=list_block(bl)->Bsucc; bs; bs=list_next(bs))
                                 if (list_block(bs) == b)
@@ -1299,7 +1312,7 @@ STATIC int mergeblks()
         }
         return merge;
 }
-
+
 /*******************************
  * Combine together blocks that are identical.
  */
@@ -1338,7 +1351,7 @@ STATIC void blident()
             /*  successors match                        */
             /*  elems match                             */
             if (b->BC == bn->BC &&
-                //(!OPTIMIZER || !(mfoptim & MFtime) || !b->Bsucc) &&
+                //(!OPTIMIZER || !(go.mfoptim & MFtime) || !b->Bsucc) &&
                 (!OPTIMIZER || !(b->Bflags & BFLnomerg) || !b->Bsucc) &&
                 list_equal(b->Bsucc,bn->Bsucc) &&
 #if SCPP || NTEXCEPTIONS
@@ -1365,6 +1378,7 @@ STATIC void blident()
 #endif
                     case BC_try:
                     case BC_finally:
+                    case BC_lpad:
                     case BCasm:
                     Lcontinue:
                         continue;
@@ -1456,13 +1470,13 @@ STATIC void blident()
                     dbg_printf("block B%d (%p) removed, it was same as B%d (%p)\n",
                         bn->Bdfoidx,bn,b->Bdfoidx,b);
 #endif
-                changes++;
+                go.changes++;
                 break;
             }
         }
     }
 }
-
+
 /**********************************
  * Split out return blocks so the returns can be combined into a
  * single block by blident().
@@ -1470,7 +1484,7 @@ STATIC void blident()
 
 STATIC void blreturn()
 {
-    if (!(mfoptim & MFtime))            /* if optimized for space       */
+    if (!(go.mfoptim & MFtime))            /* if optimized for space       */
     {
         int retcount;                   /* number of return counts      */
         block *b;
@@ -1534,7 +1548,7 @@ STATIC void blreturn()
         blident();                      /* combine return blocks        */
     }
 }
-
+
 /*****************************************
  * Convert expression into a list.
  * Construct the list in reverse, that is, so that the right-most
@@ -1590,7 +1604,7 @@ STATIC void bltailmerge()
 {
     cmes("bltailmerge()\n");
     assert(!PARSER && OPTIMIZER);
-    if (!(mfoptim & MFtime))            /* if optimized for space       */
+    if (!(go.mfoptim & MFtime))            /* if optimized for space       */
     {
         block *b;
         block *bn;
@@ -1639,6 +1653,7 @@ STATIC void bltailmerge()
 #endif
                         case BC_try:
                         case BC_finally:
+                        case BC_lpad:
                         case BCasm:
                             continue;
                     }
@@ -1693,7 +1708,7 @@ STATIC void bltailmerge()
                     list_append(&b->Bsucc,bnew);
                     list_append(&bn->Bsucc,bnew);
 
-                    changes++;
+                    go.changes++;
 
                     /* Find all the expressions we can merge    */
                     do
@@ -1786,7 +1801,7 @@ STATIC void brmin()
             b->Bnext = bs;
 #endif
             cmes3("Moving block %p to appear after %p\n",bs,b);
-            changes++;
+            go.changes++;
             break;
 
         L2: ;
@@ -1928,7 +1943,7 @@ STATIC void brtailrecursion()
                 startblock = bs;
 
                 cmes("tail recursion\n");
-                changes++;
+                go.changes++;
                 return;
             }
         }
@@ -2057,7 +2072,7 @@ STATIC void emptyloops()
                     dbg_printf(" eliminated loop\n");
                 }
 #endif
-                changes++;
+                go.changes++;
              }
 #else
             // Find einc and erel
@@ -2094,7 +2109,7 @@ STATIC void emptyloops()
                     dbg_printf(" eliminated loop\n");
                 }
 #endif
-                changes++;
+                go.changes++;
              }
 #endif
         }
@@ -2155,10 +2170,6 @@ STATIC int funcsideeffect_walk(elem *e)
                )
                 break;
             goto Lside;
-
-        case OParray:
-        case OPfield:
-            goto Lside;                 // these can throw exceptions
 
         // Note: we should allow assignments to local variables as
         // not being a 'side effect'.

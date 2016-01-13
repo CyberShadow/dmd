@@ -1,5 +1,5 @@
 // Copyright (C) 1985-1998 by Symantec
-// Copyright (C) 2000-2014 by Digital Mars
+// Copyright (C) 2000-2015 by Digital Mars
 // All Rights Reserved
 // http://www.digitalmars.com
 // Written by Walter Bright
@@ -54,7 +54,7 @@ STATIC void accumlv(vec_t GEN , vec_t KILL , elem *n);
 STATIC void accumvbe(vec_t GEN , vec_t KILL , elem *n);
 STATIC void accumrd(vec_t GEN , vec_t KILL , elem *n);
 STATIC void flowaecp(void);
-
+
 /***************** REACHING DEFINITIONS *********************/
 
 /************************************
@@ -69,12 +69,12 @@ STATIC void flowaecp(void);
  */
 
 void flowrd()
-{       register vec_t tmp;
-        register unsigned i;
-        register bool anychng;
+{       vec_t tmp;
+        unsigned i;
+        bool anychng;
 
         rdgenkill();            /* Compute Bgen and Bkill for RDs       */
-        if (deftop == 0)        /* if no definition elems               */
+        if (go.deftop == 0)        /* if no definition elems               */
                 return;         /* no analysis to be done               */
 
         /* The transfer equation is:                                    */
@@ -85,12 +85,12 @@ void flowrd()
         for (i = 0; i < dfotop; i++)
                 vec_copy(dfo[i]->Boutrd,dfo[i]->Bgen);
 
-        tmp = vec_calloc(deftop);
+        tmp = vec_calloc(go.deftop);
         do
         {       anychng = FALSE;
                 for (i = 0; i < dfotop; i++)    /* for each block       */
-                {       register block *b;
-                        register list_t bp;
+                {       block *b;
+                        list_t bp;
 
                         b = dfo[i];
 
@@ -118,9 +118,9 @@ void flowrd()
 #if 0
         dbg_printf("Reaching definitions\n");
         for (i = 0; i < dfotop; i++)
-        {       register block *b = dfo[i];
+        {       block *b = dfo[i];
 
-                assert(vec_numbits(b->Binrd) == deftop);
+                assert(vec_numbits(b->Binrd) == go.deftop);
                 dbg_printf("B%d Bin ",i); vec_println(b->Binrd);
                 dbg_printf("  Bgen "); vec_println(b->Bgen);
                 dbg_printf(" Bkill "); vec_println(b->Bkill);
@@ -128,42 +128,42 @@ void flowrd()
         }
 #endif
 }
-
+
 /***************************
  * Compute Bgen and Bkill for RDs.
  */
 
 STATIC void rdgenkill()
-{       register unsigned i,deftopsave;
+{       unsigned i,deftopsave;
 
-        util_free(defnod);              /* free existing junk           */
+        util_free(go.defnod);              /* free existing junk           */
 
-        defnod = NULL;
+        go.defnod = NULL;
 
         /* Compute number of definition elems. */
-        deftop = 0;
+        go.deftop = 0;
         for (i = 0; i < dfotop; i++)
                 if (dfo[i]->Belem)
                 {
                         numdefelems(dfo[i]->Belem);
                 }
-        if (deftop == 0)
+        if (go.deftop == 0)
                 return;
 
         /* Allocate array of pointers to all definition elems   */
         /*      The elems are in dfo order.                     */
-        /*      defnod[]s consist of a elem pointer and a pointer */
+        /*      go.defnod[]s consist of a elem pointer and a pointer */
         /*      to the enclosing block.                         */
-        defnod = (dn *) util_calloc(sizeof(dn),deftop);
-        deftopsave = deftop;
-        deftop = 0;
+        go.defnod = (dn *) util_calloc(sizeof(dn),go.deftop);
+        deftopsave = go.deftop;
+        go.deftop = 0;
         for (i = 0; i < dfotop; i++)
                 if (dfo[i]->Belem)
                         asgdefelems(dfo[i],dfo[i]->Belem);
-        assert(deftop == deftopsave);
+        assert(go.deftop == deftopsave);
 
         for (i = 0; i < dfotop; i++)    /* for each block               */
-        {       register block *b = dfo[i];
+        {       block *b = dfo[i];
 
                 /* dump any existing vectors */
                 vec_free(b->Bgen);
@@ -177,21 +177,21 @@ STATIC void rdgenkill()
                 {   vec_clear(b->Bkill);        // KILL nothing
                     vec_set(b->Bgen);           // GEN everything
                 }
-                b->Binrd = vec_calloc(deftop);
-                b->Boutrd = vec_calloc(deftop);
+                b->Binrd = vec_calloc(go.deftop);
+                b->Boutrd = vec_calloc(go.deftop);
         }
 }
-
+
 /**********************
- * Compute # of definition elems (deftop).
+ * Compute # of definition elems (go.deftop).
  */
 
-STATIC void numdefelems(register elem *n)
+STATIC void numdefelems(elem *n)
 {
   while (1)
   {     assert(n);
         if (OTdef(n->Eoper))
-                deftop++;
+                go.deftop++;
         if (OTbinary(n->Eoper))
         {
                 numdefelems(n->E1);
@@ -207,13 +207,13 @@ STATIC void numdefelems(register elem *n)
 }
 
 /**************************
- * Load defnod[] array.
+ * Load go.defnod[] array.
  * Loaded in order of execution of the elems. Not sure if this is
  * necessary.
  */
 
-STATIC void asgdefelems(block *b,register elem *n)
-{       register unsigned op;
+STATIC void asgdefelems(block *b,elem *n)
+{       unsigned op;
 
         assert(b && n);
         op = n->Eoper;
@@ -228,13 +228,13 @@ STATIC void asgdefelems(block *b,register elem *n)
         else if (OTunary(op))
                 asgdefelems(b,n->E1);
         if (OTdef(op))
-        {       assert(defnod);
-                defnod[deftop].DNblock = b;
-                defnod[deftop].DNelem = n;
-                deftop++;
+        {       assert(go.defnod);
+                go.defnod[go.deftop].DNblock = b;
+                go.defnod[go.deftop].DNelem = n;
+                go.deftop++;
         }
 }
-
+
 /*************************************
  * Allocate and compute rd GEN and KILL.
  */
@@ -242,8 +242,8 @@ STATIC void asgdefelems(block *b,register elem *n)
 STATIC void rdelem(vec_t *pgen,vec_t *pkill,                    /* where to put result          */
         elem *n )                               /* tree to evaluate for GEN and KILL */
 {
-        *pgen = vec_calloc(deftop);
-        *pkill = vec_calloc(deftop);
+        *pgen = vec_calloc(go.deftop);
+        *pkill = vec_calloc(go.deftop);
         if (n)
                 accumrd(*pgen,*pkill,n);
 }
@@ -307,7 +307,7 @@ STATIC void accumrd(vec_t GEN,vec_t KILL,elem *n)
         if (OTdef(op))                  /* if definition elem           */
                 updaterd(n,GEN,KILL);
 }
-
+
 /******************** AVAILABLE EXPRESSIONS ***********************/
 
 /************************************
@@ -349,11 +349,11 @@ void flowcp()
 
 STATIC void flowaecp()
 {       vec_t tmp;
-        register unsigned i;
+        unsigned i;
         bool anychng;
 
         aecpgenkill();          /* Compute Bgen and Bkill for AEs or CPs */
-        if (exptop <= 1)        /* if no expressions                    */
+        if (go.exptop <= 1)        /* if no expressions                    */
                 return;
 
         /* The transfer equation is:                    */
@@ -368,7 +368,7 @@ STATIC void flowaecp()
 
         /* For all blocks except startblock     */
         for (i = 1; i < dfotop; i++)
-        {       register block *b = dfo[i];
+        {       block *b = dfo[i];
 
                 vec_set(b->Bin);        /* Bin = all expressions        */
 
@@ -381,7 +381,7 @@ STATIC void flowaecp()
                 }
         }
 
-        tmp = vec_calloc(exptop);
+        tmp = vec_calloc(go.exptop);
         do
         {   anychng = FALSE;
 
@@ -455,7 +455,7 @@ STATIC void flowaecp()
         } while (anychng);
         vec_free(tmp);
 }
-
+
 /******************************
  * A variable to avoid parameter overhead to asgexpelems().
  */
@@ -467,15 +467,15 @@ static block *this_block;
  */
 
 STATIC void aecpgenkill()
-{       register unsigned i;
+{       unsigned i;
         unsigned exptopsave;
 
-        util_free(expnod);              /* dump any existing one        */
+        util_free(go.expnod);              /* dump any existing one        */
 
-        expnod = NULL;
+        go.expnod = NULL;
 
         /* Compute number of expressions */
-        exptop = 1;                     /* start at 1                   */
+        go.exptop = 1;                     /* start at 1                   */
         for (i = 0; i < dfotop; i++)
                 if (dfo[i]->Belem)
                 {       if (flowxx == CP)
@@ -483,42 +483,42 @@ STATIC void aecpgenkill()
                         else // AE || VBE
                                 numaeelems(dfo[i]->Belem);
                 }
-        if (exptop <= 1)                /* if no expressions            */
+        if (go.exptop <= 1)                /* if no expressions            */
                 return;
 
         /* Allocate array of pointers to all expression elems.          */
         /* (The elems are in order. Also, these expressions must not    */
         /* have any side effects, and possibly should not be machine    */
         /* dependent primitive addressing modes.)                       */
-        expnod = (elem **) util_calloc(sizeof(elem *),exptop);
-        util_free(expblk);
-        expblk = (flowxx == VBE)
-                ? (block **) util_calloc(sizeof(block *),exptop) : NULL;
+        go.expnod = (elem **) util_calloc(sizeof(elem *),go.exptop);
+        util_free(go.expblk);
+        go.expblk = (flowxx == VBE)
+                ? (block **) util_calloc(sizeof(block *),go.exptop) : NULL;
 
-        exptopsave = exptop;
-        exptop = 1;
+        exptopsave = go.exptop;
+        go.exptop = 1;
         for (i = 0; i < dfotop; i++)
         {       this_block = dfo[i];    /* so asgexpelems knows about this */
                 if (this_block->Belem)
                         asgexpelems(this_block->Belem);
         }
-        assert(exptop == exptopsave);
+        assert(go.exptop == exptopsave);
 
-        defstarkill();                  /* compute defkill and starkill */
+        defstarkill();                  /* compute go.defkill and go.starkill */
 
 #if 0
-        assert(vec_numbits(defkill) == exptop);
-        assert(vec_numbits(starkill) == exptop);
-        assert(vec_numbits(vptrkill) == exptop);
-        dbg_printf("defkill  "); vec_println(defkill);
-        if (starkill)
-            {   dbg_printf("starkill "); vec_println(starkill);}
-        if (vptrkill)
-            {   dbg_printf("vptrkill "); vec_println(vptrkill); }
+        assert(vec_numbits(go.defkill) == go.exptop);
+        assert(vec_numbits(go.starkill) == go.exptop);
+        assert(vec_numbits(go.vptrkill) == go.exptop);
+        dbg_printf("defkill  "); vec_println(go.defkill);
+        if (go.starkill)
+            {   dbg_printf("starkill "); vec_println(go.starkill);}
+        if (go.vptrkill)
+            {   dbg_printf("vptrkill "); vec_println(go.vptrkill); }
 #endif
 
         for (i = 0; i < dfotop; i++)    /* for each block               */
-        {       register block *b = dfo[i];
+        {       block *b = dfo[i];
                 elem *e;
 
                 /* dump any existing vectors    */
@@ -526,8 +526,8 @@ STATIC void aecpgenkill()
                 vec_free(b->Bout);
                 vec_free(b->Bgen);
                 vec_free(b->Bkill);
-                b->Bgen = vec_calloc(exptop);
-                b->Bkill = vec_calloc(exptop);
+                b->Bgen = vec_calloc(go.exptop);
+                b->Bkill = vec_calloc(go.exptop);
                 switch (b->BC)
                 {
                     case BCiftrue:
@@ -540,8 +540,8 @@ STATIC void aecpgenkill()
                         {   vec_t Kr,Gr;
 
                             accumaecp(b->Bgen,b->Bkill,e->E1);
-                            Kr = vec_calloc(exptop);
-                            Gr = vec_calloc(exptop);
+                            Kr = vec_calloc(go.exptop);
+                            Gr = vec_calloc(go.exptop);
                             accumaecp(Gr,Kr,e->E2);
 
                             // We might or might not have executed E2
@@ -591,7 +591,7 @@ STATIC void aecpgenkill()
                             b->Bgen2 = vec_clone(b->Bgen);
                             b->Bkill2 = vec_clone(b->Bkill);
                         }
-                        b->Bout2 = vec_calloc(exptop);
+                        b->Bout2 = vec_calloc(go.exptop);
                         break;
 
                     case BCasm:
@@ -609,20 +609,20 @@ STATIC void aecpgenkill()
                 dbg_printf("block %d Bgen ",i); vec_println(b->Bgen);
                 dbg_printf("       Bkill "); vec_println(b->Bkill);
 #endif
-                b->Bin = vec_calloc(exptop);
-                b->Bout = vec_calloc(exptop);
+                b->Bin = vec_calloc(go.exptop);
+                b->Bout = vec_calloc(go.exptop);
         }
 }
-
+
 /*****************************
- * Accumulate number of expressions in exptop.
+ * Accumulate number of expressions in go.exptop.
  * Set NFLaecp as a flag indicating an AE elem.
  * Returns:
  *      TRUE if this elem is a possible AE elem.
  */
 
-STATIC int numaeelems(register elem *n)
-{ register unsigned op;
+STATIC int numaeelems(elem *n)
+{ unsigned op;
   unsigned ae;
 
   assert(n);
@@ -643,7 +643,7 @@ STATIC int numaeelems(register elem *n)
       // Disallow struct AEs, because we can't handle CSEs that are structs
       tybasic(n->Ety) != TYstruct)
   {     n->Nflags |= NFLaecp;           /* remember for asgexpelems()   */
-        exptop++;
+        go.exptop++;
   }
   else
   L1:
@@ -653,7 +653,7 @@ STATIC int numaeelems(register elem *n)
 
 
 /****************************
- * Compute number of cp elems into exptop.
+ * Compute number of cp elems into go.exptop.
  * Mark cp elems by setting NFLaecp flag.
  */
 
@@ -674,16 +674,16 @@ STATIC void numcpelems(elem *n)
             n->E2->Eoper == OPvar &&
             !((n->E1->Ety | n->E2->Ety) & mTYvolatile) &&
             n->E1->EV.sp.Vsym != n->E2->EV.sp.Vsym)
-        {       exptop++;
+        {       go.exptop++;
                 n->Nflags |= NFLaecp;
                 return;
         }
   }
   n->Nflags &= ~NFLaecp;
 }
-
+
 /********************************
- * Assign ae (or cp) elems to expnod[] (in order of evaluation).
+ * Assign ae (or cp) elems to go.expnod[] (in order of evaluation).
  */
 
 STATIC void asgexpelems(elem *n)
@@ -701,16 +701,16 @@ STATIC void asgexpelems(elem *n)
   }
 
   if (n->Nflags & NFLaecp)              /* if an ae, cp or vbe elem     */
-  {     n->Eexp = exptop;               /* remember index into expnod[] */
-        expnod[exptop] = n;
-        if (expblk)
-                expblk[exptop] = this_block;
-        exptop++;
+  {     n->Eexp = go.exptop;               /* remember index into go.expnod[] */
+        go.expnod[go.exptop] = n;
+        if (go.expblk)
+                go.expblk[go.exptop] = this_block;
+        go.exptop++;
   }
   else
         n->Eexp = 0;
 }
-
+
 /********************************
  * Compute defkill, starkill and vptrkill vectors.
  *      starkill:       set of expressions killed when a variable is
@@ -723,26 +723,26 @@ STATIC void asgexpelems(elem *n)
  */
 
 STATIC void defstarkill()
-{       register unsigned i,op;
-        register elem *n;
+{       unsigned i,op;
+        elem *n;
 
-        vec_free(vptrkill);
-        vec_free(defkill);
-        vec_free(starkill);             /* dump any existing ones       */
-        defkill = vec_calloc(exptop);
+        vec_free(go.vptrkill);
+        vec_free(go.defkill);
+        vec_free(go.starkill);             /* dump any existing ones       */
+        go.defkill = vec_calloc(go.exptop);
         if (flowxx != CP)
-        {   starkill = vec_calloc(exptop);      /* and create new ones  */
-            vptrkill = vec_calloc(exptop);      /* and create new ones  */
+        {   go.starkill = vec_calloc(go.exptop);      /* and create new ones  */
+            go.vptrkill = vec_calloc(go.exptop);      /* and create new ones  */
         }
         else /* CP */
-        {   starkill = NULL;
-            vptrkill = NULL;
+        {   go.starkill = NULL;
+            go.vptrkill = NULL;
         }
 
         if (flowxx == CP)
         {
-            for (i = 1; i < exptop; i++)
-            {   n = expnod[i];
+            for (i = 1; i < go.exptop; i++)
+            {   n = go.expnod[i];
                 op = n->Eoper;
                 assert(op == OPeq || op == OPstreq);
                 assert(n->E1->Eoper==OPvar && n->E2->Eoper==OPvar);
@@ -754,20 +754,20 @@ STATIC void defstarkill()
                 if (!(s1->Sflags & SFLunambig) ||
                     !(n->E2->EV.sp.Vsym->Sflags & SFLunambig))
                 {
-                    vec_setbit(i,defkill);
+                    vec_setbit(i,go.defkill);
                 }
             }
         }
         else
         {
-            for (i = 1; i < exptop; i++)
-            {   n = expnod[i];
+            for (i = 1; i < go.exptop; i++)
+            {   n = go.expnod[i];
                 op = n->Eoper;
                 switch (op)
                 {
                     case OPvar:
                         if (!(n->EV.sp.Vsym->Sflags & SFLunambig))
-                            vec_setbit(i,defkill);
+                            vec_setbit(i,go.defkill);
                         break;
 
                     case OPind:         // if a 'starred' ref
@@ -808,14 +808,14 @@ void main()
                     case OPstrcmp:
                     case OPmemcmp:
                     case OPbt:          // OPbt is like OPind
-                        vec_setbit(i,defkill);
-                        vec_setbit(i,starkill);
+                        vec_setbit(i,go.defkill);
+                        vec_setbit(i,go.starkill);
                         break;
 
 #if TARGET_SEGMENTED
                     case OPvp_fp:
                     case OPcvp_fp:
-                        vec_setbit(i,vptrkill);
+                        vec_setbit(i,go.vptrkill);
                         goto Lunary;
 #endif
 
@@ -823,19 +823,19 @@ void main()
                         if (OTunary(op))
                         {
                         Lunary:
-                            if (vec_testbit(n->E1->Eexp,defkill))
-                                    vec_setbit(i,defkill);
-                            if (vec_testbit(n->E1->Eexp,starkill))
-                                    vec_setbit(i,starkill);
+                            if (vec_testbit(n->E1->Eexp,go.defkill))
+                                    vec_setbit(i,go.defkill);
+                            if (vec_testbit(n->E1->Eexp,go.starkill))
+                                    vec_setbit(i,go.starkill);
                         }
                         else if (OTbinary(op))
                         {
-                            if (vec_testbit(n->E1->Eexp,defkill) ||
-                                vec_testbit(n->E2->Eexp,defkill))
-                                    vec_setbit(i,defkill);
-                            if (vec_testbit(n->E1->Eexp,starkill) ||
-                                vec_testbit(n->E2->Eexp,starkill))
-                                    vec_setbit(i,starkill);
+                            if (vec_testbit(n->E1->Eexp,go.defkill) ||
+                                vec_testbit(n->E2->Eexp,go.defkill))
+                                    vec_setbit(i,go.defkill);
+                            if (vec_testbit(n->E1->Eexp,go.starkill) ||
+                                vec_testbit(n->E2->Eexp,go.starkill))
+                                    vec_setbit(i,go.starkill);
                         }
                         break;
                 }
@@ -846,16 +846,16 @@ void main()
 /********************************
  * Compute GEN and KILL vectors only for AEs.
  * defkill and starkill are assumed to be already set up correctly.
- * expnod[] is assumed to be set up correctly.
+ * go.expnod[] is assumed to be set up correctly.
  */
 
 void genkillae()
-{       register unsigned i;
+{       unsigned i;
 
         flowxx = AE;
-        assert(exptop > 1);
+        assert(go.exptop > 1);
         for (i = 0; i < dfotop; i++)
-        {       register block *b = dfo[i];
+        {       block *b = dfo[i];
 
                 assert(b);
                 vec_clear(b->Bgen);
@@ -868,14 +868,14 @@ void genkillae()
                 }
         }
 }
-
+
 /************************************
  * Allocate and compute KILL and GEN vectors for a elem.
  */
 
 STATIC void aecpelem(vec_t *pgen,vec_t *pkill, elem *n)
-{       *pgen = vec_calloc(exptop);
-        *pkill = vec_calloc(exptop);
+{       *pgen = vec_calloc(go.exptop);
+        *pkill = vec_calloc(go.exptop);
         if (n)
         {       if (flowxx == VBE)
                         accumvbe(*pgen,*pkill,n);
@@ -920,7 +920,7 @@ STATIC void accumaecpx(elem *n)
             if ((flowxx == AE) && n->Eexp)
             {   unsigned b;
 #ifdef DEBUG
-                assert(expnod[n->Eexp] == n);
+                assert(go.expnod[n->Eexp] == n);
 #endif
                 b = n->Eexp;
                 vec_setclear(b,GEN,KILL);
@@ -993,7 +993,7 @@ STATIC void accumaecpx(elem *n)
         case OPvp_fp:
         case OPcvp_fp:                          // if vptr access
             if ((flowxx == AE) && n->Eexp)
-                vec_orass(KILL,vptrkill);       // kill all other vptr accesses
+                vec_orass(KILL,go.vptrkill);       // kill all other vptr accesses
             break;
 #endif
 
@@ -1030,16 +1030,16 @@ STATIC void accumaecpx(elem *n)
         if (!OTdef(op))                         /* if not def elem      */
                 return;
         if (!Eunambig(n))                       /* if ambiguous def elem */
-        {   vec_orass(KILL,defkill);
-            vec_subass(GEN,defkill);
+        {   vec_orass(KILL,go.defkill);
+            vec_subass(GEN,go.defkill);
         }
         else                                    /* unambiguous def elem */
         {   symbol *s;
 
             assert(t->Eoper == OPvar);
             s = t->EV.sp.Vsym;                  // ptr to var being def'd
-            for (i = 1; i < exptop; i++)        /* for each ae elem      */
-            {   register elem *e = expnod[i];
+            for (i = 1; i < go.exptop; i++)        /* for each ae elem      */
+            {   elem *e = go.expnod[i];
 
                 /* If it could be changed by the definition,     */
                 /* set bit in KILL.                              */
@@ -1064,17 +1064,17 @@ STATIC void accumaecpx(elem *n)
     if (n->Eexp)
     {   unsigned b = n->Eexp;                   // add elem to GEN
 
-        assert(expnod[b] == n);
+        assert(go.expnod[b] == n);
         vec_setclear(b,GEN,KILL);
     }
     else if (OTdef(op))                         /* else if definition elem */
     {
         if (!Eunambig(n))                       /* if ambiguous def elem */
-        {   vec_orass(KILL,defkill);
-            vec_subass(GEN,defkill);
+        {   vec_orass(KILL,go.defkill);
+            vec_subass(GEN,go.defkill);
             if (OTcalldef(op))
-            {   vec_orass(KILL,vptrkill);
-                vec_subass(GEN,vptrkill);
+            {   vec_orass(KILL,go.vptrkill);
+                vec_subass(GEN,go.vptrkill);
             }
         }
         else                                    /* unambiguous def elem */
@@ -1083,11 +1083,11 @@ STATIC void accumaecpx(elem *n)
             assert(t->Eoper == OPvar);
             s = t->EV.sp.Vsym;                  /* idx of var being def'd */
             if (!(s->Sflags & SFLunambig))
-            {   vec_orass(KILL,starkill);       /* kill all 'starred' refs */
-                vec_subass(GEN,starkill);
+            {   vec_orass(KILL,go.starkill);       /* kill all 'starred' refs */
+                vec_subass(GEN,go.starkill);
             }
-            for (i = 1; i < exptop; i++)        /* for each ae elem      */
-            {   elem *e = expnod[i];
+            for (i = 1; i < go.exptop; i++)        /* for each ae elem      */
+            {   elem *e = go.expnod[i];
                 int eop = e->Eoper;
 
                 /* If it could be changed by the definition,     */
@@ -1120,7 +1120,7 @@ STATIC void accumaecpx(elem *n)
         }
     }
 }
-
+
 /************************* LIVE VARIABLES **********************/
 
 /*********************************
@@ -1137,7 +1137,7 @@ STATIC void accumaecpx(elem *n)
 
 void flowlv()
 {       vec_t tmp,livexit;
-        register unsigned i;
+        unsigned i;
         bool anychng;
         unsigned cnt;
 
@@ -1170,8 +1170,8 @@ void flowlv()
 
                 /* For each block B in reverse DFO order        */
                 for (i = dfotop; i--;)
-                {       register block *b = dfo[i];
-                        register list_t bl = b->Bsucc;
+                {       block *b = dfo[i];
+                        list_t bl = b->Bsucc;
 
                         /* Bout = union of Bins of all successors to B. */
                         if (bl)
@@ -1211,7 +1211,7 @@ void flowlv()
         }
 #endif
 }
-
+
 /***********************************
  * Compute Bgen and Bkill for LVs.
  * Allocate Binlv and Boutlv vectors.
@@ -1249,7 +1249,7 @@ STATIC void lvgenkill()
         vec_free(ambigsym);             /* dump any existing one        */
         ambigsym = NULL;
 }
-
+
 /*****************************
  * Allocate and compute KILL and GEN for live variables.
  */
@@ -1268,7 +1268,7 @@ STATIC void lvelem(vec_t *pgen,vec_t *pkill,elem *n)
 
 STATIC void accumlv(vec_t GEN,vec_t KILL,elem *n)
 {   vec_t Gl,Kl,Gr,Kr;
-    register unsigned op;
+    unsigned op;
     elem *t;
 
     assert(GEN && KILL && n);
@@ -1328,12 +1328,6 @@ STATIC void accumlv(vec_t GEN,vec_t KILL,elem *n)
                 vec_set(GEN);           /* GEN everything not already KILLed */
                 vec_subass(GEN,KILL);
                 break;
-
-            case OPnewarray:
-            case OPmultinewarray:
-                accumlv(GEN,KILL,n->E1);
-                accumlv(GEN,KILL,n->E2);
-                goto L1;
 
             case OPcall:
             case OPcallns:
@@ -1425,7 +1419,7 @@ STATIC void accumlv(vec_t GEN,vec_t KILL,elem *n)
         break;
     }
 }
-
+
 /********************* VERY BUSY EXPRESSIONS ********************/
 
 /**********************************************
@@ -1448,19 +1442,19 @@ void flowvbe()
 
         flowxx = VBE;
         aecpgenkill();          /* compute Bgen and Bkill for VBEs      */
-        if (exptop <= 1)        /* if no candidates for VBEs            */
+        if (go.exptop <= 1)        /* if no candidates for VBEs            */
                 return;
 
-        /*for (i = 0; i < exptop; i++)
-                dbg_printf("expnod[%d] = 0x%x\n",i,expnod[i]);*/
+        /*for (i = 0; i < go.exptop; i++)
+                dbg_printf("go.expnod[%d] = 0x%x\n",i,go.expnod[i]);*/
 
         /* The transfer equation is:                    */
         /*      Bout = & Bin(all successors S of B)     */
         /*      Bin =(Bout - Bkill) | Bgen              */
         /* Using Ullman's algorithm:                    */
 
-        /*dbg_printf("defkill = "); vec_println(defkill);
-        dbg_printf("starkill = "); vec_println(starkill);*/
+        /*dbg_printf("defkill = "); vec_println(go.defkill);
+        dbg_printf("starkill = "); vec_println(go.starkill);*/
 
         for (i = 0; i < dfotop; i++)
         {       block *b = dfo[i];
@@ -1479,7 +1473,7 @@ void flowvbe()
                 vec_orass(b->Bin,b->Bgen);
         }
 
-        tmp = vec_calloc(exptop);
+        tmp = vec_calloc(go.exptop);
         do
         {       anychng = FALSE;
 
@@ -1512,14 +1506,14 @@ void flowvbe()
         } while (anychng);      /* while any changes occurred to any Bin */
         vec_free(tmp);
 }
-
+
 /*************************************
  * Accumulate GEN and KILL sets for VBEs for this elem.
  */
 
 STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
-{       register unsigned op,i;
-        register elem *t;
+{       unsigned op,i;
+        elem *t;
 
         assert(GEN && KILL && n);
         op = n->Eoper;
@@ -1570,12 +1564,6 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
                     if (OTbinary(t->Eoper))
                         accumvbe(GEN,KILL,t->E2);
                 }
-                break;
-
-            case OPnewarray:
-            case OPmultinewarray:
-                accumvbe(GEN,KILL,n->E1);
-                accumvbe(GEN,KILL,n->E2);
                 break;
 
             case OPcall:
@@ -1637,7 +1625,7 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
         if (n->Eexp)                    /* if a vbe elem                */
         {       int ne = n->Eexp;
 
-                assert(expnod[ne] == n);
+                assert(go.expnod[ne] == n);
                 if (!vec_testbit(ne,KILL))      /* if not already KILLed */
                 {
                         /* GEN this expression only if it hasn't        */
@@ -1651,10 +1639,10 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
                             /* (operators only, as there is no point    */
                             /* to hoisting out variables and constants) */
                             if (!OTleaf(op))
-                            {   for (i = 1; i < exptop; i++)
-                                {       if (op == expnod[i]->Eoper &&
+                            {   for (i = 1; i < go.exptop; i++)
+                                {       if (op == go.expnod[i]->Eoper &&
                                             i != ne &&
-                                            el_match(n,expnod[i]))
+                                            el_match(n,go.expnod[i]))
                                             {   vec_setbit(i,GEN);
                                                 assert(!vec_testbit(i,KILL));
                                             }
@@ -1665,7 +1653,7 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
 #if TARGET_SEGMENTED
                 if (op == OPvp_fp || op == OPcvp_fp)
                 {
-                    vec_orass(KILL,vptrkill);   /* KILL all vptr accesses */
+                    vec_orass(KILL,go.vptrkill);   /* KILL all vptr accesses */
                     vec_subass(KILL,GEN);       /* except for GENed stuff */
                 }
 #endif
@@ -1673,9 +1661,9 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
         else if (OTdef(op))             /* if definition elem           */
         {
                 if (!Eunambig(n))       /* if ambiguous definition      */
-                {       vec_orass(KILL,defkill);
+                {       vec_orass(KILL,go.defkill);
                         if (OTcalldef(op))
-                            vec_orass(KILL,vptrkill);
+                            vec_orass(KILL,go.vptrkill);
                 }
                 else                    /* unambiguous definition       */
                 {   symbol *s;
@@ -1683,9 +1671,9 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
                     assert(t->Eoper == OPvar);
                     s = t->EV.sp.Vsym;  // ptr to var being def'd
                     if (!(s->Sflags & SFLunambig))
-                        vec_orass(KILL,starkill);/* kill all 'starred' refs */
-                    for (i = 1; i < exptop; i++)        /* for each vbe elem */
-                    {   elem *e = expnod[i];
+                        vec_orass(KILL,go.starkill);/* kill all 'starred' refs */
+                    for (i = 1; i < go.exptop; i++)        /* for each vbe elem */
+                    {   elem *e = go.expnod[i];
                         unsigned eop = e->Eoper;
 
                         /* If it could be changed by the definition,     */
@@ -1703,7 +1691,7 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
                         {   if (!vec_testbit(e->E1->Eexp,KILL))
                                 continue;
                         }
-                        else /* OPconst or OPrelconst or OPstring or OPhstring */
+                        else /* OPconst or OPrelconst or OPstring */
                                 continue;
 
                         vec_setbit(i,KILL);     // KILL it

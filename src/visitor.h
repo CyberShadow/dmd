@@ -127,7 +127,6 @@ class AliasDeclaration;
 class OverDeclaration;
 class VarDeclaration;
 class SymbolDeclaration;
-class ClassInfoDeclaration;
 class ThisDeclaration;
 
 class TypeInfoDeclaration;
@@ -205,7 +204,7 @@ class UnaExp;
 class BinExp;
 class BinAssignExp;
 class CompileExp;
-class FileExp;
+class ImportExp;
 class AssertExp;
 class DotIdExp;
 class DotTemplateExp;
@@ -372,7 +371,7 @@ public:
     virtual void visit(StaticAssert *s) { visit((Dsymbol *)s); }
     virtual void visit(DebugSymbol *s) { visit((Dsymbol *)s); }
     virtual void visit(VersionSymbol *s) { visit((Dsymbol *)s); }
-    virtual void visit(EnumMember *s) { visit((Dsymbol *)s); }
+    virtual void visit(EnumMember *s) { visit((VarDeclaration *)s); }
     virtual void visit(Import *s) { visit((Dsymbol *)s); }
     virtual void visit(OverloadSet *s) { visit((Dsymbol *)s); }
     virtual void visit(LabelDsymbol *s) { visit((Dsymbol *)s); }
@@ -414,7 +413,6 @@ public:
     virtual void visit(OverDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(VarDeclaration *s) { visit((Declaration *)s); }
     virtual void visit(SymbolDeclaration *s) { visit((Declaration *)s); }
-    virtual void visit(ClassInfoDeclaration *s) { visit((VarDeclaration *)s); }
     virtual void visit(ThisDeclaration *s) { visit((VarDeclaration *)s); }
 
     virtual void visit(TypeInfoDeclaration *s) { visit((VarDeclaration *)s); }
@@ -492,7 +490,7 @@ public:
     virtual void visit(BinExp *e) { visit((Expression *)e); }
     virtual void visit(BinAssignExp *e) { visit((BinExp *)e); }
     virtual void visit(CompileExp *e) { visit((UnaExp *)e); }
-    virtual void visit(FileExp *e) { visit((UnaExp *)e); }
+    virtual void visit(ImportExp *e) { visit((UnaExp *)e); }
     virtual void visit(AssertExp *e) { visit((UnaExp *)e); }
     virtual void visit(DotIdExp *e) { visit((UnaExp *)e); }
     virtual void visit(DotTemplateExp *e) { visit((UnaExp *)e); }

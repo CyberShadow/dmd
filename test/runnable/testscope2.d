@@ -42,7 +42,7 @@ void test3()
 	assert(SS.foo4.mangleof == "_D10testscope22SS4foo4MFNcNkKNgPiZi");
 
 	// Test scope pretty-printing
-	assert(typeof(SS.foo1).stringof == "ref int(return ref int delegate() return p)return ");
+	assert(typeof(SS.foo1).stringof == "ref return int(return ref int delegate() return p)");
 	assert(typeof(SS.foo2).stringof == "ref int(return ref int delegate() p)");
 	assert(typeof(SS.foo3).stringof == "ref int(return ref inout(int*) p)");
 	assert(typeof(SS.foo4).stringof == "ref int(return ref inout(int*) p)");
@@ -198,6 +198,31 @@ struct S11
 void test11()
 {
     S11 ary;
+}
+
+/********************************************/
+
+int[10] a12;
+
+int* foo12()
+{
+    foreach (ref x; a12)
+	return &x;
+    return null;
+}
+
+/********************************************/
+
+struct FullCaseEntry
+{
+    dchar[3] seq;
+    ubyte n, size;// n number in batch, size - size of batch
+    ubyte entry_len;
+
+    @property auto value() const @trusted pure nothrow @nogc return
+    {
+        return seq[0..entry_len];
+    }
 }
 
 /********************************************/

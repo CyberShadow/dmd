@@ -1,5 +1,5 @@
 // Copyright (C) 1987-1998 by Symantec
-// Copyright (C) 2000-2013 by Digital Mars
+// Copyright (C) 2000-2015 by Digital Mars
 // All Rights Reserved
 // http://www.digitalmars.com
 // Written by Walter Bright
@@ -20,7 +20,24 @@
 #include        "code.h"
 #include        "global.h"
 
-static code *code_list;
+code *code_list = NULL;
+
+/************************************
+ * Allocate a chunk of code's and add them to
+ * code_list.
+ */
+code *code_chunk_alloc()
+{
+    const size_t n = 4096 / sizeof(code);
+    code *chunk = (code *)mem_fmalloc(n * sizeof(code));
+    for (size_t i = 0; i < n - 1; ++i)
+    {
+        code_next(&chunk[i]) = &chunk[i + 1];
+    }
+    code_next(&chunk[n - 1]) = NULL;
+    code_list = chunk;
+    return chunk;
+}
 
 /*****************
  * Allocate code
@@ -29,12 +46,8 @@ static code *code_list;
 code *code_calloc()
 {
     //printf("code %d\n", sizeof(code));
-    code *c = code_list;
-    if (c)
-        code_list = code_next(c);
-    else
-        c = (code *)mem_fmalloc(sizeof(*c));
-
+    code *c = code_list ? code_list : code_chunk_alloc();
+    code_list = code_next(c);
     MEMCLEAR(c, sizeof(*c));
 
     //dbg_printf("code_calloc: %p\n",c);
@@ -47,18 +60,24 @@ code *code_calloc()
  */
 
 void code_free(code *cstart)
-{   code **pc;
-    code *c;
-
-    for (pc = &cstart; (c = *pc) != NULL; pc = &code_next(c))
+{
+    if (cstart)
     {
-        if (c->Iop == ASM)
+        code *c = cstart;
+        while (1)
         {
-            mem_free(c->IEV1.as.bytes);
+            if (c->Iop == ASM)
+            {
+                mem_free(c->IEV1.as.bytes);
+            }
+            code *cnext = code_next(c);
+            if (!cnext)
+                break;
+            c = cnext;
         }
+        code_next(c) = code_list;
+        code_list = cstart;
     }
-    *pc = code_list;
-    code_list = cstart;
 }
 
 /*****************
@@ -73,7 +92,7 @@ void code_term()
 
     while (code_list)
     {   cn = code_next(code_list);
-        mem_ffree(code_list);
+        //mem_ffree(code_list);
         code_list = cn;
         count++;
     }

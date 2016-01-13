@@ -82,9 +82,7 @@ struct Obj
     VIRTUAL void fltused();
     VIRTUAL int data_readonly(char *p, int len, int *pseg);
     VIRTUAL int data_readonly(char *p, int len);
-#if ELFOBJ || MACHOBJ
     VIRTUAL symbol *sym_cdata(tym_t, char *, int);
-#endif
     VIRTUAL void func_start(Symbol *sfunc);
     VIRTUAL void func_term(Symbol *sfunc);
 
@@ -97,6 +95,7 @@ struct Obj
 
 #if TARGET_WINDOS
     VIRTUAL int seg_debugT();           // where the symbolic debug type data goes
+    static void gotref(symbol *s) { }
 #endif
 };
 

@@ -1,5 +1,5 @@
 // Copyright (C) 1993-1998 by Symantec
-// Copyright (C) 2000-2009 by Digital Mars
+// Copyright (C) 2000-2015 by Digital Mars
 // All Rights Reserved
 // http://www.digitalmars.com
 // Written by Walter Bright
@@ -9,15 +9,11 @@
  * For any other uses, please contact Digital Mars.
  */
 
-#if !DEMO && !SPP
+#if !SPP
 
 #include        <stdio.h>
 #include        <stdlib.h>
 #include        <time.h>
-
-#if __sun || _MSC_VER
-#include        <alloca.h>
-#endif
 
 #include        "cc.h"
 #include        "global.h"
@@ -82,7 +78,7 @@ void localize()
 
     // Table should not get any larger than the symbol table
     locmax = globsym.symmax;
-    loctab = (loc_t *) alloca(locmax * sizeof(*loctab));
+    loctab = (loc_t *) malloc(locmax * sizeof(*loctab));
 
     for (b = startblock; b; b = b->Bnext)       /* for each block        */
     {
@@ -100,6 +96,8 @@ void localize()
             local_exp(b->Belem,0);
         }
     }
+    free(loctab);
+    locmax = 0;
 }
 
 //////////////////////////////////////
@@ -191,6 +189,7 @@ Loop:
         case OPandass:
         case OPxorass:
         case OPorass:
+        case OPcmpxchg:
             if (ERTOL(e))
             {   local_exp(e->E2,1);
         case OPnegass:
@@ -213,12 +212,13 @@ Loop:
                         if (em->Eoper == op &&
                             em->E1->EV.sp.Vsym == s &&
                             tysize(em->Ety) == tysize(e1->Ety) &&
+                            !tyfloating(em->Ety) &&
                             em->E1->EV.sp.Voffset == e1->EV.sp.Voffset &&
                             !el_sideeffect(em->E2)
                            )
                         {   // Change (x += a),(x += b) to
                             // (x + a),(x += a + b)
-                            changes++;
+                            go.changes++;
                             e->E2 = el_bin(opeqtoop(op),e->E2->Ety,em->E2,e->E2);
                             em->Eoper = opeqtoop(op);
                             em->E2 = el_copytree(em->E2);
@@ -274,17 +274,9 @@ Loop:
             local_ambigref();
             break;
 
-        case OPnewarray:
-        case OPmultinewarray:
-            local_exp(e->E1,1);
-            local_exp(e->E2,1);
-            goto Lrd;
-
         case OPstrcmp:
         case OPmemcmp:
         case OPbt:
-        case OParray:
-        case OPfield:
             local_exp(e->E1,1);
             local_exp(e->E2,1);
             local_ambigref();
@@ -357,7 +349,7 @@ Loop:
                                     dbg_printf(";\n");
                                 }
 #endif
-                                changes++;
+                                go.changes++;
                                 em->Ety = e->Ety;
                                 el_copy(e,em);
                                 em->E1 = em->E2 = NULL;
@@ -562,6 +554,7 @@ STATIC int local_getflags(elem *e,symbol *s)
             case OPandass:
             case OPxorass:
             case OPorass:
+            case OPcmpxchg:
                 if (e->E1->Eoper == OPvar)
                 {   symbol *s1;
 
@@ -583,8 +576,6 @@ STATIC int local_getflags(elem *e,symbol *s)
             case OPucallns:
             case OPcall:
             case OPcallns:
-            case OPnewarray:
-            case OPmultinewarray:
             case OPstrcat:
             case OPstrcpy:
             case OPmemcpy:
@@ -607,8 +598,6 @@ STATIC int local_getflags(elem *e,symbol *s)
                 break;
 
             case OPind:
-            case OParray:
-            case OPfield:
             case OPstrlen:
             case OPstrcmp:
             case OPmemcmp:

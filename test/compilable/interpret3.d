@@ -3637,7 +3637,7 @@ static assert({
     S6693 s;
     s.m[2] = 4;
     return 6693;
- }() == 6693);
+}() == 6693);
 
 /**************************************************
     7602   Segfault AA.keys on null AA
@@ -4587,6 +4587,15 @@ immutable string[] splitterNames13141 = MapResult13141!(e => "4")([4]).array1314
 static assert([1:2, 3:4] == [3:4, 1:2]);
 
 /**************************************************
+    14325 more AA comparisons
+**************************************************/
+
+static assert([1:1] != [1:2, 2:1]);      // OK
+static assert([1:1] != [1:2]);           // OK
+static assert([1:1] != [2:1]);           // OK <- Error
+static assert([1:1, 2:2] != [3:3, 4:4]); // OK <- Error
+
+/**************************************************
     7147 typeid()
 **************************************************/
 
@@ -4606,6 +4615,36 @@ int bug7147(int n)
 // Must not segfault if class is null
 static assert(!is(typeof(compiles!(bug7147(0)))));
 static assert( is(typeof(compiles!(bug7147(1)))));
+
+
+/**************************************************
+    14123 - identity TypeInfo objects
+**************************************************/
+
+static assert({
+    bool eq(TypeInfo t1, TypeInfo t2)
+    {
+        return t1 is t2;
+    }
+
+    class C {}
+    struct S {}
+
+    assert( eq(typeid(C), typeid(C)));
+    assert(!eq(typeid(C), typeid(Object)));
+    assert( eq(typeid(S), typeid(S)));
+    assert(!eq(typeid(S), typeid(int)));
+    assert( eq(typeid(int), typeid(int)));
+    assert(!eq(typeid(int), typeid(long)));
+
+    Object o = new Object;
+    Object c = new C;
+    assert( eq(typeid(o), typeid(o)));
+    assert(!eq(typeid(c), typeid(o)));
+    assert(!eq(typeid(o), typeid(S)));
+
+    return 1;
+}());
 
 /**************************************************
     6885 wrong code with new array
@@ -4664,6 +4703,47 @@ int bug10198()
     return 1;
 }
 static assert(bug10198());
+
+/**************************************************
+    14440 Multidimensional block initialization should create distinct arrays for each elements
+**************************************************/
+
+struct Matrix14440(E, size_t row, size_t col)
+{
+    E[col][row] array2D;
+
+    @safe pure nothrow
+    this(E[row * col] numbers...)
+    {
+        foreach (r; 0 .. row)
+        {
+            foreach (c; 0 .. col)
+            {
+                array2D[r][c] = numbers[r * col + c];
+            }
+        }
+    }
+}
+
+void test14440()
+{
+    // Replace 'enum' with 'auto' here and it will work fine.
+    enum matrix = Matrix14440!(int, 3, 3)(
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9
+    );
+
+    static assert(matrix.array2D[0][0] == 1);
+    static assert(matrix.array2D[0][1] == 2);
+    static assert(matrix.array2D[0][2] == 3);
+    static assert(matrix.array2D[1][0] == 4);
+    static assert(matrix.array2D[1][1] == 5);
+    static assert(matrix.array2D[1][2] == 6);
+    static assert(matrix.array2D[2][0] == 7);
+    static assert(matrix.array2D[2][1] == 8);
+    static assert(matrix.array2D[2][2] == 9);
+}
 
 /****************************************************
  * Exception chaining tests from xtest46.d
@@ -5370,6 +5450,34 @@ int bug6037outer()
 }
 
 static assert(bug6037outer() == 401);
+
+/**************************************************
+    14299 - [REG2.067a], more than one depth of recursive call with ref
+**************************************************/
+
+string gen14299(int max, int idx, ref string name)
+{
+    string ret;
+    name = [cast(char)(idx + '0')];
+    ret ~= name;
+    if (idx < max)
+    {
+        string subname;
+        ret ~= gen14299(max, idx + 1, subname);
+    }
+    ret ~= name;
+    return ret;
+}
+string test14299(int max)
+{
+    string n;
+    return gen14299(max, 0, n);
+}
+static assert(test14299(1) ==     "0110");      // OK <- fail
+static assert(test14299(2) ==    "012210");     // OK <- ICE
+static assert(test14299(3) ==   "01233210");
+static assert(test14299(4) ==  "0123443210");
+static assert(test14299(5) == "012345543210");
 
 /**************************************************
     7940 wrong code for complicated assign
@@ -6385,11 +6493,26 @@ label:
 static assert(bug8865());
 
 /******************************************************/
+// 15450 labeled foreach + continue/break
+
+static assert({
+  L1:
+    foreach (l; [0])
+        continue L1;
+
+  L2:
+    foreach (l; [0])
+        break L2;
+
+    return true;
+}());
 
 struct Test75
 {
     this(int) pure {}
 }
+
+/******************************************************/
 
 static assert( __traits(compiles, { static shared(Test75*)   t75 = new shared(Test75)(0);    return t75; }));
 static assert( __traits(compiles, { static shared(Test75)*   t75 = new shared(Test75)(0);    return t75; }));
@@ -6600,7 +6723,7 @@ static assert(test11510());
 
 struct MultiArray11534
 {
-    this(size_t[] sizes...)
+    void set(size_t[] sizes...)
     {
         storage = new size_t[5];
     }
@@ -6613,7 +6736,8 @@ struct MultiArray11534
 }
 
 enum test11534 = () {
-    auto m = MultiArray11534(3,2,1);
+    auto m = MultiArray11534();
+    m.set(3,2,1);
     auto start = m.raw_ptr;   //this trigger the bug
     //auto start = m.storage.ptr + 1; //this obviously works
     return 0;
@@ -7280,6 +7404,20 @@ static assert(
 }());
 
 /**************************************************
+    14463 - ICE on slice assignment without postblit
+**************************************************/
+
+struct Boo14463
+{
+    private int[1] c;
+    this(int[] x)
+    {
+        c = x;
+    }
+}
+immutable Boo14463 a14463 = Boo14463([1]);
+
+/**************************************************
     13295 - Don't copy struct literal in VarExp::interpret()
 **************************************************/
 
@@ -7300,6 +7438,17 @@ static assert(
     f13295(s);
     return s.n == 1; // true <- false
 }());
+
+int foo14061(int[] a)
+{
+    foreach (immutable x; a)
+    {
+        auto b = a ~ x;
+        return b == [1, 1];
+    }
+    return 0;
+}
+static assert(foo14061([1]));
 
 /**************************************************
     14024 - CTFE version
@@ -7352,3 +7501,195 @@ bool test14024()
     return true;
 }
 static assert(test14024());
+
+/**************************************************
+    14304 - cache of static immutable value
+**************************************************/
+
+immutable struct Bug14304
+{
+    string s_name;
+    alias s_name this;
+
+    string fun()()
+    {
+        return "fun";
+    }
+}
+class Buggy14304
+{
+    static string fun(string str)()
+    {
+        return str;
+    }
+    static immutable val = immutable Bug14304("val");
+}
+void test14304()
+{
+    enum kt = Buggy14304.fun!(Buggy14304.val);
+    static assert(kt == "val");
+    enum bt = Buggy14304.val.fun();
+    static assert(bt == "fun");
+}
+
+/**************************************************
+    14371 - evaluate BinAssignExp as lvalue
+**************************************************/
+
+int test14371()
+{
+    int x;
+    ++(x += 1);
+    return x;
+}
+static assert(test14371() == 2);
+
+/**************************************************
+    7151 - [CTFE] cannot compare classes with ==
+**************************************************/
+
+bool test7151()
+{
+    auto a = new Object;
+    return a == a && a != new Object;
+}
+static assert(test7151());
+
+
+/**************************************************
+    12603 - [CTFE] goto does not correctly call dtors
+**************************************************/
+
+struct S12603
+{
+    this(uint* dtorCalled)
+    {
+        *dtorCalled = 0;
+        this.dtorCalled = dtorCalled;
+    }
+
+    @disable this();
+
+    ~this()
+    {
+        ++*dtorCalled;
+    }
+
+    uint* dtorCalled;
+}
+
+
+auto numDtorCallsByGotoWithinScope()
+{
+    uint dtorCalled;
+    {
+        S12603 s = S12603(&dtorCalled);
+        assert(dtorCalled == 0);
+        goto L_abc;
+        L_abc:
+        assert(dtorCalled == 0);
+    }
+    assert(dtorCalled == 1);
+    return dtorCalled;
+}
+static assert(numDtorCallsByGotoWithinScope() == 1);
+
+
+auto numDtorCallsByGotoOutOfScope()
+{
+    uint dtorCalled;
+    {
+        S12603 s = S12603(&dtorCalled);
+        assert(dtorCalled == 0);
+        goto L_abc;
+    }
+    L_abc:
+    assert(dtorCalled == 1);
+    return dtorCalled;
+}
+static assert(numDtorCallsByGotoOutOfScope() == 1);
+
+
+uint numDtorCallsByGotoDifferentScopeAfter()
+{
+    uint dtorCalled;
+    {
+        S12603 s = S12603(&dtorCalled);
+        assert(dtorCalled == 0);
+    }
+    assert(dtorCalled == 1);
+    goto L_abc;
+    L_abc:
+    assert(dtorCalled == 1);
+    return dtorCalled;
+}
+static assert(numDtorCallsByGotoDifferentScopeAfter() == 1);
+
+
+auto numDtorCallsByGotoDifferentScopeBefore()
+{
+    uint dtorCalled;
+    assert(dtorCalled == 0);
+    goto L_abc;
+    L_abc:
+    assert(dtorCalled == 0);
+    {
+        S12603 s = S12603(&dtorCalled);
+        assert(dtorCalled == 0);
+    }
+    assert(dtorCalled == 1);
+    return dtorCalled;
+}
+static assert(numDtorCallsByGotoDifferentScopeBefore() == 1);
+
+
+struct S12603_2
+{
+    ~this()
+    {
+        dtorCalled = true;
+    }
+
+    bool dtorCalled = false;
+}
+
+auto structInCaseScope()
+{
+    auto charsets = S12603_2();
+    switch(1)
+    {
+    case 0:
+        auto set = charsets;
+        break;
+    default:
+        break;
+    }
+    return charsets.dtorCalled;
+}
+
+static assert(!structInCaseScope());
+
+/**************************************************
+    15233 - ICE in TupleExp, Copy On Write bug
+**************************************************/
+
+alias TT15233(stuff ...) = stuff;
+
+struct Tok15233 {}
+enum tup15233 = TT15233!(Tok15233(), "foo");
+static assert(tup15233[0] == Tok15233());
+static assert(tup15233[1] == "foo");
+
+/**************************************************
+    15251 - void cast in ForStatement.increment
+**************************************************/
+
+int test15251()
+{
+    for (ubyte lwr = 19;
+        lwr != 20;
+        cast(void)++lwr)    // have to to be evaluated with ctfeNeedNothing
+    {}
+    return 1;
+}
+static assert(test15251());

@@ -402,6 +402,11 @@ void test7()
     // Expression::checkToBoolean
     static assert(!__traits(compiles, { if (s1){} }));
     static assert(!__traits(compiles, { if (s3){} }));
+
+    // SwitchStatement::semantic
+    static assert(!__traits(compiles, { switch (c0) { default: } }));
+    static assert(!__traits(compiles, { switch (c1) { default: } }));
+    static assert(!__traits(compiles, { switch (c3) { default: } }));
 }
 
 /***************************************************/
@@ -1192,6 +1197,46 @@ void test7945()
 }
 
 /***************************************************/
+// 7979
+
+void test7979()
+{
+    static struct N
+    {
+        int val;
+        alias val this;
+    }
+    N n = N(1);
+
+    switch (n)
+    {
+        case 0:
+            assert(0);
+        case 1:
+            break;
+        default:
+            assert(0);
+    }
+
+    static struct S
+    {
+        string val;
+        alias val this;
+    }
+    S s = S("b");
+
+    switch (s)
+    {
+        case "a":
+            assert(0);
+        case "b":
+            break;
+        default:
+            assert(0);
+    }
+}
+
+/***************************************************/
 // 7992
 
 struct S7992
@@ -1674,7 +1719,10 @@ struct RefCounted12008(T)
         return 0;
     }
 
-    int refCountedPayload() inout;
+    int refCountedPayload() inout
+    {
+        return 0;
+    }
 
     alias refCountedPayload this;
 }
@@ -1753,6 +1801,148 @@ void test11355()
 }
 
 /***************************************************/
+// 13009
+
+struct T13009
+{
+    void put(char c) {}
+}
+
+struct S13009(bool rev)
+{
+    T13009 t;
+
+    static if (!rev)
+    {
+        @property       T13009  getT()       { return t; }
+        @property inout(T13009) getT() inout { return t; }
+    }
+    else
+    {
+        @property inout(T13009) getT() inout { return t; }
+        @property       T13009  getT()       { return t; }
+    }
+
+    alias getT this;
+}
+
+void test13009()
+{
+    foreach (bool rev; Seq!(false, true))
+    {
+        alias S = S13009!rev;
+
+        alias MS   =                    S;
+        alias CS   =              const(S);
+        alias WS   =        inout(      S);
+        alias WCS  =        inout(const S);
+        alias SMS  = shared(            S);
+        alias SCS  = shared(      const S);
+        alias SWS  = shared(inout       S);
+        alias SWCS = shared(inout const S);
+        alias IS   =          immutable(S);
+
+        alias MSput  = MS .put;
+        alias CSput  = CS .put;
+        alias WSput  = WS .put;
+        alias WCSput = WCS.put;
+        static assert(!__traits(compiles, { alias SMSput  = SMS .put; }));
+        static assert(!__traits(compiles, { alias SCSput  = SCS .put; }));
+        static assert(!__traits(compiles, { alias SWSput  = SWS .put; }));
+        static assert(!__traits(compiles, { alias SWCSput = SWCS.put; }));
+        alias ISput  = IS .put;
+    }
+}
+
+/***************************************************/
+// 14806
+
+struct Nullable14806
+{
+    float get() { return float.nan; }
+    alias get this;
+}
+
+struct Foo14806(T)
+{
+    T bar;
+    Nullable14806 baz;
+}
+
+void test14806()
+{
+    Foo14806!int a, b;
+    assert(a != b);
+    // ==> a.tupleof != b.tupleof
+    // ==> a.bar != b.bar || a.baz.get() != b.baz.get()
+
+    Foo14806!string c, d;
+    assert(c != d);
+    // ==> c.tupleof != d.tupleof
+    // ==> c.bar != d.bar || c.baz.get() != d.baz.get()
+}
+
+/***************************************************/
+// 14948
+
+struct RefCounted14948(T)
+{
+    struct Impl
+    {
+        T data;
+    }
+    Impl* impl;
+
+    @property ref T payload() { return impl.data; }
+
+    alias payload this;
+}
+
+struct HTTP14948
+{
+    struct Impl
+    {
+    }
+
+    RefCounted14948!Impl p;
+}
+
+void test14948()
+{
+    int[HTTP14948] aa;
+}
+
+/***************************************************/
+// 15292
+
+struct NullableRef15292(T)
+{
+    inout(T) get() inout
+    {
+        assert(false);
+    }
+
+    alias get this;
+}
+
+struct S15292
+{
+    NullableRef15292!S15292 n;  // -> no segfault
+
+    /* The field 'n' contains alias this, so to use it for the equality,
+     * following helper function is automatically generated in buildXopEquals().
+     *
+     *  static bool __xopEquals(ref const S15292 p, ref const S15292 q)
+     *  {
+     *      return p == q;
+     *  }
+     *
+     * In its definition, const(S15292) equality is analyzed. It fails, then
+     * the error is gagged.
+     */
+}
+
+/***************************************************/
 
 int main()
 {
@@ -1791,6 +1981,7 @@ int main()
     test7731();
     test7808();
     test7945();
+    test7979();
     test7992();
     test8169();
     test8735();
@@ -1807,6 +1998,7 @@ int main()
     test11800();
     test13490();
     test11355();
+    test14806();
 
     printf("Success\n");
     return 0;

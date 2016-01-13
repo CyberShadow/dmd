@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2015 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -18,9 +18,20 @@
 
 #include "longdouble.h"
 #include "outbuffer.h"
+#include "filename.h"
 
 // Can't include arraytypes.h here, need to declare these directly.
 template <typename TYPE> struct Array;
+
+// The state of array bounds checking
+enum BOUNDSCHECK
+{
+    BOUNDSCHECKdefault, // initial value
+    BOUNDSCHECKoff,     // never do bounds checking
+    BOUNDSCHECKon,      // always do bounds checking
+    BOUNDSCHECKsafeonly // do bounds checking only in @safe functions
+};
+
 
 // Put command line switches in here
 struct Param
@@ -32,11 +43,13 @@ struct Param
     bool multiobj;      // break one object file into multiple ones
     bool oneobj;        // write one object file instead of multiple ones
     bool trace;         // insert profiling hooks
+    bool tracegc;       // instrument calls to 'new'
     bool verbose;       // verbose compile
     bool showColumns;   // print character (column) numbers in diagnostics
     bool vtls;          // identify thread local variables
     char vgc;           // identify gc usage
     bool vfield;        // identify non-mutable field variables
+    bool vcomplex;      // identify complex/imaginary type usage
     char symdebug;      // insert debug symbolic information
     bool alwaysframe;   // always emit standard stack frame
     bool optimize;      // run optimizer
@@ -50,16 +63,14 @@ struct Param
     bool isOpenBSD;     // generate code for OpenBSD
     bool isSolaris;     // generate code for Solaris
     bool mscoff;        // for Win32: write COFF object files instead of OMF
-    char useDeprecated; // 0: don't allow use of deprecated features
-                        // 1: silently allow use of deprecated features
-                        // 2: warn about the use of deprecated features
+    // 0: don't allow use of deprecated features
+    // 1: silently allow use of deprecated features
+    // 2: warn about the use of deprecated features
+    char useDeprecated;
     bool useAssert;     // generate runtime code for assert()'s
     bool useInvariants; // generate class invariant checks
     bool useIn;         // generate precondition checks
     bool useOut;        // generate postcondition checks
-    char useArrayBounds; // 0: no array bounds checks
-                         // 1: array bounds checks for safe functions only
-                         // 2: array bounds checks for all functions
     bool stackstomp;    // add stack stomping code
     bool useSwitchError; // check for switches without a default
     bool useUnitTests;  // generate unittest code
@@ -67,9 +78,10 @@ struct Param
     bool useDIP25;      // implement http://wiki.dlang.org/DIP25
     bool release;       // build release version
     bool preservePaths; // true means don't strip path from source file
-    char warnings;      // 0: disable warnings
-                        // 1: warnings as errors
-                        // 2: informational warnings (no errors)
+    // 0: disable warnings
+    // 1: warnings as errors
+    // 2: informational warnings (no errors)
+    char warnings;
     bool pic;           // generate position-independent-code for shared libs
     bool color;         // use ANSI colors in console output
     bool cov;           // generate code coverage data
@@ -80,6 +92,9 @@ struct Param
     bool betterC;       // be a "better C" compiler; no dependency on D runtime
     bool addMain;       // add a default main() function
     bool allInst;       // generate code for all template instantiations
+    bool dwarfeh;       // generate dwarf eh exception handling
+
+    BOUNDSCHECK useArrayBounds;
 
     const char *argv0;    // program name
     Array<const char *> *imppath;     // array of char*'s of where to look for import modules
@@ -121,8 +136,7 @@ struct Param
     bool debugy;
 
     bool run;           // run resulting executable
-    size_t runargs_length;
-    const char** runargs; // arguments for executable
+    Strings runargs;    // arguments for executable
 
     // Linker stuff
     Array<const char *> *objfiles;
@@ -141,8 +155,9 @@ struct Compiler
 };
 
 typedef unsigned structalign_t;
-#define STRUCTALIGN_DEFAULT ((structalign_t) ~0)  // magic value means "match whatever the underlying C compiler does"
+// magic value means "match whatever the underlying C compiler does"
 // other values are all powers of 2
+#define STRUCTALIGN_DEFAULT ((structalign_t) ~0)
 
 struct Global
 {
@@ -226,10 +241,6 @@ typedef float                   d_float32;
 typedef double                  d_float64;
 typedef longdouble              d_float80;
 
-typedef d_uns8                  d_char;
-typedef d_uns16                 d_wchar;
-typedef d_uns32                 d_dchar;
-
 typedef longdouble real_t;
 
 // file location
@@ -260,6 +271,7 @@ enum LINK
     LINKcpp,
     LINKwindows,
     LINKpascal,
+    LINKobjc,
 };
 
 enum DYNCAST
@@ -279,6 +291,13 @@ enum MATCH
     MATCHconvert,       // match with conversions
     MATCHconst,         // match with conversion to const
     MATCHexact          // exact match
+};
+
+enum PINLINE
+{
+    PINLINEdefault,      // as specified on the command line
+    PINLINEnever,        // never inline
+    PINLINEalways        // always inline
 };
 
 typedef uinteger_t StorageClass;

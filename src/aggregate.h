@@ -20,6 +20,7 @@
 
 #include "dsymbol.h"
 #include "declaration.h"
+#include "objc.h"
 
 class Identifier;
 class Type;
@@ -40,6 +41,14 @@ enum Sizeok
     SIZEOKnone,         // size of aggregate is not computed yet
     SIZEOKdone,         // size of aggregate is set correctly
     SIZEOKfwd,          // error in computing size of aggregate
+};
+
+enum Baseok
+{
+    BASEOKnone,         // base classes not computed yet
+    BASEOKin,           // in process of resolving base classes
+    BASEOKdone,         // all base classes are resolved
+    BASEOKsemanticdone, // all base classes semantic done
 };
 
 enum StructPOD
@@ -69,18 +78,18 @@ public:
     unsigned structsize;        // size of struct
     unsigned alignsize;         // size of struct for alignment purposes
     VarDeclarations fields;     // VarDeclaration fields
-    Sizeok sizeok;         // set when structsize contains valid data
+    Sizeok sizeok;              // set when structsize contains valid data
     Dsymbol *deferred;          // any deferred semantic2() or semantic3() symbol
     bool isdeprecated;          // true if deprecated
-    bool mutedeprecation;       // true while analysing RTInfo to avoid deprecation message
 
-    Dsymbol *enclosing;         /* !=NULL if is nested
-                                 * pointing to the dsymbol that directly enclosing it.
-                                 * 1. The function that enclosing it (nested struct and class)
-                                 * 2. The class that enclosing it (nested class only)
-                                 * 3. If enclosing aggregate is template, its enclosing dsymbol.
-                                 * See AggregateDeclaraton::makeNested for the details.
-                                 */
+    /* !=NULL if is nested
+     * pointing to the dsymbol that directly enclosing it.
+     * 1. The function that enclosing it (nested struct and class)
+     * 2. The class that enclosing it (nested class only)
+     * 3. If enclosing aggregate is template, its enclosing dsymbol.
+     * See AggregateDeclaraton::makeNested for the details.
+     */
+    Dsymbol *enclosing;
     VarDeclaration *vthis;      // 'this' parameter if this aggregate is nested
     // Special member functions
     FuncDeclarations invs;              // Array of invariants
@@ -89,9 +98,12 @@ public:
     DeleteDeclaration *aggDelete;       // deallocator
 
     Dsymbol *ctor;                      // CtorDeclaration or TemplateDeclaration
-    CtorDeclaration *defaultCtor;       // default constructor - should have no arguments, because
-                                        // it would be stored in TypeInfo_Class.defaultConstructor
-    Dsymbol *aliasthis;                 // forward unresolved lookups to aliasthis
+
+    // default constructor - should have no arguments, because
+    // it would be stored in TypeInfo_Class.defaultConstructor
+    CtorDeclaration *defaultCtor;
+
+    Dsymbol *aliasthis;         // forward unresolved lookups to aliasthis
     bool noDefaultCtor;         // no default construction
 
     FuncDeclarations dtors;     // Array of destructors
@@ -104,15 +116,15 @@ public:
     void semantic2(Scope *sc);
     void semantic3(Scope *sc);
     unsigned size(Loc loc);
+    virtual void finalizeSize(Scope *sc) = 0;
+    bool checkOverlappedFields();
+    bool fill(Loc loc, Expressions *elements, bool ctorinit);
     static void alignmember(structalign_t salign, unsigned size, unsigned *poffset);
     static unsigned placeField(unsigned *nextoffset,
         unsigned memsize, unsigned memalignsize, structalign_t memalign,
         unsigned *paggsize, unsigned *paggalignsize, bool isunion);
     Type *getType();
-    int firstFieldInUnion(int indx); // first field in union that includes indx
-    int numFieldsInUnion(int firstIndex); // #fields in union starting at index
     bool isDeprecated();         // is aggregate deprecated?
-    bool muteDeprecationMessage(); // disable deprecation message on Dsymbol?
     bool isNested();
     void makeNested();
     bool isExport();
@@ -120,7 +132,8 @@ public:
 
     Prot prot();
 
-    Type *handleType() { return type; } // 'this' type
+    // 'this' type
+    Type *handleType() { return type; }
 
     // Back end
     Symbol *stag;               // tag symbol for debug data
@@ -161,6 +174,11 @@ public:
     Type *arg1type;
     Type *arg2type;
 
+    // Even if struct is defined as non-root symbol, some built-in operations
+    // (e.g. TypeidExp, NewExp, ArrayLiteralExp, etc) request its TypeInfo.
+    // For those, today TypeInfo_Struct is generated in COMDAT.
+    bool requestTypeInfo;
+
     StructDeclaration(Loc loc, Identifier *id);
     Dsymbol *syntaxCopy(Dsymbol *s);
     void semantic(Scope *sc);
@@ -169,7 +187,6 @@ public:
     const char *kind();
     void finalizeSize(Scope *sc);
     bool fit(Loc loc, Scope *sc, Expressions *elements, Type *stype);
-    bool fill(Loc loc, Expressions *elements, bool ctorinit);
     bool isPOD();
 
     StructDeclaration *isStructDeclaration() { return this; }
@@ -190,12 +207,13 @@ public:
 struct BaseClass
 {
     Type *type;                         // (before semantic processing)
-    Prot protection;               // protection for the base interface
+    Prot protection;                    // protection for the base interface
 
-    ClassDeclaration *base;
+    ClassDeclaration *sym;
     unsigned offset;                    // 'this' pointer offset
-    FuncDeclarations vtbl;              // for interfaces: Array of FuncDeclaration's
-                                        // making up the vtbl[]
+    // for interfaces: Array of FuncDeclaration's
+    // making up the vtbl[]
+    FuncDeclarations vtbl;
 
     size_t baseInterfaces_dim;
     // if BaseClass is an interface, these
@@ -208,9 +226,6 @@ struct BaseClass
     bool fillVtbl(ClassDeclaration *cd, FuncDeclarations *vtbl, int newinstance);
     void copyBaseInterfaces(BaseClasses *);
 };
-
-#define CLASSINFO_SIZE_64  0x98         // value of ClassInfo.size
-#define CLASSINFO_SIZE  (0x3C+12+4)     // value of ClassInfo.size
 
 struct ClassFlags
 {
@@ -259,9 +274,8 @@ public:
     bool isscope;                       // true if this is a scope class
     bool isabstract;                    // true if abstract class
     int inuse;                          // to prevent recursive attempts
-    Semantic doAncestorsSemantic;       // Before searching symbol, whole ancestors should finish
-                                        // calling semantic() at least once, due to fill symtab
-                                        // and do addMember(). [== Semantic(Start,In,Done)]
+    Baseok baseok;                      // set the progress of base classes resolving
+    Objc_ClassDeclaration objc;
 
     ClassDeclaration(Loc loc, Identifier *id, BaseClasses *baseclasses, bool inObject = false);
     Dsymbol *syntaxCopy(Dsymbol *s);
@@ -274,9 +288,11 @@ public:
     bool isBaseInfoComplete();
     Dsymbol *search(Loc, Identifier *ident, int flags = IgnoreNone);
     ClassDeclaration *searchBase(Loc, Identifier *ident);
+    void finalizeSize(Scope *sc);
     bool isFuncHidden(FuncDeclaration *fd);
     FuncDeclaration *findFunc(Identifier *ident, TypeFunction *tf);
     void interfaceSemantic(Scope *sc);
+    unsigned setBaseInterfaceOffsets(unsigned baseOffset);
     bool isCOMclass();
     virtual bool isCOMinterface();
     bool isCPPclass();
@@ -300,6 +316,7 @@ public:
     InterfaceDeclaration(Loc loc, Identifier *id, BaseClasses *baseclasses);
     Dsymbol *syntaxCopy(Dsymbol *s);
     void semantic(Scope *sc);
+    void finalizeSize(Scope *sc);
     bool isBaseOf(ClassDeclaration *cd, int *poffset);
     bool isBaseOf(BaseClass *bc, int *poffset);
     const char *kind();

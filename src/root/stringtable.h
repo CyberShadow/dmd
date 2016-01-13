@@ -15,6 +15,7 @@
 #endif
 
 #include "root.h"
+#include "rmem.h"   // for d_size_t
 
 struct StringEntry;
 
@@ -27,7 +28,7 @@ struct StringValue
     char *lstring() { return (char *)(this + 1); }
 
     size_t len() const { return length; }
-    const char *toDchars() const { return (char *)(this + 1); }
+    const char *toDchars() const { return (const char *)(this + 1); }
 
     StringValue();  // not constructible
 };
@@ -45,18 +46,19 @@ private:
     size_t count;
 
 public:
-    void _init(size_t size = 0);
-    void reset(size_t size = 0);
+    void _init(d_size_t size = 0);
+    void reset(d_size_t size = 0);
     ~StringTable();
 
-    StringValue *lookup(const char *s, size_t len);
-    StringValue *insert(const char *s, size_t len);
-    StringValue *update(const char *s, size_t len);
+    StringValue *lookup(const char *s, d_size_t len);
+    StringValue *insert(const char *s, d_size_t len);
+    StringValue *update(const char *s, d_size_t len);
+    int apply(int (*fp)(StringValue *));
 
 private:
-    uint32_t allocValue(const char *p, size_t length);
+    uint32_t allocValue(const char *p, d_size_t length);
     StringValue *getValue(uint32_t validx);
-    size_t findSlot(hash_t hash, const char *s, size_t len);
+    size_t findSlot(hash_t hash, const char *s, d_size_t len);
     void grow();
 };
 

@@ -3,14 +3,15 @@
 src/cdxxx.c
 src/debtab.c
 src/dmd
+src/dmd_frontend
+src/ddmd
 src/dmd.conf
 src/elxxx.c
 src/fltables.c
 src/id.c
 src/id.h
+src/id.d
 src/idgen
-src/impcnvgen
-src/impcnvtab.c
 src/optab.c
 src/optabgen
 src/tytab.c
@@ -18,7 +19,7 @@ test/test_results
 *.obj
 src/idgen.exe
 src/dmd.exe
-src/impcnvgen.exe
+src/dmd_frontend.exe
 src/optabgen.exe
 src/verstr.h
 *.map
@@ -26,6 +27,7 @@ src/verstr.h
 trace.def
 trace.log
 Makefile
+src/magicport/magicport
 
 # Visual Studio files
 *.exe
@@ -42,9 +44,12 @@ ipch
 # Xcode files
 DerivedData/
 xcuserdata/
-dmd.xcodeproj/project.xcworkspace/xcuserdata
+dmd.xcodeproj/
 
 # Output files
 src/*.bak
 src/*.lib
 tags
+
+# OSX
+src/optabgen.dSYM/

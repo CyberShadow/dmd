@@ -21,7 +21,6 @@
 
 #include        "obj.h"
 
-#ifdef DEBUG
 extern char debuga;            /* cg - watch assignaddr()              */
 extern char debugb;            /* watch block optimization             */
 extern char debugc;            /* watch code generated                 */
@@ -37,7 +36,6 @@ extern char debugu;
 extern char debugw;            /* watch progress                       */
 extern char debugx;            /* suppress predefined CPP stuff        */
 extern char debugy;            /* watch output to il buffer            */
-#endif /* DEBUG */
 
 #define CR '\r'                 // Used because the MPW version of the compiler warps
 #define LF '\n'                 // \n into \r and \r into \n.  The translator version
@@ -161,7 +159,7 @@ char *unsstr(unsigned);
 int isignore(int);
 int isillegal(int);
 
-#if !defined(__SC__) && !defined(_MSC_VER)
+#if !defined(__DMC__) && !defined(_MSC_VER)
 int ishex(int);
 #endif
 
@@ -172,7 +170,7 @@ void cgcs_term();
 /* errmsgs.c */
 extern char *dlcmsgs(int);
 extern void errmsgs_term();
-
+
 /* from evalu8.c */
 int boolres(elem *);
 int iftrue(elem *);
@@ -325,7 +323,11 @@ void symbol_keep(Symbol *s);
 #else
 #define symbol_keep(s) ((void)(s))
 #endif
+#ifdef DEBUG
 void symbol_print(Symbol *s);
+#else
+#define symbol_print(s)
+#endif
 void symbol_term(void);
 char *symbol_ident(symbol *s);
 Symbol *symbol_calloc(const char *id);
@@ -426,8 +428,6 @@ void compdfo(void);
 
 #define block_initvar(s) (curblock->Binitvar = (s))
 
-#ifdef DEBUG
-
 /* debug.c */
 extern const char *regstring[];
 
@@ -439,12 +439,10 @@ void WRarglst(list_t a);
 void WRblock(block *b);
 void WRblocklist(list_t bl);
 void WReqn(elem *e);
-void WRfunc(void);
-void WRdefnod(void);
+void WRfunc();
+void WRdefnod();
 void WRFL(enum FL);
 char *sym_ident(SYMIDX si);
-
-#endif
 
 /* cgelem.c     */
 elem *doptelem(elem *, goal_t);
@@ -495,12 +493,12 @@ void rtlsym_init();
 void rtlsym_reset();
 void rtlsym_term();
 
-#if SYMDEB_DWARF
+// Dwarf
 void dwarf_CFA_set_loc(size_t location);
 void dwarf_CFA_set_reg_offset(int reg, int offset);
 void dwarf_CFA_offset(int reg, int offset);
 void dwarf_CFA_args_size(size_t sz);
-#endif
+
 
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
 elem * exp_isconst();

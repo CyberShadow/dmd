@@ -181,7 +181,7 @@
       "storageClass" : [
        "static"
       ],
-      "deco" : "FZv",
+      "deco" : "FNaNbNiNfZv",
       "originalType" : "()",
       "endline" : 26,
       "endchar" : 19
@@ -211,6 +211,10 @@
       "overrides" : [
        "json.Baz!(int, 2, null).Baz.t"
       ]
+     },
+     {
+      "name" : "__xdtor",
+      "kind" : "alias"
      }
     ]
    },
@@ -565,6 +569,20 @@
       "char" : 5
      }
     ]
+   },
+   {
+    "kind" : "template",
+    "line" : 112,
+    "char" : 1,
+    "name" : "IncludeConstraint",
+    "parameters" : [
+     {
+      "name" : "T",
+      "kind" : "type"
+     }
+    ],
+    "constraint" : "T == string",
+    "members" : []
    }
   ]
  }

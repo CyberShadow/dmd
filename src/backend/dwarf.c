@@ -37,6 +37,7 @@
 #include        "cv4.h"
 #include        "cgcv.h"
 #include        "dt.h"
+#include        "rtlsym.h"
 
 #include        "aa.h"
 #include        "tinfo.h"
@@ -58,6 +59,12 @@
 #include        "dwarf2.h"
 
 extern int seg_count;
+
+#if ELFOBJ
+IDXSYM elf_addsym(IDXSTR nam, targ_size_t val, unsigned sz,
+        unsigned typ, unsigned bind, IDXSEC sec,
+        unsigned char visibility = STV_DEFAULT);
+#endif
 
 static char __file__[] = __FILE__;      // for tassert.h
 #include        "tassert.h"
@@ -82,11 +89,23 @@ int dwarf_getsegment(const char *name, int align)
 #endif
 }
 
+int dwarf_getsegment_alloc(const char *name, int align)
+{
+#if ELFOBJ
+    return ElfObj::getsegment(name, NULL, SHT_PROGBITS, SHF_ALLOC, align * 4);
+#elif MACHOBJ
+    return MachObj::getsegment(name, "__DWARF", align * 2, S_ATTR_DEBUG);
+#else
+    assert(0);
+    return 0;
+#endif
+}
+
 // machobj.c
 #define RELaddr 0       // straight address
 #define RELrel  1       // relative to location to be fixed up
 
-void dwarf_addrel(int seg, targ_size_t offset, int targseg, targ_size_t val = 0)
+void dwarf_addrel(int seg, targ_size_t offset, int targseg, targ_size_t val)
 {
 #if ELFOBJ
     ElfObj::addrel(seg, offset, I64 ? R_X86_64_32 : R_386_32, MAP_SEG2SYMIDX(targseg), val);
@@ -110,8 +129,16 @@ void dwarf_addrel64(int seg, targ_size_t offset, int targseg, targ_size_t val)
 
 void dwarf_appreladdr(int seg, Outbuffer *buf, int targseg, targ_size_t val)
 {
-    dwarf_addrel64(seg, buf->size(), targseg, I64 ? val : 0);
-    buf->write64(I64 ? 0 : val);
+    if (I64)
+    {
+        dwarf_addrel64(seg, buf->size(), targseg, val);
+        buf->write64(0);
+    }
+    else
+    {
+        dwarf_addrel(seg, buf->size(), targseg, 0);
+        buf->write32(val);
+    }
 }
 
 void dwarf_apprel32(int seg, Outbuffer *buf, int targseg, targ_size_t val)
@@ -122,16 +149,18 @@ void dwarf_apprel32(int seg, Outbuffer *buf, int targseg, targ_size_t val)
 
 void append_addr(Outbuffer *buf, targ_size_t addr)
 {
-  if (I64)
-    buf->write64(addr);
-  else
-    buf->write32(addr);
+    if (I64)
+        buf->write64(addr);
+    else
+        buf->write32(addr);
 }
 
 
 /************************  DWARF DEBUG OUTPUT ********************************/
 
 // Dwarf Symbolic Debugging Information
+
+// CFA = value of the stack pointer at the call site in the previous frame
 
 struct CFA_reg
 {
@@ -155,9 +184,23 @@ int dwarf_regno(int reg)
         return reg;
     else
     {
+#if 1
+        /* See https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
+         * Figure 3.3.8 pg. 62
+         * R8..15    :  8..15
+         * XMM0..15  : 17..32
+         * ST0..7    : 33..40
+         * MM0..7    : 41..48
+         * XMM16..31 : 67..82
+         */
+        static const int to_amd64_reg_map[8] =
+        // AX CX DX BX SP BP SI DI
+        {   0, 2, 1, 3, 7, 6, 4, 5 };
+#else
         static const int to_amd64_reg_map[8] =
         { 0 /*AX*/, 2 /*CX*/, 3 /*DX*/, 1 /*BX*/,
           7 /*SP*/, 6 /*BP*/, 4 /*SI*/, 5 /*DI*/ };
+#endif
         return reg < 8 ? to_amd64_reg_map[reg] : reg;
     }
 }
@@ -206,6 +249,13 @@ static CFA_state CFA_state_init_64 =       // initial CFA state as defined by CI
 static CFA_state CFA_state_current;     // current CFA state
 static Outbuffer cfa_buf;               // CFA instructions
 
+/***********************************
+ * Set the location, i.e. the offset from the start
+ * of the function. It must always be greater than
+ * the current location.
+ * Params:
+ *      location = offset from the start of the function
+ */
 void dwarf_CFA_set_loc(size_t location)
 {
     assert(location >= CFA_state_current.location);
@@ -227,6 +277,12 @@ void dwarf_CFA_set_loc(size_t location)
     CFA_state_current.location = location;
 }
 
+/*******************************************
+ * Set the frame register, and its offset.
+ * Params:
+ *      reg = machine register
+ *      offset = offset from frame register
+ */
 void dwarf_CFA_set_reg_offset(int reg, int offset)
 {
     int dw_reg = dwarf_regno(reg);
@@ -264,6 +320,12 @@ void dwarf_CFA_set_reg_offset(int reg, int offset)
     CFA_state_current.offset = offset;
 }
 
+/***********************************************
+ * Set reg to be at offset from frame register.
+ * Params:
+ *      reg = machine register
+ *      offset = offset from frame register
+ */
 void dwarf_CFA_offset(int reg, int offset)
 {
     int dw_reg = dwarf_regno(reg);
@@ -284,18 +346,16 @@ void dwarf_CFA_offset(int reg, int offset)
     CFA_state_current.regstates[dw_reg].offset = offset;
 }
 
+/**************************************
+ * Set total size of arguments pushed on the stack.
+ * Params:
+ *      sz = total size
+ */
 void dwarf_CFA_args_size(size_t sz)
 {
     cfa_buf.writeByte(DW_CFA_GNU_args_size);
     cfa_buf.writeuLEB128(sz);
 }
-
-// .debug_frame
-static IDXSEC debug_frame_secidx;
-
-// .debug_str
-static IDXSEC debug_str_secidx;
-static Outbuffer *debug_str_buf;
 
 // .debug_pubnames
 static IDXSEC debug_pubnames_secidx;
@@ -458,7 +518,7 @@ static DebugLineHeader debugline;
 unsigned typidx_tab[TYMAX];
 
 #if MACHOBJ
-const char* debug_frame = "__debug_frame";
+const char* debug_frame_name = "__debug_frame";
 const char* debug_str = "__debug_str";
 const char* debug_ranges = "__debug_ranges";
 const char* debug_loc = "__debug_loc";
@@ -467,8 +527,10 @@ const char* debug_abbrev = "__debug_abbrev";
 const char* debug_info = "__debug_info";
 const char* debug_pubnames = "__debug_pubnames";
 const char* debug_aranges = "__debug_aranges";
+const char* eh_frame_name = "__eh_frame";
+const char* except_table_name = "__gcc_except_table";
 #elif ELFOBJ
-const char* debug_frame = ".debug_frame";
+const char* debug_frame_name = ".debug_frame";
 const char* debug_str = ".debug_str";
 const char* debug_ranges = ".debug_ranges";
 const char* debug_loc = ".debug_loc";
@@ -477,9 +539,16 @@ const char* debug_abbrev = ".debug_abbrev";
 const char* debug_info = ".debug_info";
 const char* debug_pubnames = ".debug_pubnames";
 const char* debug_aranges = ".debug_aranges";
+const char* eh_frame_name = ".eh_frame";
+const char* except_table_name = ".gcc_except_table";
 #endif
 
-void dwarf_initfile(const char *filename)
+/*****************************************
+ * Append .debug_frame header to buf.
+ * Params:
+ *      buf = write raw data here
+ */
+void writeDebugFrameHeader(Outbuffer *buf)
 {
     #pragma pack(1)
     struct DebugFrameHeader
@@ -520,18 +589,291 @@ void dwarf_initfile(const char *filename)
     }
     assert(debugFrameHeader.data_alignment_factor == 0x80 - OFFSET_FAC);
 
-    int seg = dwarf_getsegment(debug_frame, 1);
-    debug_frame_secidx = SegData[seg]->SDshtidx;
-    Outbuffer *debug_frame_buf = SegData[seg]->SDbuf;
-    debug_frame_buf->reserve(1000);
+    buf->writen(&debugFrameHeader,debugFrameHeader.length + 4);
+}
 
-    debug_frame_buf->writen(&debugFrameHeader,debugFrameHeader.length + 4);
+/*****************************************
+ * Append .eh_frame header to buf.
+ * Almost identical to .debug_frame
+ * Params:
+ *      dfseg = SegData[] index for .eh_frame
+ *      buf = write raw data here
+ *      personality = "__dmd_personality_v0"
+ * See_Also:
+ *      https://refspecs.linuxfoundation.org/LSB_3.0.0/LSB-PDA/LSB-PDA/ehframechpt.html
+ */
+static void writeEhFrameHeader(IDXSEC dfseg, Outbuffer *buf, Symbol *personality)
+{
+    /* Augmentation string:
+     *  z = first character, means Augmentation Data field is present
+     *  eh = EH Data field is present
+     *  P = Augmentation Data contains 2 args:
+     *          1. encoding of 2nd arg
+     *          2. address of personality routine
+     *  L = Augmentation Data contains 1 arg:
+     *          1. the encoding used for Augmentation Data in FDE
+     *      Augmentation Data in FDE:
+     *          1. address of LSDA (gcc_except_table)
+     *  R = Augmentation Data contains 1 arg:
+     *          1. encoding of addresses in FDE
+     * Non-EH code: "zR"
+     * EH code: "zPLR"
+     */
+
+    const unsigned startsize = buf->size();
+
+    // Length of CIE, not including padding
+    const unsigned cielen = 4 + 4 + 1 +
+        (config.ehmethod == EH_DWARF ? 5 : 3) +
+        1 + 1 + 1 +
+        (config.ehmethod == EH_DWARF ? 8 : 2) +
+        5;
+
+    const unsigned pad = -cielen & (I64 ? 7 : 3);      // pad to addressing unit size boundary
+    const unsigned length = cielen + pad - 4;
+
+    buf->reserve(length + 4);
+    buf->write32(length);       // length of CIE, not including length and extended length fields
+    buf->write32(0);            // CIE ID
+    buf->writeByten(1);         // version
+    if (config.ehmethod == EH_DWARF)
+        buf->write("zPLR", 5);  // Augmentation String
+    else
+        buf->writen("zR", 3);
+    // not present: EH Data: 4 bytes for I32, 8 bytes for I64
+    buf->writeByten(1);                 // code alignment factor
+    buf->writeByten(0x80 - OFFSET_FAC); // data alignment factor (I64 ? -8 : -4)
+    buf->writeByten(I64 ? 16 : 8);      // return address register
+    if (config.ehmethod == EH_DWARF)
+    {
+        const unsigned char personality_pointer_encoding = config.flags3 & CFG3pic
+                ? DW_EH_PE_indirect | DW_EH_PE_pcrel | DW_EH_PE_sdata4
+                : DW_EH_PE_absptr | DW_EH_PE_udata4;
+        const unsigned char LSDA_pointer_encoding = config.flags3 & CFG3pic
+                ? DW_EH_PE_pcrel | DW_EH_PE_sdata4
+                : DW_EH_PE_absptr | DW_EH_PE_udata4;
+        buf->writeByten(7);                                  // Augmentation Length
+        buf->writeByten(personality_pointer_encoding);       // P: personality routine address encoding
+        dwarf_reftoident(dfseg, buf->size(), personality, 0);
+        buf->writeByten(LSDA_pointer_encoding);              // L: address encoding for LSDA in FDE
+        buf->writeByten(DW_EH_PE_pcrel  | DW_EH_PE_sdata4);  // R: encoding of addresses in FDE
+    }
+    else
+    {
+        buf->writeByten(1);                                  // Augmentation Length
+        buf->writeByten(DW_EH_PE_pcrel | DW_EH_PE_sdata4);   // R: encoding of addresses in FDE
+    }
+
+    // Set CFA beginning state at function entry point
+    if (I64)
+    {
+        buf->writeByten(DW_CFA_def_cfa);        // DEF_CFA r7,8   RSP is at offset 8
+        buf->writeByten(7);
+        buf->writeByten(8);
+
+        buf->writeByten(DW_CFA_offset + 16);    // OFFSET r16,1   RIP is at -8*1[RSP]
+        buf->writeByten(1);
+    }
+    else
+    {
+        buf->writeByten(DW_CFA_def_cfa);        // DEF_CFA r4,4
+        buf->writeByten(4);
+        buf->writeByten(4);
+
+        buf->writeByten(DW_CFA_offset + 8);     // OFFSET r8,1
+        buf->writeByten(1);
+    }
+
+    for (unsigned i = 0; i < pad; ++i)
+        buf->writeByten(DW_CFA_nop);
+
+    assert(startsize + length + 4 == buf->size());
+}
+
+/*********************************************
+ * Generate function's Frame Description Entry into .debug_frame
+ * Params:
+ *      dfseg = SegData[] index for .debug_frame
+ *      sfunc = the function
+ */
+void writeDebugFrameFDE(IDXSEC dfseg, Symbol *sfunc)
+{
+    if (I64)
+    {
+        #pragma pack(1)
+        struct DebugFrameFDE
+        {
+            unsigned length;
+            unsigned CIE_pointer;
+            unsigned long long initial_location;
+            unsigned long long address_range;
+        };
+        #pragma pack()
+        static DebugFrameFDE debugFrameFDE =
+        {   20,             // length
+            0,              // CIE_pointer
+            0,              // initial_location
+            0,              // address_range
+        };
+
+        // Pad to 8 byte boundary
+        for (unsigned n = (-cfa_buf.size() & 7); n; n--)
+            cfa_buf.writeByte(DW_CFA_nop);
+
+        debugFrameFDE.length = 20 + cfa_buf.size();
+        debugFrameFDE.address_range = sfunc->Ssize;
+        // Do we need this?
+        //debugFrameFDE.initial_location = sfunc->Soffset;
+
+        Outbuffer *debug_frame_buf = SegData[dfseg]->SDbuf;
+        unsigned debug_frame_buf_offset = debug_frame_buf->p - debug_frame_buf->buf;
+        debug_frame_buf->reserve(1000);
+        debug_frame_buf->writen(&debugFrameFDE,sizeof(debugFrameFDE));
+        debug_frame_buf->write(&cfa_buf);
+
+#if ELFOBJ
+        // Absolute address for debug_frame, relative offset for eh_frame
+        dwarf_addrel(dfseg,debug_frame_buf_offset + 4,dfseg);
+#endif
+        dwarf_addrel64(dfseg,debug_frame_buf_offset + 8,sfunc->Sseg,0);
+    }
+    else
+    {
+        #pragma pack(1)
+        struct DebugFrameFDE
+        {
+            unsigned length;
+            unsigned CIE_pointer;
+            unsigned initial_location;
+            unsigned address_range;
+        };
+        #pragma pack()
+        static DebugFrameFDE debugFrameFDE =
+        {   12,             // length
+            0,              // CIE_pointer
+            0,              // initial_location
+            0,              // address_range
+        };
+
+        // Pad to 4 byte boundary
+        for (unsigned n = (-cfa_buf.size() & 3); n; n--)
+            cfa_buf.writeByte(DW_CFA_nop);
+
+        debugFrameFDE.length = 12 + cfa_buf.size();
+        debugFrameFDE.address_range = sfunc->Ssize;
+        // Do we need this?
+        //debugFrameFDE.initial_location = sfunc->Soffset;
+
+        Outbuffer *debug_frame_buf = SegData[dfseg]->SDbuf;
+        unsigned debug_frame_buf_offset = debug_frame_buf->p - debug_frame_buf->buf;
+        debug_frame_buf->reserve(1000);
+        debug_frame_buf->writen(&debugFrameFDE,sizeof(debugFrameFDE));
+        debug_frame_buf->write(&cfa_buf);
+
+#if ELFOBJ
+        // Absolute address for debug_frame, relative offset for eh_frame
+        dwarf_addrel(dfseg,debug_frame_buf_offset + 4,dfseg);
+#endif
+        dwarf_addrel(dfseg,debug_frame_buf_offset + 8,sfunc->Sseg);
+    }
+}
+
+/*********************************************
+ * Generate function's Frame Description Entry into .eh_frame
+ * Params:
+ *      dfseg = SegData[] index for .eh_frame
+ *      sfunc = the function
+ */
+void writeEhFrameFDE(IDXSEC dfseg, Symbol *sfunc)
+{
+    const unsigned CIE_offset = 0;                    // offset of enclosing CIE
+    Outbuffer *buf = SegData[dfseg]->SDbuf;
+    const unsigned startsize = buf->size();
+
+    if (sfunc->ty() & mTYnaked)
+    {
+        /* Do not have info on naked functions. Assume they are set up as:
+         *   push RBP
+         *   mov  RSP,RSP
+         */
+        int off = 2 * REGSIZE;
+        dwarf_CFA_set_loc(1);
+        dwarf_CFA_set_reg_offset(SP, off);
+        dwarf_CFA_offset(BP, -off);
+        dwarf_CFA_set_loc(I64 ? 4 : 3);
+        dwarf_CFA_set_reg_offset(BP, off);
+    }
+
+    // Length of FDE, not including padding
+    const unsigned fdelen = 4 + 4 + 4 + 4 + (config.ehmethod == EH_DWARF ? 5 : 1) + cfa_buf.size();
+
+    const unsigned pad = -fdelen & (I64 ? 7 : 3);      // pad to addressing unit size boundary
+    const unsigned length = fdelen + pad - 4;
+
+    buf->reserve(length + 4);
+    buf->write32(length);                               // Length (no Extended Length)
+    buf->write32((startsize + 4) - CIE_offset);         // CIE Pointer
+#if ELFOBJ
+    buf->write32(0);                                    // address of function
+    ElfObj::addrel(dfseg, startsize + 8, R_X86_64_PC32, MAP_SEG2SYMIDX(sfunc->Sseg), sfunc->Soffset);
+    //ElfObj::reftoident(dfseg, startsize + 8, sfunc, 0, CFpc32 | CFoff); // PC_begin
+#else
+    assert(0);                                          // not supported yet
+#endif
+    buf->write32(sfunc->Ssize);                         // PC Range
+    if (config.ehmethod == EH_DWARF)
+    {
+        buf->writeByten(4);                             // Augmentation Data Length
+        int etseg = dwarf_getsegment_alloc(except_table_name, 1);
+        // if CFG3pic, fixup should be R_X86_64_PC32
+        buf->write32(0);                                // address of LSDA (".gcc_except_table")
+        if (config.flags3 & CFG3pic)
+        {
+#if ELFOBJ
+            ElfObj::addrel(dfseg, buf->size() - 4, R_X86_64_PC32, MAP_SEG2SYMIDX(etseg), sfunc->Sfunc->LSDAoffset);
+#else
+            assert(0);                                  // not supported yet
+#endif
+        }
+        else
+            dwarf_addrel(dfseg, buf->size() - 4, etseg, sfunc->Sfunc->LSDAoffset);      // and the fixup
+    }
+    else
+        buf->writeByten(0);                             // Augmentation Data Length
+
+    buf->write(&cfa_buf);
+
+    for (unsigned i = 0; i < pad; ++i)
+        buf->writeByten(DW_CFA_nop);
+
+    assert(startsize + length + 4 == buf->size());
+}
+
+void dwarf_initfile(const char *filename)
+{
+    if (config.ehmethod == EH_DWARF)
+    {
+        dwarf_getsegment_alloc(except_table_name, 1);
+
+        int seg = dwarf_getsegment_alloc(eh_frame_name, I64 ? 2 : 1);
+        Outbuffer *buf = SegData[seg]->SDbuf;
+        buf->reserve(1000);
+        writeEhFrameHeader(seg, buf, getRtlsym(RTLSYM_PERSONALITY));
+    }
+    if (!config.fulltypes)
+        return;
+    if (config.ehmethod == EH_DM)
+    {
+        int seg = dwarf_getsegment(debug_frame_name, 1);
+        Outbuffer *buf = SegData[seg]->SDbuf;
+        buf->reserve(1000);
+        writeDebugFrameHeader(buf);
+    }
 
     /* ======================================== */
 
-    seg = dwarf_getsegment(debug_str, 0);
-    debug_str_secidx = SegData[seg]->SDshtidx;
-    debug_str_buf = SegData[seg]->SDbuf;
+    int seg = dwarf_getsegment(debug_str, 0);
+    Outbuffer *debug_str_buf = SegData[seg]->SDbuf;
     debug_str_buf->reserve(1000);
 
     /* ======================================== */
@@ -994,6 +1336,13 @@ void dwarf_func_term(Symbol *sfunc)
 {
    //printf("dwarf_func_term(sfunc = '%s')\n", sfunc->Sident);
 
+    if (config.ehmethod == EH_DWARF)
+    {
+        IDXSEC dfseg = dwarf_getsegment_alloc(eh_frame_name, I64 ? 2 : 1);
+        writeEhFrameFDE(dfseg, sfunc);
+    }
+    if (!config.fulltypes)
+        return;
 #if MARS
     if (sfunc->Sflags & SFLnodebug)
         return;
@@ -1002,96 +1351,12 @@ void dwarf_func_term(Symbol *sfunc)
         return;
 #endif
 
-   unsigned funcabbrevcode;
+    unsigned funcabbrevcode;
 
-    /* Put out the start of the debug_frame entry for this function
-     */
-    Outbuffer *debug_frame_buf;
-    unsigned debug_frame_buf_offset;
-
-    if (I64)
+    if (config.ehmethod == EH_DM)
     {
-        #pragma pack(1)
-        struct DebugFrameFDE
-        {
-            unsigned length;
-            unsigned CIE_pointer;
-            unsigned long long initial_location;
-            unsigned long long address_range;
-        };
-        #pragma pack()
-        static DebugFrameFDE debugFrameFDE =
-        {   20,             // length
-            0,              // CIE_pointer
-            0,              // initial_location
-            0,              // address_range
-        };
-
-        // Pad to 8 byte boundary
-        int n;
-        for (n = (-cfa_buf.size() & 7); n; n--)
-            cfa_buf.writeByte(DW_CFA_nop);
-
-        debugFrameFDE.length = 20 + cfa_buf.size();
-        debugFrameFDE.address_range = sfunc->Ssize;
-        // Do we need this?
-        //debugFrameFDE.initial_location = sfunc->Soffset;
-
-        IDXSEC dfseg;
-        dfseg = dwarf_getsegment(debug_frame, 1);
-        debug_frame_secidx = SegData[dfseg]->SDshtidx;
-        debug_frame_buf = SegData[dfseg]->SDbuf;
-        debug_frame_buf_offset = debug_frame_buf->p - debug_frame_buf->buf;
-        debug_frame_buf->reserve(1000);
-        debug_frame_buf->writen(&debugFrameFDE,sizeof(debugFrameFDE));
-        debug_frame_buf->write(&cfa_buf);
-
-#if ELFOBJ
-        dwarf_addrel(dfseg,debug_frame_buf_offset + 4,dfseg);
-#endif
-        dwarf_addrel64(dfseg,debug_frame_buf_offset + 8,sfunc->Sseg,0);
-    }
-    else
-    {
-        #pragma pack(1)
-        struct DebugFrameFDE
-        {
-            unsigned length;
-            unsigned CIE_pointer;
-            unsigned initial_location;
-            unsigned address_range;
-        };
-        #pragma pack()
-        static DebugFrameFDE debugFrameFDE =
-        {   12,             // length
-            0,              // CIE_pointer
-            0,              // initial_location
-            0,              // address_range
-        };
-
-        // Pad to 4 byte boundary
-        int n;
-        for (n = (-cfa_buf.size() & 3); n; n--)
-            cfa_buf.writeByte(DW_CFA_nop);
-
-        debugFrameFDE.length = 12 + cfa_buf.size();
-        debugFrameFDE.address_range = sfunc->Ssize;
-        // Do we need this?
-        //debugFrameFDE.initial_location = sfunc->Soffset;
-
-        IDXSEC dfseg;
-        dfseg = dwarf_getsegment(debug_frame, 1);
-        debug_frame_secidx = SegData[dfseg]->SDshtidx;
-        debug_frame_buf = SegData[dfseg]->SDbuf;
-        debug_frame_buf_offset = debug_frame_buf->p - debug_frame_buf->buf;
-        debug_frame_buf->reserve(1000);
-        debug_frame_buf->writen(&debugFrameFDE,sizeof(debugFrameFDE));
-        debug_frame_buf->write(&cfa_buf);
-
-#if ELFOBJ
-        dwarf_addrel(dfseg,debug_frame_buf_offset + 4,dfseg);
-#endif
-        dwarf_addrel(dfseg,debug_frame_buf_offset + 8,sfunc->Sseg);
+        IDXSEC dfseg = dwarf_getsegment(debug_frame_name, 1);
+        writeDebugFrameFDE(dfseg, sfunc);
     }
 
     IDXSEC seg = sfunc->Sseg;
@@ -1162,7 +1427,11 @@ void dwarf_func_term(Symbol *sfunc)
             abuf.writeByte(DW_AT_sibling);  abuf.writeByte(DW_FORM_ref4);
         }
         abuf.writeByte(DW_AT_name);      abuf.writeByte(DW_FORM_string);
-        abuf.writeuLEB128(DW_AT_MIPS_linkage_name);      abuf.writeByte(DW_FORM_string);
+#if (DWARF_VERSION >= 4)
+        abuf.writeuLEB128(DW_AT_linkage_name);      abuf.writeByte(DW_FORM_string);
+#else
+        abuf.writeuLEB128(DW_AT_MIPS_linkage_name); abuf.writeByte(DW_FORM_string);
+#endif
         abuf.writeByte(DW_AT_decl_file); abuf.writeByte(DW_FORM_data1);
         abuf.writeByte(DW_AT_decl_line); abuf.writeByte(DW_FORM_data2);
         if (ret_type)
@@ -1421,8 +1690,8 @@ void cv_outsym(symbol *s)
             soffset = infobuf->size();
             infobuf->writeByte(2);                      // DW_FORM_block1
 
-            // append DW_OP_GNU_push_tls_address for tls variables
 #if ELFOBJ
+            // debug info for TLS variables
             assert(s->Sxtrnnum);
             if (s->Sfl == FLtlsdata)
             {
@@ -1438,17 +1707,12 @@ void cv_outsym(symbol *s)
                     ElfObj::addrel(infoseg, infobuf->size(), R_386_TLS_LDO_32, s->Sxtrnnum, 0);
                     infobuf->write32(0);
                 }
-            #if (DWARF_VERSION <= 2)
                 infobuf->writeByte(DW_OP_GNU_push_tls_address);
-            #else
-                infobuf->writeByte(DW_OP_form_tls_address);
-            #endif
             } else
 #endif
             {
                 infobuf->writeByte(DW_OP_addr);
-                dwarf_addrel(infoseg,infobuf->size(),s->Sseg);
-                append_addr(infobuf, s->Soffset);    // address of global
+                dwarf_appreladdr(infoseg, infobuf, s->Sseg, s->Soffset); // address of global
             }
 
             infobuf->buf[soffset] = infobuf->size() - soffset - 1;
@@ -1546,6 +1810,17 @@ void TypeInfo_Atype::swap(void *p1, void *p2)
     assert(0);
 }
 
+unsigned char dwarf_classify_struct(unsigned long sflags)
+{
+    if (sflags & STRclass)
+        return DW_TAG_class_type;
+
+    if (sflags & STRunion)
+        return DW_TAG_union_type;
+
+    return DW_TAG_structure_type;
+}
+
 /* ======================= Type Index ============================== */
 
 unsigned dwarf_typidx(type *t)
@@ -1581,7 +1856,6 @@ unsigned dwarf_typidx(type *t)
     {
         DW_TAG_pointer_type,
         0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
         DW_AT_type,             DW_FORM_ref4,
         0,                      0,
     };
@@ -1589,44 +1863,15 @@ unsigned dwarf_typidx(type *t)
     {
         DW_TAG_pointer_type,
         0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
         0,                      0,
     };
-#ifdef USE_DWARF_D_EXTENSIONS
-    static unsigned char abbrevTypeDArray[] =
+    static unsigned char abbrevTypeRef[] =
     {
-        DW_TAG_darray_type,
+        DW_TAG_reference_type,
         0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
         DW_AT_type,             DW_FORM_ref4,
         0,                      0,
     };
-    static unsigned char abbrevTypeDArrayVoid[] =
-    {
-        DW_TAG_darray_type,
-        0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
-        0,                      0,
-    };
-    static unsigned char abbrevTypeAArray[] =
-    {
-        DW_TAG_aarray_type,
-        0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
-        DW_AT_type,             DW_FORM_ref4,   // element type
-        DW_AT_containing_type,  DW_FORM_ref4,   // key type
-        0,                      0,
-    };
-    static unsigned char abbrevTypeDelegate[] =
-    {
-        DW_TAG_delegate_type,
-        0,                      // no children
-        DW_AT_byte_size,        DW_FORM_data1,
-        DW_AT_containing_type,  DW_FORM_ref4,   // this type
-        DW_AT_type,             DW_FORM_ref4,   // function type
-        0,                      0,
-    };
-#endif // USE_DWARF_D_EXTENSIONS
     static unsigned char abbrevTypeConst[] =
     {
         DW_TAG_const_type,
@@ -1697,7 +1942,7 @@ unsigned dwarf_typidx(type *t)
 
     tym_t ty;
     ty = tybasic(t->Tty);
-    if (!(t->Tnext && (ty == TYucent || ty == TYcent)))
+    if (!(t->Tnext && (ty == TYdarray || ty == TYdelegate)))
     {   // use cached basic type if it's not TYdarray or TYdelegate
         idx = typidx_tab[ty];
         if (idx)
@@ -1715,7 +1960,6 @@ unsigned dwarf_typidx(type *t)
                 : dwarf_abbrev_code(abbrevTypePointerVoid, sizeof(abbrevTypePointerVoid));
             idx = infobuf->size();
             infobuf->writeuLEB128(code);        // abbreviation code
-            infobuf->writeByte(tysize(t->Tty)); // DW_AT_byte_size
             if (nextidx)
                 infobuf->write32(nextidx);      // DW_AT_type
             break;
@@ -1727,12 +1971,10 @@ unsigned dwarf_typidx(type *t)
                 goto Lsigned;
             }
 
-#ifndef USE_DWARF_D_EXTENSIONS
             static unsigned char abbrevTypeStruct[] =
             {
                 DW_TAG_structure_type,
                 1,                      // children
-                DW_AT_sibling,          DW_FORM_ref4,
                 DW_AT_name,             DW_FORM_string,
                 DW_AT_byte_size,        DW_FORM_data1,
                 0,                      0,
@@ -1747,22 +1989,10 @@ unsigned dwarf_typidx(type *t)
                 DW_AT_data_member_location, DW_FORM_block1,
                 0,                      0,
             };
-#endif
 
             /* It's really TYdarray, and Tnext is the
              * element type
              */
-#ifdef USE_DWARF_D_EXTENSIONS
-            nextidx = dwarf_typidx(t->Tnext);
-            code = nextidx
-                ? dwarf_abbrev_code(abbrevTypeDArray, sizeof(abbrevTypeDArray))
-                : dwarf_abbrev_code(abbrevTypeDArrayVoid, sizeof(abbrevTypeDArrayVoid));
-            idx = infobuf->size();
-            infobuf->writeuLEB128(code);        // abbreviation code
-            infobuf->writeByte(tysize(t->Tty)); // DW_AT_byte_size
-            if (nextidx)
-                infobuf->write32(nextidx);      // DW_AT_type
-#else
             {
             unsigned lenidx = I64 ? dwarf_typidx(tsulong) : dwarf_typidx(tsuns);
 
@@ -1778,9 +2008,6 @@ unsigned dwarf_typidx(type *t)
             code = dwarf_abbrev_code(abbrevTypeStruct, sizeof(abbrevTypeStruct));
             idx = infobuf->size();
             infobuf->writeuLEB128(code);        // abbreviation code
-            unsigned siblingoffset = infobuf->size();
-            unsigned idxsibling = 0;
-            infobuf->write32(idxsibling);       // DW_AT_sibling
             infobuf->write("_Array_", 7);       // DW_AT_name
             if (tybasic(t->Tnext->Tty))
                 infobuf->writeString(tystring[tybasic(t->Tnext->Tty)]);
@@ -1807,11 +2034,8 @@ unsigned dwarf_typidx(type *t)
             infobuf->writeByte(DW_OP_plus_uconst);
             infobuf->writeByte(I64 ? 8 : 4);
 
-            infobuf->writeByte(0);              // no more siblings
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
+            infobuf->writeByte(0);              // no more children
             }
-#endif
             break;
 
         case TYllong:
@@ -1823,21 +2047,6 @@ unsigned dwarf_typidx(type *t)
             /* It's really TYdelegate, and Tnext is the
              * function type
              */
-#ifdef USE_DWARF_D_EXTENSIONS
-            {   type *tv = type_fake(TYnptr);
-                tv->Tcount++;
-                pvoididx = dwarf_typidx(tv);    // void* is the 'this' type
-                type_free(tv);
-            }
-            nextidx = dwarf_typidx(t->Tnext);
-            code = dwarf_abbrev_code(abbrevTypeDelegate, sizeof(abbrevTypeDelegate));
-            idx = infobuf->size();
-            infobuf->writeuLEB128(code);        // abbreviation code
-            infobuf->writeByte(tysize(t->Tty)); // DW_AT_byte_size
-            infobuf->write32(pvoididx);         // DW_AT_containing_type
-            infobuf->write32(nextidx);          // DW_AT_type
-#else
-            {
             {
                 type *tp = type_fake(TYnptr);
                 tp->Tcount++;
@@ -1852,9 +2061,6 @@ unsigned dwarf_typidx(type *t)
             code = dwarf_abbrev_code(abbrevTypeStruct, sizeof(abbrevTypeStruct));
             idx = infobuf->size();
             infobuf->writeuLEB128(code);        // abbreviation code
-            unsigned siblingoffset = infobuf->size();
-            unsigned idxsibling = 0;
-            infobuf->write32(idxsibling);       // DW_AT_sibling
             infobuf->writeString("_Delegate");  // DW_AT_name
             infobuf->writeByte(tysize(t->Tty)); // DW_AT_byte_size
 
@@ -1877,15 +2083,19 @@ unsigned dwarf_typidx(type *t)
             infobuf->writeByte(DW_OP_plus_uconst);
             infobuf->writeByte(I64 ? 8 : 4);
 
-            infobuf->writeByte(0);              // no more siblings
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
-            }
-#endif
+            infobuf->writeByte(0);              // no more children
             break;
 
         case TYnref:
         case TYref:
+            nextidx = dwarf_typidx(t->Tnext);
+            assert(nextidx);
+            code = dwarf_abbrev_code(abbrevTypeRef, sizeof(abbrevTypeRef));
+            idx = infobuf->size();
+            infobuf->writeuLEB128(code);        // abbreviation code
+            infobuf->write32(nextidx);          // DW_AT_type
+            break;
+
         case TYnptr:
             if (!t->Tkey)
                 goto Lnptr;
@@ -1893,17 +2103,6 @@ unsigned dwarf_typidx(type *t)
             /* It's really TYaarray, and Tnext is the
              * element type, Tkey is the key type
              */
-#ifdef USE_DWARF_D_EXTENSIONS
-            keyidx = dwarf_typidx(t->Tkey);
-            nextidx = dwarf_typidx(t->Tnext);
-            code = dwarf_abbrev_code(abbrevTypeAArray, sizeof(abbrevTypeAArray));
-            idx = infobuf->size();
-            infobuf->writeuLEB128(code);        // abbreviation code
-            infobuf->writeByte(tysize(t->Tty)); // DW_AT_byte_size
-            infobuf->write32(nextidx);          // DW_AT_type
-            infobuf->write32(keyidx);           // DW_AT_containing_type
-#else
-            {
             {
                 type *tp = type_fake(TYnptr);
                 tp->Tcount++;
@@ -1913,9 +2112,6 @@ unsigned dwarf_typidx(type *t)
             code = dwarf_abbrev_code(abbrevTypeStruct, sizeof(abbrevTypeStruct));
             idx = infobuf->size();
             infobuf->writeuLEB128(code);        // abbreviation code
-            unsigned siblingoffset = infobuf->size();
-            unsigned idxsibling = 0;
-            infobuf->write32(idxsibling);       // DW_AT_sibling
             infobuf->write("_AArray_", 8);      // DW_AT_name
             if (tybasic(t->Tkey->Tty))
                 p = tystring[tybasic(t->Tkey->Tty)];
@@ -1942,11 +2138,7 @@ unsigned dwarf_typidx(type *t)
             infobuf->writeByte(DW_OP_plus_uconst);
             infobuf->writeByte(0);
 
-            infobuf->writeByte(0);              // no more siblings
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
-            }
-#endif
+            infobuf->writeByte(0);              // no more children
             break;
 
         case TYvoid:        return 0;
@@ -2031,10 +2223,7 @@ unsigned dwarf_typidx(type *t)
             Outbuffer abuf;             // for abbrev
             abuf.writeByte(DW_TAG_subroutine_type);
             if (params)
-            {
                 abuf.writeByte(1);      // children
-                abuf.writeByte(DW_AT_sibling);  abuf.writeByte(DW_FORM_ref4);
-            }
             else
                 abuf.writeByte(0);      // no children
             abuf.writeByte(DW_AT_prototyped);   abuf.writeByte(DW_FORM_flag);
@@ -2055,14 +2244,8 @@ unsigned dwarf_typidx(type *t)
                 paramcode = dwarf_abbrev_code(abuf.buf, abuf.size());
             }
 
-            unsigned idxsibling = 0;
-            unsigned siblingoffset;
-
             idx = infobuf->size();
             infobuf->writeuLEB128(code);
-            siblingoffset = infobuf->size();
-            if (params)
-                infobuf->write32(idxsibling);   // DW_AT_sibling
             infobuf->writeByte(1);              // DW_AT_prototyped
             if (nextidx)                        // if return type is not void
                 infobuf->write32(nextidx);      // DW_AT_type
@@ -2079,10 +2262,6 @@ unsigned dwarf_typidx(type *t)
                     infobuf->write32(paramidx);        // DW_AT_type
                 }
                 infobuf->writeByte(0);          // end parameter list
-
-                // This is why the usual typidx caching does not work; this is unique every time
-                idxsibling = infobuf->size();
-                *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
             }
 
             *pidx = idx;                        // remember it in the functype_table[] cache
@@ -2094,7 +2273,6 @@ unsigned dwarf_typidx(type *t)
             {
                 DW_TAG_array_type,
                 1,                      // child (the subrange type)
-                DW_AT_sibling,          DW_FORM_ref4,
                 DW_AT_type,             DW_FORM_ref4,
                 0,                      0,
             };
@@ -2102,7 +2280,6 @@ unsigned dwarf_typidx(type *t)
             {
                 DW_TAG_array_type,
                 1,                      // child (the subrange type)
-                DW_AT_sibling,          DW_FORM_ref4,
                 0,                      0,
             };
             static unsigned char abbrevTypeSubrange[] =
@@ -2124,16 +2301,12 @@ unsigned dwarf_typidx(type *t)
                 ? dwarf_abbrev_code(abbrevTypeSubrange2, sizeof(abbrevTypeSubrange2))
                 : dwarf_abbrev_code(abbrevTypeSubrange, sizeof(abbrevTypeSubrange));
             unsigned idxbase = dwarf_typidx(tssize);
-            unsigned idxsibling = 0;
-            unsigned siblingoffset;
             nextidx = dwarf_typidx(t->Tnext);
             unsigned code1 = nextidx ? dwarf_abbrev_code(abbrevTypeArray, sizeof(abbrevTypeArray))
                                      : dwarf_abbrev_code(abbrevTypeArrayVoid, sizeof(abbrevTypeArrayVoid));
             idx = infobuf->size();
 
             infobuf->writeuLEB128(code1);       // DW_TAG_array_type
-            siblingoffset = infobuf->size();
-            infobuf->write32(idxsibling);       // DW_AT_sibling
             if (nextidx)
                 infobuf->write32(nextidx);      // DW_AT_type
 
@@ -2142,9 +2315,7 @@ unsigned dwarf_typidx(type *t)
             if (!(t->Tflags & TFsizeunknown))
                 infobuf->write32(t->Tdim ? t->Tdim - 1 : 0);    // DW_AT_upper_bound
 
-            infobuf->writeByte(0);              // no more siblings
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
+            infobuf->writeByte(0);              // no more children
             break;
         }
 
@@ -2160,47 +2331,39 @@ unsigned dwarf_typidx(type *t)
         case TYllong2:   tbase = tsllong;  goto Lvector;
         case TYullong2:  tbase = tsullong; goto Lvector;
         Lvector:
-        {   static unsigned char abbrevTypeArray[] =
+        {
+            static unsigned char abbrevTypeArray[] =
             {
                 DW_TAG_array_type,
                 1,                      // child (the subrange type)
                 (DW_AT_GNU_vector & 0x7F) | 0x80, DW_AT_GNU_vector >> 7,        DW_FORM_flag,
                 DW_AT_type,             DW_FORM_ref4,
-                DW_AT_sibling,          DW_FORM_ref4,
                 0,                      0,
             };
-            static unsigned char abbrevTypeBaseTypeSibling[] =
+            static unsigned char abbrevSubRange[] =
             {
-                DW_TAG_base_type,
-                0,                      // no children
-                DW_AT_byte_size,        DW_FORM_data1,  // sizeof(tssize_t)
-                DW_AT_encoding,         DW_FORM_data1,  // DW_ATE_unsigned
-                0,                      0,
+                DW_TAG_subrange_type,
+                0,                                // no children
+                DW_AT_upper_bound, DW_FORM_data1, // length of vector
+                0,                 0,
             };
 
-            unsigned code2 = dwarf_abbrev_code(abbrevTypeBaseTypeSibling, sizeof(abbrevTypeBaseTypeSibling));
-            unsigned code1 = dwarf_abbrev_code(abbrevTypeArray, sizeof(abbrevTypeArray));
+            unsigned code = dwarf_abbrev_code(abbrevTypeArray, sizeof(abbrevTypeArray));
             unsigned idxbase = dwarf_typidx(tbase);
-            unsigned idxsibling = 0;
-            unsigned siblingoffset;
 
             idx = infobuf->size();
 
-            infobuf->writeuLEB128(code1);       // DW_TAG_array_type
+            infobuf->writeuLEB128(code);        // DW_TAG_array_type
             infobuf->writeByte(1);              // DW_AT_GNU_vector
             infobuf->write32(idxbase);          // DW_AT_type
-            siblingoffset = infobuf->size();
-            infobuf->write32(idxsibling);       // DW_AT_sibling
 
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
+            // vector length stored as subrange type
+            code = dwarf_abbrev_code(abbrevSubRange, sizeof(abbrevSubRange));
+            infobuf->writeuLEB128(code);        // DW_TAG_subrange_type
+            unsigned char dim = tysize[tybasic(t->Tty)] / tysize[tybasic(tbase->Tty)];
+            infobuf->writeByte(dim - 1);        // DW_AT_upper_bound
 
-            // Not sure why this is necessary instead of using dwarf_typidx(tssize), but gcc does it
-            infobuf->writeuLEB128(code2);       // DW_TAG_base_type
-            infobuf->writeByte(tysize(tssize->Tty));              // DW_AT_byte_size
-            infobuf->writeByte(DW_ATE_unsigned);        // DT_AT_encoding
-
-            infobuf->writeByte(0);              // no more siblings
+            infobuf->writeByte(0);              // no more children
             break;
         }
 
@@ -2246,8 +2409,7 @@ unsigned dwarf_typidx(type *t)
 
             if (t->Tflags & (TFsizeunknown | TFforward))
             {
-                abbrevTypeStruct1[0] = (st->Sflags & STRunion)
-                        ? DW_TAG_union_type : DW_TAG_structure_type;
+                abbrevTypeStruct1[0] = dwarf_classify_struct(st->Sflags);
                 code = dwarf_abbrev_code(abbrevTypeStruct1, sizeof(abbrevTypeStruct1));
                 idx = infobuf->size();
                 infobuf->writeuLEB128(code);
@@ -2276,8 +2438,7 @@ unsigned dwarf_typidx(type *t)
             t->Tflags &= ~TFforward;
             if (nfields == 0)
             {
-                abbrevTypeStruct0[0] = (st->Sflags & STRunion)
-                        ? DW_TAG_union_type : DW_TAG_structure_type;
+                abbrevTypeStruct0[0] = dwarf_classify_struct(st->Sflags);
                 abbrevTypeStruct0[1] = 0;               // no children
                 abbrevTypeStruct0[5] = DW_FORM_data1;   // DW_AT_byte_size
                 code = dwarf_abbrev_code(abbrevTypeStruct0, sizeof(abbrevTypeStruct0));
@@ -2289,10 +2450,8 @@ unsigned dwarf_typidx(type *t)
             else
             {
                 Outbuffer abuf;         // for abbrev
-                abuf.writeByte((st->Sflags & STRunion)
-                        ? DW_TAG_union_type : DW_TAG_structure_type);
+                abuf.writeByte(dwarf_classify_struct(st->Sflags));
                 abuf.writeByte(1);              // children
-                abuf.writeByte(DW_AT_sibling);  abuf.writeByte(DW_FORM_ref4);
                 abuf.writeByte(DW_AT_name);     abuf.writeByte(DW_FORM_string);
                 abuf.writeByte(DW_AT_byte_size);
 
@@ -2321,13 +2480,8 @@ unsigned dwarf_typidx(type *t)
                 abuf.writeByte(0);
                 membercode = dwarf_abbrev_code(abuf.buf, abuf.size());
 
-                unsigned idxsibling = 0;
-                unsigned siblingoffset;
-
                 idx = infobuf->size();
                 infobuf->writeuLEB128(code);
-                siblingoffset = infobuf->size();
-                infobuf->write32(idxsibling);   // DW_AT_sibling
                 infobuf->writeString(s->Sident);        // DW_AT_name
                 if (sz <= 0xFF)
                     infobuf->writeByte(sz);     // DW_AT_byte_size
@@ -2360,9 +2514,7 @@ unsigned dwarf_typidx(type *t)
                     }
                 }
 
-                infobuf->writeByte(0);          // no more siblings
-                idxsibling = infobuf->size();
-                *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
+                infobuf->writeByte(0);          // no more children
             }
             s->Stypidx = idx;
             return idx;                 // no need to cache it
@@ -2373,7 +2525,6 @@ unsigned dwarf_typidx(type *t)
             {
                 DW_TAG_enumeration_type,
                 1,                      // child (the subrange type)
-                DW_AT_sibling,          DW_FORM_ref4,
                 DW_AT_name,             DW_FORM_string,
                 DW_AT_byte_size,        DW_FORM_data1,
                 0,                      0,
@@ -2433,13 +2584,8 @@ unsigned dwarf_typidx(type *t)
             abuf.writeByte(0);
             membercode = dwarf_abbrev_code(abuf.buf, abuf.size());
 
-            unsigned idxsibling = 0;
-            unsigned siblingoffset;
-
             idx = infobuf->size();
             infobuf->writeuLEB128(code);
-            siblingoffset = infobuf->size();
-            infobuf->write32(idxsibling);       // DW_AT_sibling
             infobuf->writeString(s->Sident);    // DW_AT_name
             infobuf->writeByte(sz);             // DW_AT_byte_size
 
@@ -2455,9 +2601,7 @@ unsigned dwarf_typidx(type *t)
                     infobuf->writesLEB128(value);
             }
 
-            infobuf->writeByte(0);              // no more siblings
-            idxsibling = infobuf->size();
-            *(unsigned *)(infobuf->buf + siblingoffset) = idxsibling;
+            infobuf->writeByte(0);              // no more children
 
             s->Stypidx = idx;
             return idx;                 // no need to cache it
@@ -2606,5 +2750,26 @@ unsigned dwarf_abbrev_code(unsigned char *data, size_t nbytes)
     return *pcode;
 }
 
+/*****************************************************
+ * Write Dwarf-style exception tables.
+ * Params:
+ *      sfunc = function to generate tables for
+ *      startoffset = size of function prolog
+ *      retoffset = offset from start of function to epilog
+ */
+void dwarf_except_gentables(Funcsym *sfunc, unsigned startoffset, unsigned retoffset)
+{
+    int seg = dwarf_getsegment_alloc(except_table_name, 1);
+    Outbuffer *buf = SegData[seg]->SDbuf;
+    buf->reserve(100);
+    sfunc->Sfunc->LSDAoffset = buf->size();
+    genDwarfEh(sfunc, seg, buf, usednteh & EHcleanup, startoffset, retoffset);
+}
+
+#else
+void dwarf_CFA_set_loc(size_t location) { }
+void dwarf_CFA_set_reg_offset(int reg, int offset) { }
+void dwarf_CFA_offset(int reg, int offset) { }
+void dwarf_except_gentables(Funcsym *sfunc, unsigned startoffset, unsigned retoffset) { }
 #endif
 #endif

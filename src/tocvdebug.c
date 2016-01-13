@@ -159,7 +159,7 @@ unsigned cv4_Denum(EnumDeclaration *e)
         {   EnumMember *sf = (*e->members)[i]->isEnumMember();
             if (sf)
             {
-                dinteger_t value = sf->value->toInteger();
+                dinteger_t value = sf->value()->toInteger();
                 unsigned fnamelen1 = fnamelen;
 
                 // store only member's simple name
@@ -233,7 +233,7 @@ unsigned cv4_Denum(EnumDeclaration *e)
                 if (fieldi > nfields)
                     break;                  // chop off the rest
 
-                dinteger_t value = sf->value->toInteger();
+                dinteger_t value = sf->value()->toInteger();
                 TOWORD(dt->data + j,(config.fulltypes == CV8) ? LF_ENUMERATE_V3 : LF_ENUMERATE);
                 unsigned attribute = 0;
                 TOWORD(dt->data + j + 2,attribute);
@@ -676,7 +676,7 @@ void toDebug(ClassDeclaration *cd)
             for (size_t i = 0; i < cd->baseclasses->dim; i++)
             {
                 BaseClass *bc = (*cd->baseclasses)[i];
-                idx_t typidx = cv4_typidx(Type_toCtype(bc->base->type)->Tnext);
+                idx_t typidx = cv4_typidx(Type_toCtype(bc->sym->type)->Tnext);
                 unsigned attribute = PROTtoATTR(bc->protection);
 
                 unsigned elementlen;

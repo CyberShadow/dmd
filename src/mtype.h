@@ -18,6 +18,7 @@
 
 #include "root.h"
 #include "stringtable.h"
+#include "rmem.h" // for d_size_t
 
 #include "arraytypes.h"
 #include "expression.h"
@@ -44,11 +45,9 @@ typedef union tree_node type;
 #else
 typedef struct TYPE type;
 #endif
-struct Symbol;
 
 void semanticTypeInfo(Scope *sc, Type *t);
 MATCH deduceType(RootObject *o, Scope *sc, Type *tparam, TemplateParameters *parameters, Objects *dedtypes, unsigned *wm = NULL, size_t inferStart = 0);
-Type *reliesOnTident(Type *t, TemplateParameters *tparams = NULL, size_t iStart = 0);
 StorageClass ModToStc(unsigned mod);
 
 enum ENUMTY
@@ -123,6 +122,15 @@ enum MODFlags
     MODmutable   = 0x10       // type is mutable (only used in wildcard matching)
 };
 typedef unsigned char MOD;
+
+// These tables are for implicit conversion of binary ops;
+// the indices are the type of operand one, followed by operand two.
+extern unsigned char impcnvResult[TMAX][TMAX];
+extern unsigned char impcnvType1[TMAX][TMAX];
+extern unsigned char impcnvType2[TMAX][TMAX];
+
+// If !=0, give warning on implicit conversion
+extern unsigned char impcnvWarn[TMAX][TMAX];
 
 class Type : public RootObject
 {
@@ -220,15 +228,6 @@ public:
     static unsigned char sizeTy[TMAX];
     static StringTable stringtable;
 
-    // These tables are for implicit conversion of binary ops;
-    // the indices are the type of operand one, followed by operand two.
-    static unsigned char impcnvResult[TMAX][TMAX];
-    static unsigned char impcnvType1[TMAX][TMAX];
-    static unsigned char impcnvType2[TMAX][TMAX];
-
-    // If !=0, give warning on implicit conversion
-    static unsigned char impcnvWarn[TMAX][TMAX];
-
     Type(TY ty);
     virtual const char *kind();
     Type *copy();
@@ -268,7 +267,7 @@ public:
     virtual bool isscope();
     virtual bool isString();
     virtual bool isAssignable();
-    virtual bool checkBoolean(); // if can be converted to boolean value
+    virtual bool isBoolean();
     virtual void checkDeprecated(Loc loc, Scope *sc);
     bool isConst()       { return (mod & MODconst) != 0; }
     bool isImmutable()   { return (mod & MODimmutable) != 0; }
@@ -334,12 +333,13 @@ public:
     virtual void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     virtual int hasWild();
     virtual Expression *toExpression();
-    virtual int hasPointers();
+    virtual bool hasPointers();
     virtual Type *nextOf();
     Type *baseElemOf();
     uinteger_t sizemask();
     virtual bool needsDestruction();
     virtual bool needsNested();
+    void checkComplexTransition(Loc loc);
 
     static void error(Loc loc, const char *format, ...);
     static void warning(Loc loc, const char *format, ...);
@@ -400,7 +400,6 @@ public:
     unsigned alignsize();
     Expression *getProperty(Loc loc, Identifier *ident, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    char *toChars();
     bool isintegral();
     bool isfloating();
     bool isreal();
@@ -430,12 +429,11 @@ public:
     unsigned alignsize();
     Expression *getProperty(Loc loc, Identifier *ident, int flag);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    char *toChars();
     bool isintegral();
     bool isfloating();
     bool isscalar();
     bool isunsigned();
-    bool checkBoolean();
+    bool isBoolean();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
     Expression *defaultInitLiteral(Loc loc);
@@ -475,7 +473,7 @@ public:
     Expression *defaultInit(Loc loc);
     Expression *defaultInitLiteral(Loc loc);
     Expression *toExpression();
-    int hasPointers();
+    bool hasPointers();
     bool needsDestruction();
     bool needsNested();
 
@@ -496,10 +494,10 @@ public:
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     bool isString();
     bool isZeroInit(Loc loc);
-    bool checkBoolean();
+    bool isBoolean();
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
-    int hasPointers();
+    bool hasPointers();
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -521,9 +519,9 @@ public:
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
     Expression *defaultInit(Loc loc);
     bool isZeroInit(Loc loc);
-    bool checkBoolean();
+    bool isBoolean();
     Expression *toExpression();
-    int hasPointers();
+    bool hasPointers();
     MATCH implicitConvTo(Type *to);
     MATCH constConv(Type *to);
 
@@ -543,7 +541,7 @@ public:
     bool isscalar();
     Expression *defaultInit(Loc loc);
     bool isZeroInit(Loc loc);
-    int hasPointers();
+    bool hasPointers();
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -589,13 +587,11 @@ enum TRUSTformat
 enum PURE
 {
     PUREimpure = 0,     // not pure at all
-    PUREweak = 1,       // no mutable globals are read or written
-    PUREconst = 2,      // parameters are values or const
-    PUREstrong = 3,     // parameters are values or immutable
-    PUREfwdref = 4,     // it's pure, but not known which level yet
+    PUREfwdref = 1,     // it's pure, but not known which level yet
+    PUREweak = 2,       // no mutable globals are read or written
+    PUREconst = 3,      // parameters are values or const
+    PUREstrong = 4,     // parameters are values or immutable
 };
-
-RET retStyle(TypeFunction *tf);
 
 class TypeFunction : public TypeNext
 {
@@ -654,9 +650,9 @@ public:
     MATCH implicitConvTo(Type *to);
     Expression *defaultInit(Loc loc);
     bool isZeroInit(Loc loc);
-    bool checkBoolean();
+    bool isBoolean();
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
-    int hasPointers();
+    bool hasPointers();
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -673,9 +669,16 @@ public:
     void syntaxCopyHelper(TypeQualified *t);
     void addIdent(Identifier *ident);
     void addInst(TemplateInstance *inst);
+    void addIndex(RootObject *expr);
     d_uns64 size(Loc loc);
+
+    void resolveTupleIndex(Loc loc, Scope *sc, Dsymbol *s,
+        Expression **pe, Type **pt, Dsymbol **ps, RootObject *oindex);
+    void resolveExprType(Loc loc, Scope *sc, Expression *e, size_t i,
+        Expression **pe, Type **pt);
     void resolveHelper(Loc loc, Scope *sc, Dsymbol *s, Dsymbol *scopesym,
         Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
+
     void accept(Visitor *v) { v->visit(this); }
 };
 
@@ -688,7 +691,6 @@ public:
     TypeIdentifier(Loc loc, Identifier *ident);
     const char *kind();
     Type *syntaxCopy();
-    //char *toChars();
     void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     Dsymbol *toDsymbol(Scope *sc);
     Type *semantic(Loc loc, Scope *sc);
@@ -706,7 +708,6 @@ public:
     TypeInstance(Loc loc, TemplateInstance *tempinst);
     const char *kind();
     Type *syntaxCopy();
-    //char *toChars();
     void resolve(Loc loc, Scope *sc, Expression **pe, Type **pt, Dsymbol **ps, bool intypeid = false);
     Type *semantic(Loc loc, Scope *sc);
     Dsymbol *toDsymbol(Scope *sc);
@@ -764,7 +765,6 @@ public:
     const char *kind();
     d_uns64 size(Loc loc);
     unsigned alignsize();
-    char *toChars();
     Type *syntaxCopy();
     Type *semantic(Loc loc, Scope *sc);
     Dsymbol *toDsymbol(Scope *sc);
@@ -774,10 +774,10 @@ public:
     Expression *defaultInitLiteral(Loc loc);
     bool isZeroInit(Loc loc);
     bool isAssignable();
-    bool checkBoolean();
+    bool isBoolean();
     bool needsDestruction();
     bool needsNested();
-    int hasPointers();
+    bool hasPointers();
     MATCH implicitConvTo(Type *to);
     MATCH constConv(Type *to);
     unsigned char deduceWild(Type *t, bool isRef);
@@ -796,7 +796,6 @@ public:
     Type *syntaxCopy();
     d_uns64 size(Loc loc);
     unsigned alignsize();
-    char *toChars();
     Type *semantic(Loc loc, Scope *sc);
     Dsymbol *toDsymbol(Scope *sc);
     Expression *dotExp(Scope *sc, Expression *e, Identifier *ident, int flag);
@@ -808,7 +807,7 @@ public:
     bool iscomplex();
     bool isscalar();
     bool isunsigned();
-    bool checkBoolean();
+    bool isBoolean();
     bool isString();
     bool isAssignable();
     bool needsDestruction();
@@ -818,7 +817,7 @@ public:
     Type *toBasetype();
     Expression *defaultInit(Loc loc);
     bool isZeroInit(Loc loc);
-    int hasPointers();
+    bool hasPointers();
     Type *nextOf();
 
     void accept(Visitor *v) { v->visit(this); }
@@ -833,7 +832,6 @@ public:
     TypeClass(ClassDeclaration *sym);
     const char *kind();
     d_uns64 size(Loc loc);
-    char *toChars();
     Type *syntaxCopy();
     Type *semantic(Loc loc, Scope *sc);
     Dsymbol *toDsymbol(Scope *sc);
@@ -847,8 +845,8 @@ public:
     Expression *defaultInit(Loc loc);
     bool isZeroInit(Loc loc);
     bool isscope();
-    bool checkBoolean();
-    int hasPointers();
+    bool isBoolean();
+    bool hasPointers();
 
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -895,7 +893,7 @@ public:
 
     Type *syntaxCopy();
     MATCH implicitConvTo(Type *to);
-    bool checkBoolean();
+    bool isBoolean();
 
     d_uns64 size(Loc loc);
     Expression *defaultInit(Loc loc);
@@ -924,12 +922,8 @@ public:
     virtual void accept(Visitor *v) { v->visit(this); }
 
     static Parameters *arraySyntaxCopy(Parameters *parameters);
-    static int isTPL(Parameters *parameters);
     static size_t dim(Parameters *parameters);
-    static Parameter *getNth(Parameters *parameters, size_t nth, size_t *pn = NULL);
-
-    typedef int (*ForeachDg)(void *ctx, size_t paramidx, Parameter *param);
-    static int foreach(Parameters *parameters, ForeachDg dg, void *ctx, size_t *pn=NULL);
+    static Parameter *getNth(Parameters *parameters, d_size_t nth, d_size_t *pn = NULL);
 };
 
 bool arrayTypeCompatible(Loc loc, Type *t1, Type *t2);
@@ -937,7 +931,7 @@ bool arrayTypeCompatibleWithoutCasting(Loc loc, Type *t1, Type *t2);
 void MODtoBuffer(OutBuffer *buf, MOD mod);
 char *MODtoChars(MOD mod);
 bool MODimplicitConv(MOD modfrom, MOD modto);
-bool MODmethodConv(MOD modfrom, MOD modto);
+MATCH MODmethodConv(MOD modfrom, MOD modto);
 MOD MODmerge(MOD mod1, MOD mod2);
 
 #endif /* DMD_MTYPE_H */

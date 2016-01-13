@@ -74,11 +74,6 @@ class Expression;
 class DeleteDeclaration;
 class OverloadSet;
 struct AA;
-#ifdef IN_GCC
-typedef union tree_node TYPE;
-#else
-struct TYPE;
-#endif
 
 struct Ungag
 {
@@ -156,7 +151,7 @@ public:
     Symbol *isym;               // import version of csym
     const utf8_t *comment;      // documentation comment for this Dsymbol
     Loc loc;                    // where defined
-    Scope *scope;               // !=NULL means context to use for semantic()
+    Scope *_scope;               // !=NULL means context to use for semantic()
     bool errors;                // this symbol failed to pass semantic()
     PASS semanticRun;
     char *depmsg;               // customized deprecation message
@@ -195,8 +190,9 @@ public:
     virtual const char *toPrettyChars(bool QualifyTypes = false);
     virtual const char *kind();
     virtual Dsymbol *toAlias();                 // resolve real symbol
+    virtual Dsymbol *toAlias2();
     virtual int apply(Dsymbol_apply_ft_t fp, void *param);
-    virtual int addMember(Scope *sc, ScopeDsymbol *sds, int memnum);
+    virtual void addMember(Scope *sc, ScopeDsymbol *sds);
     virtual void setScope(Scope *sc);
     virtual void importAll(Scope *sc);
     virtual void semantic(Scope *sc);
@@ -215,7 +211,6 @@ public:
     virtual bool isExport();                    // is Dsymbol exported?
     virtual bool isImportedSymbol();            // is Dsymbol imported?
     virtual bool isDeprecated();                // is Dsymbol deprecated?
-    virtual bool muteDeprecationMessage();      // disable deprecation message on Dsymbol?
     virtual bool isOverloadable();
     virtual bool hasOverloads();
     virtual LabelDsymbol *isLabel();            // is this a LabelDsymbol?
@@ -277,6 +272,7 @@ public:
     virtual DeleteDeclaration *isDeleteDeclaration() { return NULL; }
     virtual SymbolDeclaration *isSymbolDeclaration() { return NULL; }
     virtual AttribDeclaration *isAttribDeclaration() { return NULL; }
+    virtual AnonDeclaration *isAnonDeclaration() { return NULL; }
     virtual OverloadSet *isOverloadSet() { return NULL; }
     virtual void accept(Visitor *v) { v->visit(this); }
 };
@@ -298,7 +294,7 @@ public:
     ScopeDsymbol(Identifier *id);
     Dsymbol *syntaxCopy(Dsymbol *s);
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
-    OverloadSet *mergeOverloadSet(OverloadSet *os, Dsymbol *s);
+    OverloadSet *mergeOverloadSet(Identifier *ident, OverloadSet *os, Dsymbol *s);
     void importScope(Dsymbol *s, Prot protection);
     bool isforwardRef();
     static void multiplyDefined(Loc loc, Dsymbol *s1, Dsymbol *s2);
@@ -309,9 +305,6 @@ public:
 
     static size_t dim(Dsymbols *members);
     static Dsymbol *getNth(Dsymbols *members, size_t nth, size_t *pn = NULL);
-
-    typedef int (*ForeachDg)(void *ctx, size_t idx, Dsymbol *s);
-    static int foreach(Scope *sc, Dsymbols *members, ForeachDg dg, void *ctx, size_t *pn=NULL);
 
     ScopeDsymbol *isScopeDsymbol() { return this; }
     void accept(Visitor *v) { v->visit(this); }
@@ -357,7 +350,7 @@ class OverloadSet : public Dsymbol
 public:
     Dsymbols a;         // array of Dsymbols
 
-    OverloadSet(Identifier *ident);
+    OverloadSet(Identifier *ident, OverloadSet *os = NULL);
     void push(Dsymbol *s);
     OverloadSet *isOverloadSet() { return this; }
     const char *kind();

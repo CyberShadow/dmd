@@ -41,9 +41,11 @@
 #include "irstate.h"
 
 void clearStringTab();
+RET retStyle(TypeFunction *tf);
 
 elem *addressElem(elem *e, Type *t, bool alwaysCopy = false);
 void Statement_toIR(Statement *s, IRState *irs);
+void insertFinallyBlockCalls(block *startblock);
 elem *toEfilename(Module *m);
 Symbol *toSymbol(Dsymbol *s);
 void buildClosure(FuncDeclaration *fd, IRState *irs);
@@ -60,7 +62,7 @@ Symbol *toModuleAssert(Module *m);
 Symbol *toModuleUnittest(Module *m);
 Symbol *toModuleArray(Module *m);
 Symbol *toSymbolX(Dsymbol *ds, const char *prefix, int sclass, type *t, const char *suffix);
-void genhelpers(Module *m, bool iscomdat);
+static void genhelpers(Module *m);
 
 elem *eictor;
 symbol *ictorlocalgot;
@@ -248,9 +250,7 @@ void obj_start(char *srcfile)
 #endif
 
     el_reset();
-#if TX86
     cg87_reset();
-#endif
     out_reset();
 }
 
@@ -437,7 +437,7 @@ void genObjFile(Module *m, bool multiobj)
                       ebcov,
                       efilename,
                       NULL);
-        e = el_bin(OPcall, TYvoid, el_var(rtlsym[RTLSYM_DCOVER2]), e);
+        e = el_bin(OPcall, TYvoid, el_var(getRtlsym(RTLSYM_DCOVER2)), e);
         eictor = el_combine(e, eictor);
         ictorlocalgot = localgot;
     }
@@ -475,34 +475,23 @@ void genObjFile(Module *m, bool multiobj)
         return;
     }
 
-    if (global.params.multiobj)
-    {
-        /* This is necessary because the main .obj for this module is written
-         * first, but determining whether marray or massert or munittest are needed is done
-         * possibly later in the doppelganger modules.
-         * Another way to fix it is do the main one last.
-         */
-        toModuleAssert(m);
-        toModuleUnittest(m);
-        toModuleArray(m);
-    }
-
     /* Always generate module info, because of templates and -cov.
      * But module info needs the runtime library, so disable it for betterC.
      */
     if (!global.params.betterC /*|| needModuleInfo()*/)
         genModuleInfo(m);
 
-    genhelpers(m, false);
+    /* Always generate helper functions b/c of later templates instantiations
+     * with different -release/-debug/-boundscheck/-unittest flags.
+     */
+    if (!global.params.betterC)
+        genhelpers(m);
 
     objmod->termfile();
 }
 
-void genhelpers(Module *m, bool iscomdat)
+static void genhelpers(Module *m)
 {
-    if (global.params.betterC)
-        return;
-
     // If module assert
     for (int i = 0; i < 3; i++)
     {
@@ -511,9 +500,9 @@ void genhelpers(Module *m, bool iscomdat)
         unsigned bc;
         switch (i)
         {
-            case 0:     ma = m->marray;    rt = RTLSYM_DARRAY;     bc = BCexit; break;
-            case 1:     ma = m->massert;   rt = RTLSYM_DASSERT;    bc = BCexit; break;
-            case 2:     ma = m->munittest; rt = RTLSYM_DUNITTEST;  bc = BCret;  break;
+            case 0:     ma = toModuleArray(m);    rt = RTLSYM_DARRAY;     bc = BCexit; break;
+            case 1:     ma = toModuleAssert(m);   rt = RTLSYM_DASSERT;    bc = BCexit; break;
+            case 2:     ma = toModuleUnittest(m); rt = RTLSYM_DUNITTEST;  bc = BCret;  break;
             default:    assert(0);
         }
 
@@ -545,7 +534,7 @@ void genhelpers(Module *m, bool iscomdat)
         if (config.exe == EX_WIN64)
             efilename = addressElem(efilename, Type::tstring, true);
 
-        elem *e = el_var(rtlsym[rt]);
+        elem *e = el_var(getRtlsym(rt));
         e = el_bin(OPcall, TYvoid, e, el_param(elinnum, efilename));
 
         block *b = block_calloc();
@@ -553,9 +542,9 @@ void genhelpers(Module *m, bool iscomdat)
         b->Belem = e;
         ma->Sfunc->Fstartline.Sfilename = m->arg;
         ma->Sfunc->Fstartblock = b;
-        ma->Sclass = iscomdat ? SCcomdat : SCglobal;
+        ma->Sclass = SCglobal;
         ma->Sfl = 0;
-        ma->Sflags |= rtlsym[rt]->Sflags & SFLexit;
+        ma->Sflags |= getRtlsym(rt)->Sflags & SFLexit;
         writefunc(ma);
     }
 }
@@ -748,10 +737,24 @@ bool isDruntimeArrayOp(Identifier *ident)
 
 /* ================================================================== */
 
+UnitTestDeclaration *needsDeferredNested(FuncDeclaration *fd)
+{
+    while (fd && fd->isNested())
+    {
+        FuncDeclaration *fdp = fd->toParent2()->isFuncDeclaration();
+        if (!fdp)
+            break;
+        if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
+            return udp->semanticRun < PASSobj ? udp : NULL;
+        fd = fdp;
+    }
+    return NULL;
+}
+
 void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
 {
     ClassDeclaration *cd = fd->parent->isClassDeclaration();
-    //printf("FuncDeclaration::toObjFile(%p, %s.%s)\n", this, parent->toChars(), toChars());
+    //printf("FuncDeclaration::toObjFile(%p, %s.%s)\n", fd, fd->parent->toChars(), fd->toChars());
 
     //if (type) printf("type = %s\n", type->toChars());
 #if 0
@@ -775,6 +778,9 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
 
     // If errors occurred compiling it, such as bugzilla 6118
     if (fd->type && fd->type->ty == Tfunction && ((TypeFunction *)fd->type)->next->ty == Terror)
+        return;
+
+    if (fd->semantic3Errors)
         return;
 
     if (global.errors)
@@ -807,7 +813,7 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
 
     for (FuncDeclaration *fd2 = fd; fd2; )
     {
-        if (!fd2->isInstantiated() && fd2->inNonRoot())
+        if (fd2->inNonRoot())
             return;
         if (fd2->isNested())
             fd2 = fd2->toParent2()->isFuncDeclaration();
@@ -815,23 +821,15 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
             break;
     }
 
-    FuncDeclaration *fdp = fd->toParent2()->isFuncDeclaration();
-    if (fd->isNested())
+    if (UnitTestDeclaration *udp = needsDeferredNested(fd))
     {
-        if (fdp && fdp->semanticRun < PASSobj)
-        {
-            if (fdp->semantic3Errors)
-                return;
-
-            /* Can't do unittest's out of order, they are order dependent in that their
-             * execution is done in lexical order.
-             */
-            if (UnitTestDeclaration *udp = fdp->isUnitTestDeclaration())
-            {
-                udp->deferredNested.push(fd);
-                return;
-            }
-        }
+        /* Can't do unittest's out of order, they are order dependent in that their
+         * execution is done in lexical order.
+         */
+        udp->deferredNested.push(fd);
+        //printf("%s @[%s]\n\t--> pushed to unittest @[%s]\n",
+        //    fd->toPrettyChars(), fd->loc.toChars(), udp->loc.toChars());
+        return;
     }
 
     if (fd->isArrayOp && isDruntimeArrayOp(fd->ident))
@@ -858,7 +856,6 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
         f->Fclass = (Classsym *)t;
     }
 
-#if TARGET_WINDOS
     /* This is done so that the 'this' pointer on the stack is the same
      * distance away from the function parameters, so that an overriding
      * function can call the nested fdensure or fdrequire of its overridden function
@@ -866,7 +863,6 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
      */
     if (fd->isVirtual() && (fd->fensure || fd->frequire))
         f->Fflags3 |= Ffakeeh;
-#endif
 
 #if TARGET_OSX
     s->Sclass = SCcomdat;
@@ -896,6 +892,7 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
         /* The enclosing function must have its code generated first,
          * in order to calculate correct frame pointer offset.
          */
+        FuncDeclaration *fdp = fd->toParent2()->isFuncDeclaration();
         if (fdp && fdp->semanticRun < PASSobj)
         {
             toObjFile(fdp, multiobj);
@@ -914,35 +911,31 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
             objmod->external_def("_main");
             objmod->ehsections();   // initialize exception handling sections
 #endif
-#if TARGET_WINDOS
             if (global.params.mscoff)
             {
                 objmod->external_def("main");
                 objmod->ehsections();   // initialize exception handling sections
             }
-            else
+            else if (config.exe == EX_WIN32)
             {
                 objmod->external_def("_main");
                 objmod->external_def("__acrtused_con");
             }
-#endif
             objmod->includelib(libname);
             s->Sclass = SCglobal;
         }
         else if (strcmp(s->Sident, "main") == 0 && fd->linkage == LINKc)
         {
-#if TARGET_WINDOS
             if (global.params.mscoff)
             {
                 objmod->includelib("LIBCMT");
                 objmod->includelib("OLDNAMES");
             }
-            else
+            else if (config.exe == EX_WIN32)
             {
                 objmod->external_def("__acrtused_con");        // bring in C startup code
                 objmod->includelib("snn.lib");          // bring in C runtime library
             }
-#endif
             s->Sclass = SCglobal;
         }
 #if TARGET_WINDOS
@@ -998,6 +991,8 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
     IRState irs(m, fd);
     Dsymbols deferToObj;                   // write these to OBJ file later
     irs.deferToObj = &deferToObj;
+    AA *labels = NULL;
+    irs.labels = &labels;
 
     symbol *shidden = NULL;
     Symbol *sthis = NULL;
@@ -1174,8 +1169,11 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
          * 2. impact on function inlining
          * 3. what to do when writing out .di files, or other pretty printing
          */
-        if (global.params.trace)
+        if (global.params.trace && !fd->isCMain())
         {
+            /* The profiler requires TLS, and TLS may not be set up yet when C main()
+             * gets control (i.e. OSX), leading to a crash.
+             */
             /* Wrap the entire function body in:
              *   trace_pro("funcname");
              *   try
@@ -1210,8 +1208,7 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
 
         buildClosure(fd, &irs);
 
-#if TARGET_WINDOS
-        if (fd->isSynchronized() && cd && config.flags2 & CFG2seh &&
+        if (config.ehmethod == EH_WIN32 && fd->isSynchronized() && cd &&
             !fd->isStatic() && !sbody->usesEH() && !global.params.trace)
         {
             /* The "jmonitor" hack uses an optimized exception handling frame
@@ -1219,7 +1216,6 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
              */
             s->Sfunc->Fflags3 |= Fjmonitor;
         }
-#endif
 
         Statement_toIR(sbody, &irs);
         bx.curblock->BC = BCret;
@@ -1239,6 +1235,7 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
                 }
             }
         }
+        insertFinallyBlockCalls(f->Fstartblock);
     }
 
     // If static constructor
@@ -1332,14 +1329,13 @@ bool onlyOneMain(Loc loc)
     static bool hasMain = false;
     if (hasMain)
     {
-        const char *msg = NULL;
+        const char *msg = "";
         if (global.params.addMain)
             msg = ", -main switch added another main()";
-#if TARGET_WINDOS
-        error(lastLoc, "only one main/WinMain/DllMain allowed%s", msg ? msg : "");
-#else
-        error(lastLoc, "only one main allowed%s", msg ? msg : "");
-#endif
+        const char *othermain = "";
+        if (config.exe == EX_WIN32 || config.exe == EX_WIN64)
+            othermain = "/WinMain/DllMain";
+        error(lastLoc, "only one main%s allowed%s", othermain, msg);
         return false;
     }
     lastLoc = loc;
@@ -1460,6 +1456,7 @@ unsigned totym(Type *tx)
 
                 case LINKc:
                 case LINKcpp:
+                case LINKobjc:
                 Lc:
                     t = TYnfunc;
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
@@ -1548,5 +1545,3 @@ elem *toEfilename(Module *m)
     // Turn static array into dynamic array
     return el_pair(TYdarray, el_long(TYsize_t, len), el_ptr(m->sfilename));
 }
-
-

@@ -287,7 +287,7 @@ auto bar12352()
 
     return S();
 }
-static assert(       bar12352        .mangleof == "_D6mangle8bar12352FZS6mangle8bar12352FZ1S");
+static assert(       bar12352        .mangleof == "_D6mangle8bar12352FNaNbNiNfZS6mangle8bar12352FZ1S");
 static assert(typeof(bar12352())     .mangleof ==  "S6mangle8bar12352FZ1S");
 static assert(typeof(bar12352()).func.mangleof == "_D6mangle8bar12352FZ1S4funcMFZv");
 
@@ -301,7 +301,7 @@ auto baz12352()
 
     return new C();
 }
-static assert(       baz12352        .mangleof == "_D6mangle8baz12352FZC6mangle8baz12352FZ1C");
+static assert(       baz12352        .mangleof == "_D6mangle8baz12352FNaNbNfZC6mangle8baz12352FZ1C");
 static assert(typeof(baz12352())     .mangleof ==  "C6mangle8baz12352FZ1C");
 static assert(typeof(baz12352()).func.mangleof == "_D6mangle8baz12352FZ1C4funcMFZv");
 
@@ -365,7 +365,7 @@ static: // necessary to make overloaded symbols accessible via __traits(getOverl
     void g(string) {}
     alias bar = .f10249;
     alias bar =  g;
-    static assert(Seq10249!(bar)[0].mangleof                                   ==   "6mangle6C102496f10249");      // <- _D6mangle1fFlZv (todo!)
+    static assert(Seq10249!(bar)[0].mangleof                                   ==   "6mangle6C102493bar");         // <- _D6mangle1fFlZv
     static assert(Seq10249!(__traits(getOverloads, C10249, "bar"))[0].mangleof == "_D6mangle6f10249FlZv");         // <-
     static assert(Seq10249!(__traits(getOverloads, C10249, "bar"))[1].mangleof == "_D6mangle6C102491gFAyaZv");     // <-
 }

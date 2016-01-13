@@ -55,12 +55,14 @@ struct TestArgs
     string[] objcSources;
     string   permuteArgs;
     string   compileOutput;
+    string   gdbScript;
+    string   gdbMatch;
     string   postScript;
     string   requiredArgs;
     string   requiredArgsForLink;
     // reason for disabling the test (if empty, the test is not disabled)
-    string   disabled_reason;
-    @property bool disabled() { return disabled_reason != ""; }
+    string[] disabledPlatforms;
+    bool     disabled;
 }
 
 struct EnvData
@@ -123,9 +125,9 @@ bool findOutputParameter(string file, string token, out string result, string se
         if (file[istart] == ':') ++istart;
 
         enum embed_sep = "---";
-
         auto n = std.string.indexOf(file[istart .. $], embed_sep);
-        enforce(n != -1, "invalid TEST_OUTPUT format");
+
+        enforce(n != -1, "invalid "~token~" format");
         istart += n + embed_sep.length;
         while (file[istart] == '-') ++istart;
         if (file[istart] == '\r') ++istart;
@@ -225,9 +227,14 @@ bool gatherTestParameters(ref TestArgs testArgs, string input_dir, string input_
     // COMPILE_SEPARATELY can take optional compiler switches when link .o files
     testArgs.compileSeparately = findTestParameter(file, "COMPILE_SEPARATELY", testArgs.requiredArgsForLink);
 
-    findTestParameter(file, "DISABLED", testArgs.disabled_reason);
+    string disabledPlatformsStr;
+    findTestParameter(file, "DISABLED", disabledPlatformsStr);
+    testArgs.disabledPlatforms = split(disabledPlatformsStr);
 
     findOutputParameter(file, "TEST_OUTPUT", testArgs.compileOutput, envData.sep);
+
+    findOutputParameter(file, "GDB_SCRIPT", testArgs.gdbScript, envData.sep);
+    findTestParameter(file, "GDB_MATCH", testArgs.gdbMatch);
 
     if (findTestParameter(file, "POST_SCRIPT", testArgs.postScript))
         testArgs.postScript = replace(testArgs.postScript, "/", to!string(envData.sep));
@@ -391,6 +398,25 @@ bool collectExtraSources (in string input_dir, in string output_dir, in string[]
     return true;
 }
 
+// compare output string to reference string, but ignore places
+// marked by $n$ that contain compiler generated unique numbers
+bool compareOutput(string output, string refoutput)
+{
+    for ( ; ; )
+    {
+        auto pos = refoutput.indexOf("$n$");
+        if (pos < 0)
+            return refoutput == output;
+        if (output.length < pos)
+            return false;
+        if (refoutput[0..pos] != output[0..pos])
+            return false;
+        refoutput = refoutput[pos + 3 ..$];
+        output = output[pos..$];
+        munch(output, "0123456789");
+    }
+}
+
 int main(string[] args)
 {
     if (args.length != 4)
@@ -484,8 +510,11 @@ int main(string[] args)
             (!testArgs.requiredArgs.empty ? " " : ""),
             testArgs.permuteArgs);
 
-    if (testArgs.disabled)
-        writefln("!!! [DISABLED: %s]", testArgs.disabled_reason);
+    if (testArgs.disabledPlatforms.canFind(envData.os, envData.os ~ envData.model))
+    {
+        testArgs.disabled = true;
+        writefln("!!! [DISABLED on %s]", envData.os);
+    }
     else
         write("\n");
 
@@ -522,7 +551,7 @@ int main(string[] args)
                 string objfile = output_dir ~ envData.sep ~ test_name ~ "_" ~ to!string(i) ~ envData.obj;
                 toCleanup ~= objfile;
 
-                string command = format("%s -m%s -I%s %s %s -od%s -of%s %s%s", envData.dmd, envData.model, input_dir,
+                string command = format("%s -conf= -m%s -I%s %s %s -od%s -of%s %s%s", envData.dmd, envData.model, input_dir,
                         reqArgs, c, output_dir,
                         (testArgs.mode == TestMode.RUN ? test_app_dmd : objfile),
                         (testArgs.mode == TestMode.RUN ? "" : "-c "),
@@ -538,7 +567,7 @@ int main(string[] args)
                     string newo= result_path ~ replace(replace(filename, ".d", envData.obj), envData.sep~"imports"~envData.sep, envData.sep);
                     toCleanup ~= newo;
 
-                    string command = format("%s -m%s -I%s %s %s -od%s -c %s", envData.dmd, envData.model, input_dir,
+                    string command = format("%s -conf= -m%s -I%s %s %s -od%s -c %s", envData.dmd, envData.model, input_dir,
                         reqArgs, c, output_dir, filename);
                     compile_output ~= execute(fThisRun, command, testArgs.mode != TestMode.FAIL_COMPILE, result_path);
                 }
@@ -546,7 +575,7 @@ int main(string[] args)
                 if (testArgs.mode == TestMode.RUN)
                 {
                     // link .o's into an executable
-                    string command = format("%s -m%s %s %s -od%s -of%s %s", envData.dmd, envData.model, envData.required_args,
+                    string command = format("%s -conf= -m%s %s %s -od%s -of%s %s", envData.dmd, envData.model, envData.required_args,
                             testArgs.requiredArgsForLink, output_dir, test_app_dmd, join(toCleanup, " "));
                     version(Windows) command ~= " -map nul.map";
 
@@ -563,7 +592,7 @@ int main(string[] args)
 
             if (testArgs.compileOutput !is null)
             {
-                enforce(compile_output == testArgs.compileOutput,
+                enforce(compareOutput(compile_output, testArgs.compileOutput),
                         "\nexpected:\n----\n"~testArgs.compileOutput~"\n----\nactual:\n----\n"~compile_output~"\n----\n");
             }
 
@@ -577,10 +606,27 @@ int main(string[] args)
                         toCleanup ~= test_app_dmd_base ~ to!string(i) ~ ".pdb";
                     }
 
-                string command = test_app_dmd;
-                if (testArgs.executeArgs) command ~= " " ~ testArgs.executeArgs;
+                if (testArgs.gdbScript is null)
+                {
+                    string command = test_app_dmd;
+                    if (testArgs.executeArgs) command ~= " " ~ testArgs.executeArgs;
 
-                execute(fThisRun, command, true, result_path);
+                    execute(fThisRun, command, true, result_path);
+                }
+                else version (linux)
+                {
+                    auto script = test_app_dmd_base ~ to!string(i) ~ ".gdb";
+                    toCleanup ~= script;
+                    with (File(script, "w"))
+                        write(testArgs.gdbScript);
+                    string command = "gdb "~test_app_dmd~" --batch -x "~script;
+                    auto gdb_output = execute(fThisRun, command, true, result_path);
+                    if (testArgs.gdbMatch !is null)
+                    {
+                        enforce(match(gdb_output, regex(testArgs.gdbMatch)),
+                                "\nGDB regex: '"~testArgs.gdbMatch~"' didn't match output:\n----\n"~gdb_output~"\n----\n");
+                    }
+                }
             }
 
             fThisRun.close();
@@ -619,4 +665,3 @@ int main(string[] args)
 
     return 0;
 }
-

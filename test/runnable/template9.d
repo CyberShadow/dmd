@@ -457,6 +457,92 @@ void test2579()
 }
 
 /**********************************/
+// 2803
+
+auto foo2803(T)(T t = 0) { return t; }
+
+struct S2803 {}
+S2803 s2803;
+ref S2803 getS2803() { return s2803; }
+auto fun2803(T, U)(T t, ref U u = getS2803)
+{
+    static assert(is(U == S2803));
+    return &u;
+}
+
+// from the past version of std.conv
+template to2803(T) { T to2803(S)(S src) { return T.init; } }
+auto toImpl2803a(T, S)(S s, in T left, in T sep = ", ", in T right = "]") {}
+auto toImpl2803b(T, S)(S s, in T left = to2803!T(S.stringof~"("), in T right = ")") {}
+auto toImpl2803c(T, S)(S s, in T left =          S.stringof~"(" , in T right = ")") {}  // combination with enh 13944
+
+// from std.range.package in 2.067a.
+auto enumerate2803(En = size_t, R)(R r, En start = 0)
+{
+    // The type of 'start' should be size_t, it's the defaultArg of En,
+    // rather than the deduced type from its defualtArg '0'.
+    static assert(is(typeof(start) == size_t));
+    return start;
+}
+
+// from std.numeric.
+alias ElementType2803(R) = typeof(R.init[0].init);
+void normalize2803(R)(R range, ElementType2803!R sum = 1)
+{
+    // The type of 'sum' should be determined to ElementType!(double[]) == double
+    // before the type deduction from its defaultArg '1'.
+    static assert(is(typeof(sum) == double));
+}
+
+auto foo14468(T)(T[]...) { return 1; }
+auto foo14468(bool flag, T)(T[]...) { return 2; }
+
+void test2803()
+{
+    assert(foo2803() == 0);
+    assert(foo2803(1) == 1);
+
+    S2803 s;
+    assert(fun2803(1)    is &s2803);
+    assert(fun2803(1, s) is &s);
+
+    // regression cases
+
+    toImpl2803a!string(1, "[");
+
+    toImpl2803b! string(1);
+    toImpl2803b!wstring(1);
+    toImpl2803b!dstring(1);
+
+    toImpl2803c! string(1);
+    toImpl2803c!wstring(1); // requires enhancement 13944
+    toImpl2803c!dstring(1); // requires enhancement 13944
+
+    enumerate2803([1]);
+
+    double[] a = [];
+    normalize2803(a);
+
+    assert(foo14468!int() == 1);
+}
+
+/**********************************/
+// 6613
+
+alias Tuple6613(T...) = T;
+
+void f6613(T...)(int x = 0, T xs = Tuple6613!())
+{
+    assert(x == 0);
+    static assert(T.length == 0);
+}
+
+void test6613()
+{
+    f6613();
+}
+
+/**********************************/
 // 4953
 
 void bug4953(T = void)(short x) {}
@@ -855,6 +941,20 @@ void test6780()
 
     bar6780 = 10;
     assert(g6780 == 10);
+}
+
+/**********************************/
+// 6810
+
+int f6810(int n)(int) { return 1;}
+int f6810(U...)(U)    { assert(0); }
+int f6810(U...)(U a)  { assert(0); }
+int f6810(U...)(U)   if (true) { assert(0); }
+int f6810(U...)(U a) if (true) { assert(0); }
+
+void test6810()
+{
+    assert(f6810!0(0) == 1);
 }
 
 /**********************************/
@@ -1577,6 +1677,13 @@ void test12()
     Tuple12!(int, string) t;
     t.foo!Tuple12();
 }
+
+/**********************************/
+// 14290
+
+struct Foo14290(int i) {}
+alias Foo14290a = Foo14290!1;
+static assert(!is(Foo14290!2 == Foo14290a!T, T...));
 
 /**********************************/
 // 8125
@@ -3550,7 +3657,7 @@ template component13087(alias vec, char c)
     static assert(is(typeof(f_m( sca1))  == shared(      const int)[]));
     static assert(is(typeof(f_m( sca2))  == shared(      const int)[]));  // <- shared(const(int)[])
     static assert(is(typeof(f_m(swma1))  == shared(inout       int)[]));
-    static assert(is(typeof(f_m(swma2))  == shared(inout       int)[]));  // <- shared(inout(int[])
+    static assert(is(typeof(f_m(swma2))  == shared(inout       int)[]));  // <- shared(inout(int[]))
     static assert(is(typeof(f_m(swca1))  == shared(inout const int)[]));
     static assert(is(typeof(f_m(swca2))  == shared(inout const int)[]));  // <- shared(inout(const(int))[])
     // 9 * 2 - 1
@@ -4160,6 +4267,18 @@ void test13374()
 }
 
 /******************************************/
+// 14109
+
+string f14109() { return "a"; }
+string g14109()() { return "a"; }
+
+struct S14109(string s) { static assert(s == "a"); }
+
+alias X14109 = S14109!(f14109);
+alias Y14109 = S14109!(g14109!());
+static assert(is(X14109 == Y14109));
+
+/******************************************/
 // 13378
 
 struct Vec13378(size_t n, T, string as)
@@ -4332,6 +4451,313 @@ void test13807()
 }
 
 /******************************************/
+// 14174
+
+struct Config14174(a, b) {}
+
+struct N14174 {}
+
+alias defConfig14174 = Config14174!(N14174, N14174);
+
+void accepter14174a(Config : Config14174!(T) = defConfig14174, T...)()
+{
+    static assert(accepter14174a.mangleof
+        == "_D7breaker131__T14"~
+           "accepter14174a"~
+           "HTS7breaker51__T11Config14174TS7breaker6N14174TS7breaker6N14174Z11Config14174TS7breaker6N14174TS7breaker6N14174Z14"~
+           "accepter14174a"~
+           "FZv");
+}
+
+void accepter14174b(Config : Config14174!(T) = defConfig14174, T...)()
+{
+    static assert(accepter14174b.mangleof
+        == "_D7breaker131__T14"~
+           "accepter14174b"~
+           "HTS7breaker51__T11Config14174TS7breaker6N14174TS7breaker6N14174Z11Config14174TS7breaker6N14174TS7breaker6N14174Z14"~
+           "accepter14174b"~
+           "FZv");
+}
+
+void test14174()
+{
+    accepter14174a!()(); // ok
+    accepter14174b();    // error
+}
+
+/******************************************/
+// 14836
+
+template a14836x(alias B, C...)
+{
+    int a14836x(D...)()    if (D.length == 0) { return 1; }
+    int a14836x(D...)(D d) if (D.length >  0) { return 2; }
+}
+template a14836y(alias B, C...)
+{
+    int a14836y(T, D...)(T t)      if (D.length == 0) { return 1; }
+    int a14836y(T, D...)(T t, D d) if (D.length >  0) { return 2; }
+}
+
+void test14836()
+{
+    int v;
+    assert(a14836x!(v)() == 1);
+    assert(a14836x!(v)(1) == 2);
+    assert(a14836y!(v)(1) == 1);
+    assert(a14836y!(v)(1, 2) == 2);
+}
+
+/******************************************/
+// 14357
+
+template Qux14357(T : U*, U : V*, V)
+{
+    pragma(msg, T);     // no match <- float**
+    pragma(msg, U);     // no match <- float*
+    pragma(msg, V);     // no match <- int
+    enum Qux14357 = T.sizeof + V.sizeof;
+}
+static assert(!__traits(compiles, Qux14357!(float**, int*)));
+
+/******************************************/
+// 14481
+
+template someT14481(alias e)
+{
+    alias someT14481 = e;
+}
+
+mixin template Mix14481(alias e)
+{
+    alias SomeAlias = someT14481!e;
+}
+
+struct Hoge14481
+{
+    mixin Mix14481!e;
+    enum e = 10;
+}
+
+/******************************************/
+// 14520
+
+template M14520(alias  a) { enum M14520 = 1; }
+template M14520(string s) { enum M14520 = 2; }
+
+int f14520a();
+string f14520b() { assert(0); }
+string f14520c() { return "a"; }
+
+static assert(M14520!f14520a == 1);
+static assert(M14520!f14520b == 1);
+static assert(M14520!f14520c == 1);
+
+/******************************************/
+// 14568
+
+struct Interval14568()
+{
+    auto left = INVALID;
+
+    auto opAssign()(Interval14568) { left; }
+}
+
+auto interval14568(T)(T point)
+{
+    Interval14568!();
+}
+
+alias Instantiate14568(alias symbol, Args...) = symbol!Args;
+
+template Match14568(patterns...)
+{
+    static if (__traits(compiles, Instantiate14568!(patterns[0])))
+    {
+        alias Match14568 = patterns[0];
+    }
+    else static if (patterns.length == 1)
+    {}
+}
+
+template SubOps14568(Args...)
+{
+    auto opIndex()
+    {
+        template IntervalType(T...)
+        {
+            alias Point() = typeof(T.interval14568);
+
+            alias IntervalType = Match14568!(Point);
+        }
+        alias Subspace = IntervalType!(Args);
+    }
+}
+
+struct Nat14568 { mixin SubOps14568!(null); }
+
+/******************************************/
+// 14735
+
+enum CS14735 { yes, no }
+
+int indexOf14735a(Range      )(Range    s, in dchar c) { return 1; }
+int indexOf14735a(T, size_t n)(ref T[n] s, in dchar c) { return 2; }
+
+int indexOf14735b(Range      )(Range    s, in dchar c, in CS14735 cs = CS14735.yes) { return 1; }
+int indexOf14735b(T, size_t n)(ref T[n] s, in dchar c, in CS14735 cs = CS14735.yes) { return 2; }
+
+void test14735()
+{
+    char[64] buf;
+
+    // Supported from 2.063: (http://dlang.org/changelog#implicitarraycast)
+    assert(indexOf14735a(buf[0..32], '\0') == 2);
+    assert(indexOf14735b(buf[0..32], '\0') == 2);
+
+    // Have to work as same as above.
+    assert(indexOf14735a(buf[], '\0') == 2);
+    assert(indexOf14735b(buf[], '\0') == 2);
+}
+
+/******************************************/
+// 14743
+
+class A14743
+{
+    auto func1 = (A14743 a) { a.func2!int(); };
+    auto func2(T)() {}
+}
+
+/******************************************/
+// 14802
+
+void test14802()
+{
+    auto func(T)(T x, T y) { return x; }
+
+    struct S1 { double x; alias x this; }
+    struct S2 { double x; alias x this; }
+    S1 s1;
+    S2 s2;
+
+    enum E1 : double { a = 1.0 }
+    enum E2 : double { a = 1.0 }
+
+    static assert(is(typeof( func(1 , 1 ) ) == int));
+    static assert(is(typeof( func(1u, 1u) ) == uint));
+    static assert(is(typeof( func(1u, 1 ) ) == uint));
+    static assert(is(typeof( func(1 , 1u) ) == uint));
+
+    static assert(is(typeof( func(1.0f, 1.0f) ) == float));
+    static assert(is(typeof( func(1.0 , 1.0 ) ) == double));
+    static assert(is(typeof( func(1.0 , 1.0f) ) == double));
+    static assert(is(typeof( func(1.0f, 1.0 ) ) == double));
+
+    static assert(is(typeof( func(s1, s1) ) == S1));
+    static assert(is(typeof( func(s2, s2) ) == S2));
+    static assert(is(typeof( func(s1, s2) ) == double));
+    static assert(is(typeof( func(s2, s1) ) == double));
+
+    static assert(is(typeof( func(E1.a, E1.a) ) == E1));
+    static assert(is(typeof( func(E2.a, E2.a) ) == E2));
+    static assert(is(typeof( func(E1.a, 1.0)  ) == double));
+    static assert(is(typeof( func(E2.a, 1.0)  ) == double));
+    static assert(is(typeof( func(1.0,  E1.a) ) == double));
+    static assert(is(typeof( func(1.0,  E2.a) ) == double));
+    static assert(is(typeof( func(E1.a, E2.a) ) == double));
+    static assert(is(typeof( func(E2.a, E1.a) ) == double));
+}
+
+/******************************************/
+// 14886
+
+void test14886()
+{
+    alias R = int[100_000];
+
+    auto front(T)(T[] a) {}
+    front(R.init);
+
+    auto bar1(T)(T, T[] a) { return T.init; }
+    auto bar2(T)(T[] a, T) { return T.init; }
+
+    static assert(is(typeof(bar1(1L, R.init)) == long));
+    static assert(is(typeof(bar2(R.init, 1L)) == long));
+    // <-- T should be deduced to int because R.init is rvalue...?
+
+    ubyte x;
+    static assert(is(typeof(bar1(x, R.init)) == int));
+    static assert(is(typeof(bar2(R.init, x)) == int));
+}
+
+/******************************************/
+// 15156
+
+// 15156
+auto f15116a(T)(string s, string arg2) { return 1; }
+auto f15116b(T)(int    i, string arg2) { return 2; }
+
+template bish15116(T)
+{
+    alias bish15116 = f15116a!T;
+    alias bish15116 = f15116b!T;
+}
+
+void test15116()
+{
+    alias func = bish15116!string;
+    assert(func("", "") == 1);
+    assert(func(12, "") == 2);
+}
+
+/******************************************/
+// 15152
+
+void test15152()
+{
+    void func(string M)() { }
+
+    struct S
+    {
+        enum name = "a";
+    }
+
+    enum s = S.init;
+    func!(s.name);
+}
+
+/******************************************/
+// 15352
+
+struct S15352(T, T delegate(uint idx) supplier)
+{
+}
+
+auto make15352a(T, T delegate(uint idx) supplier)()
+{
+    enum local = supplier;      // OK
+    S15352!(T, local) ret;
+    return ret;
+}
+
+auto make15352b(T, T delegate(uint idx) supplier)()
+{
+    S15352!(T, supplier) ret;   // OK <- Error
+    return ret;
+}
+
+void test15352()
+{
+    enum dg = delegate(uint idx) => idx;
+    auto s1 = S15352!(uint, dg)();
+    auto s2 = make15352a!(uint, dg)();
+    auto s3 = make15352b!(uint, dg)();
+    assert(is(typeof(s1) == typeof(s2)));
+    assert(is(typeof(s1) == typeof(s3)));
+}
+
+/******************************************/
 
 int main()
 {
@@ -4352,6 +4778,8 @@ int main()
     test2296();
     bug4984();
     test2579();
+    test2803();
+    test6613();
     test5886();
     test5393();
     test5896();
@@ -4365,6 +4793,7 @@ int main()
     test6208c();
     test6738();
     test6780();
+    test6810();
     test6891();
     test6994();
     test6764();
@@ -4438,6 +4867,10 @@ int main()
     test13379();
     test13484();
     test13694();
+    test14836();
+    test14735();
+    test14802();
+    test15116();
 
     printf("Success\n");
     return 0;

@@ -1245,6 +1245,90 @@ void test11730()
 }
 
 /************************************************/
+// 14089
+
+struct S14089
+{
+    int num;
+    S14089 opAssign(S14089 val) { return this; }
+}
+
+void test14089()
+{
+    S14089[int] aa;
+    S14089 b = aa[1] = S14089(0);
+    assert(aa[1].num == 0);
+    assert(b.num == 0);
+}
+
+/************************************************/
+// 14144
+
+struct JSON14144
+{
+    union
+    {
+        double _floating;
+    }
+
+    this(typeof(null))
+    {
+    }
+
+    @trusted pure nothrow typeof(null) opAssign(typeof(null) nothing)
+    {
+        return null;
+    }
+}
+
+void test14144()
+{
+    JSON14144[string] x;
+    x["wat"] = null;
+    assert(x.length == 1);
+    assert("wat" in x);
+}
+
+/************************************************/
+// 14321
+
+void test14321()
+{
+    struct Foo
+    {
+        static char[8] buf;
+        static char[] op;
+
+        this(int id) { buf[op.length] = 'c'; op = buf[0..op.length + 1]; }
+        this(this) { buf[op.length] = 'p'; op = buf[0..op.length + 1]; }
+        ~this() { buf[op.length] = 'd'; op = buf[0..op.length + 1]; }
+    }
+    Foo[string] foos;
+    assert(Foo.op == "");
+    foos["test"] = Foo(42);     // initialization
+    assert(Foo.op == "c");
+    foos["test"] = Foo(42);     // assignment
+    assert(Foo.op == "ccd");
+
+    struct Bar
+    {
+        static char[8] buf;
+        static char[] op;
+
+        int id;
+        //this(int id) { op ~= "c"; }
+        this(this) { buf[op.length] = 'p'; op = buf[0..op.length + 1]; }
+        ~this() { buf[op.length] = 'd'; op = buf[0..op.length + 1]; }
+    }
+    Bar[string] bars;
+    assert(Bar.op == "");
+    bars["test"] = Bar(42);     // initialization
+    assert(Bar.op == "");
+    bars["test"] = Bar(42);     // assignment
+    assert(Bar.op == "d");
+}
+
+/************************************************/
 
 int main()
 {
@@ -1293,9 +1377,9 @@ int main()
     test6799();
     test11359();
     test11730();
+    test14089();
+    test14321();
 
     printf("Success\n");
     return 0;
 }
-
-

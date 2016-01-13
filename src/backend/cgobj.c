@@ -47,7 +47,7 @@ struct Loc
 void error(Loc loc, const char *format, ...);
 #endif
 
-#if OMFOBJ
+#if TARGET_WINDOS
 
 static char __file__[] = __FILE__;      // for tassert.h
 #include        "tassert.h"
@@ -379,7 +379,7 @@ void too_many_symbols()
 #endif
 }
 
-#if !DEBUG && TX86 && __INTSIZE == 4 && !defined(_MSC_VER)
+#if !DEBUG && TX86 && !defined(_MSC_VER)
 __declspec(naked) int __pascal insidx(char *p,unsigned index)
 {
 #undef AL
@@ -523,6 +523,24 @@ seg_data *getsegment()
     return pseg;
 }
 
+/**************************
+ * Output read only data and generate a symbol for it.
+ *
+ */
+
+symbol * Obj::sym_cdata(tym_t ty,char *p,int len)
+{
+    symbol *s;
+
+    alignOffset(CDATA, tysize(ty));
+    s = symboldata(CDoffset, ty);
+    s->Sseg = CDATA;
+    Obj::bytes(CDATA, CDoffset, len, p);
+    CDoffset += len;
+
+    s->Sfl = FLdata; //FLextern;
+    return s;
+}
 
 /**************************
  * Ouput read only data for data.
@@ -534,10 +552,17 @@ seg_data *getsegment()
 
 int Obj::data_readonly(char *p, int len, int *pseg)
 {
+#if MARS
+    targ_size_t oldoff = CDoffset;
+    Obj::bytes(CDATA,CDoffset,len,p);
+    CDoffset += len;
+    *pseg = CDATA;
+#else
     targ_size_t oldoff = Doffset;
     Obj::bytes(DATA,Doffset,len,p);
     Doffset += len;
     *pseg = DATA;
+#endif
     return oldoff;
 }
 
@@ -774,7 +799,7 @@ void Obj::term(const char *objfilename)
         Obj::theadr(obj.modname);
         objheader(obj.csegname);
         mem_free(obj.csegname);
-        Obj::segment_group(SegData[CODE]->SDoffset,SegData[DATA]->SDoffset,0,SegData[UDATA]->SDoffset);  // do real sizes
+        Obj::segment_group(SegData[CODE]->SDoffset, SegData[DATA]->SDoffset, SegData[CDATA]->SDoffset, SegData[UDATA]->SDoffset);  // do real sizes
 
         // Update any out-of-date far segment sizes
         for (size_t i = 0; i <= seg_count; i++)
@@ -911,19 +936,8 @@ void Obj::linnum(Srcpos srcpos,targ_size_t offset)
             obj.linvec = vec_realloc(obj.linvec,linnum + 1000);
         if (offset >= vec_numbits(obj.offvec))
         {
-#if __INTSIZE == 2
-            unsigned newsize = (unsigned)offset * 2;
-
-            if (offset >= 0x8000)
-            {   newsize = 0xFF00;
-                assert(offset < newsize);
-            }
-            if (newsize != vec_numbits(obj.offvec))
-                obj.offvec = vec_realloc(obj.offvec,newsize);
-#else
             if (offset < 0xFF00)        // otherwise we overflow ph_malloc()
                 obj.offvec = vec_realloc(obj.offvec,offset * 2);
-#endif
         }
         if (
 #if 1 // disallow multiple offsets per line
@@ -1116,13 +1130,16 @@ void Obj::dosseg()
 
 STATIC void obj_comment(unsigned char x, const char *string, size_t len)
 {
-    char __ss *library;
+    char buf[128];
 
-    library = (char __ss *) alloca(2 + len);
+    char *library = (2 + len <= sizeof(buf)) ? buf : (char *) malloc(2 + len);
+    assert(library);
     library[0] = 0;
     library[1] = x;
     memcpy(library + 2,string,len);
     objrecord(COMENT,library,len + 2);
+    if (library != buf)
+        free(library);
 }
 
 /*******************************
@@ -1192,7 +1209,7 @@ STATIC void obj_defaultlib()
         case EX_OS1:
             library[1] = 'O';
             break;
-        case EX_NT:
+        case EX_WIN32:
 #if MARS
             library[1] = 'M';
 #else
@@ -1339,7 +1356,9 @@ STATIC void objheader(char *csegname)
         "\0\06DGROUP\05_TEXT\04CODE\05_DATA\04DATA\05CONST\04_BSS\03BSS\
 \07$$TYPES\06DEBTYP\011$$SYMBOLS\06DEBSYM";
 
+#define CODECLASS       4                       // code class lname index
 #define DATACLASS       6                       // data class lname index
+#define CDATACLASS      7                       // CONST class lname index
 #define BSSCLASS        9                       // BSS class lname index
 
   // Include debug segment names if inserting type information
@@ -1364,7 +1383,7 @@ STATIC void objheader(char *csegname)
   comment[2] = config.target_cpu + '0';
   comment[3] = model[config.memmodel];
   if (I32)
-  {     if (config.exe == EX_NT)
+  {     if (config.exe == EX_WIN32)
             comment[3] = 'n';
         else if (config.exe == EX_OS2)
             comment[3] = 'f';
@@ -1521,20 +1540,20 @@ void Obj::segment_group(targ_size_t codesize,targ_size_t datasize,
     // For FLAT model, it's just GROUP FLAT
     static const char grpdef[] = {2,0xFF,2,0xFF,3,0xFF,4};
 
-    objsegdef(obj.csegattr,codesize,3,4);       // seg _TEXT, class CODE
+    objsegdef(obj.csegattr,codesize,3,CODECLASS);  // seg _TEXT, class CODE
 
 #if MARS
     dsegattr = SEG_ATTR(SEG_ALIGN16,SEG_C_PUBLIC,0,USE32);
     objsegdef(dsegattr,datasize,5,DATACLASS);   // [DATA]  seg _DATA, class DATA
-    objsegdef(dsegattr,cdatasize,7,7);          // [CDATA] seg CONST, class CONST
-    objsegdef(dsegattr,udatasize,8,9);          // [UDATA] seg _BSS,  class BSS
+    objsegdef(dsegattr,cdatasize,7,CDATACLASS); // [CDATA] seg CONST, class CONST
+    objsegdef(dsegattr,udatasize,8,BSSCLASS);   // [UDATA] seg _BSS,  class BSS
 #else
     dsegattr = I32
           ? SEG_ATTR(SEG_ALIGN4,SEG_C_PUBLIC,0,USE32)
           : SEG_ATTR(SEG_ALIGN2,SEG_C_PUBLIC,0,USE16);
     objsegdef(dsegattr,datasize,5,DATACLASS);   // seg _DATA, class DATA
-    objsegdef(dsegattr,cdatasize,7,7);          // seg CONST, class CONST
-    objsegdef(dsegattr,udatasize,8,9);          // seg _BSS, class BSS
+    objsegdef(dsegattr,cdatasize,7,CDATACLASS); // seg CONST, class CONST
+    objsegdef(dsegattr,udatasize,8,BSSCLASS);   // seg _BSS, class BSS
 #endif
 
     obj.lnameidx = 10;                          // next lname index
@@ -1846,7 +1865,7 @@ int Obj::comdatsize(Symbol *s, targ_size_t symsize)
 int Obj::comdat(Symbol *s)
 {   char lnames[IDMAX+IDOHD+1]; // +1 to allow room for strcpy() terminating 0
     char cextdef[2+2];
-    char __ss *p;
+    char *p;
     size_t lnamesize;
     unsigned ti;
     int isfunc;
@@ -2282,7 +2301,7 @@ size_t Obj::mangle(Symbol *s,char *dest)
 #endif
         case mTYman_std:
             if (!(config.flags4 & CFG4oldstdmangle) &&
-                config.exe == EX_NT && tyfunc(s->ty()) &&
+                config.exe == EX_WIN32 && tyfunc(s->ty()) &&
                 !variadic(s->Stype))
             {
                 dest[1] = '_';
@@ -2432,7 +2451,7 @@ void Obj::pubdef(int seg,Symbol *s,targ_size_t offset)
         outpubdata();
     if (obj.pubdatai == 0)
     {
-        obj.pubdata[0] = (seg == DATA || seg == UDATA) ? 1 : 0; // group index
+        obj.pubdata[0] = (seg == DATA || seg == CDATA || seg == UDATA) ? 1 : 0; // group index
         obj.pubdatai += 1 + insidx(obj.pubdata + 1,idx);        // segment index
     }
     p = &obj.pubdata[obj.pubdatai];
@@ -2609,7 +2628,7 @@ void Obj::lidata(int seg,targ_size_t offset,targ_size_t count)
     unsigned reclen;
     static char zero[20];
     char data[20];
-    char __ss *di;
+    char *di;
 
     //printf("Obj::lidata(seg = %d, offset = x%x, count = %d)\n", seg, offset, count);
 

@@ -580,6 +580,8 @@ void test9568()
 
 /****************************************************/
 
+version (DigitalMars)
+{
 void test8a()
 {
   int a;
@@ -631,6 +633,7 @@ void test8()
   test8a();
   test8b();
   test8c();
+}
 }
 
 /****************************************************/
@@ -752,6 +755,73 @@ void test12989()
 
 /****************************************************/
 
+int bar10(int c)
+{
+    if (c <= 0xFFFF)
+    {
+    L3:
+        return 3;
+    }
+    throw new Exception("msg");
+    goto L3;
+}
+
+void test10()
+{
+    int x;
+    try
+    {
+        bar10(0x110000);
+    }
+    catch (Exception e)
+    {
+        printf("caught\n");
+        x = 1;
+    }
+    assert(x == 1);
+    printf("test10 success\n");
+}
+
+/****************************************************/
+
+class ParseException : Exception
+{
+    @safe pure nothrow this( string msg )
+    {
+        super( msg );
+    }
+}
+
+class OverflowException : Exception
+{
+    @safe pure nothrow this( string msg )
+    {
+        super( msg );
+    }
+}
+
+void test11()
+{
+    int x;
+    try
+    {
+        printf("test11()\n");
+        throw new ParseException("msg");
+    }
+    catch( OverflowException e )
+    {
+        printf( "catch OverflowException\n" );
+    }
+    catch( ParseException e )
+    {
+        printf( "catch ParseException: %.*s\n", cast(int) e.msg.length, e.msg.ptr );
+        x = 1;
+    }
+    assert(x == 1);
+}
+
+/****************************************************/
+
 int main()
 {
     printf("start\n");
@@ -769,10 +839,12 @@ int main()
     multicollide();
     test9568();
 
-    test8();
+    version(DigitalMars) test8();
     test9();
     test10964();
     test12989();
+    test10();
+    test11();
 
     printf("finish\n");
     return 0;

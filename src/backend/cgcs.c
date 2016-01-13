@@ -1,5 +1,5 @@
 // Copyright (C) 1985-1998 by Symantec
-// Copyright (C) 2000-2012 by Digital Mars
+// Copyright (C) 2000-2015 by Digital Mars
 // All Rights Reserved
 // http://www.digitalmars.com
 // Written by Walter Bright
@@ -59,15 +59,15 @@ STATIC void touchfunc(int);
 STATIC void touchstar();
 STATIC void touchaccess(elem *);
 STATIC void touchall();
-
+
 /*******************************
  * Eliminate common subexpressions across extended basic blocks.
  * String together as many blocks as we can.
  */
 
 void comsubs()
-{ register block *bl,*blc,*bln;
-  register int n;                       /* # of blocks to treat as one  */
+{ block *bl,*blc,*bln;
+  int n;                       /* # of blocks to treat as one  */
 
 //static int xx;
 //printf("comsubs() %d\n", ++xx);
@@ -153,7 +153,7 @@ void cgcs_term()
     hcstab = NULL;
     hcsmax = 0;
 }
-
+
 /*************************
  * Eliminate common subexpressions for an element.
  */
@@ -215,10 +215,8 @@ STATIC void ecom(elem **pe)
     case OPnegass:
             if (EOP(e->E1))             /* if lvalue is an operator     */
             {
-#ifdef DEBUG
                 if (e->E1->Eoper != OPind)
                     elem_print(e);
-#endif
                 assert(e->E1->Eoper == OPind);
                 ecom(&(e->E1->E1));
             }
@@ -235,6 +233,7 @@ STATIC void ecom(elem **pe)
     case OPbtc:
     case OPbts:
     case OPbtr:
+    case OPcmpxchg:
         ecom(&e->E1);
         ecom(&e->E2);
         touchfunc(0);                   // indirect assignment
@@ -324,9 +323,8 @@ STATIC void ecom(elem **pe)
         touchfunc(0);
         return;
     default:                            /* other operators */
-#ifdef DEBUG
-        if (!EBIN(e)) WROP(e->Eoper);
-#endif
+        if (!EBIN(e))
+           WROP(e->Eoper);
         assert(EBIN(e));
     case OPadd:
     case OPmin:
@@ -348,10 +346,8 @@ STATIC void ecom(elem **pe)
     case OPstring:
     case OPaddr:
     case OPbit:
-#ifdef DEBUG
         WROP(e->Eoper);
         elem_print(e);
-#endif
         assert(0);              /* optelem() should have removed these  */
         /* NOTREACHED */
 
@@ -371,7 +367,7 @@ STATIC void ecom(elem **pe)
     case OPd_s64: case OPs64_d: case OPd_u64: case OPu64_d:
     case OPstrctor: case OPu16_d: case OPd_u16:
     case OParrow:
-    case OPvoid: case OPnullcheck:
+    case OPvoid:
     case OPbsf: case OPbsr: case OPbswap: case OPpopcnt: case OPvector:
     case OPld_u64:
 #if TX86
@@ -455,7 +451,7 @@ STATIC void ecom(elem **pe)
  */
 
 STATIC unsigned cs_comphash(elem *e)
-{   register int hash;
+{   int hash;
     unsigned op;
 
     elem_debug(e);
@@ -490,7 +486,7 @@ STATIC void addhcstab(elem *e,int hash)
   {
         assert(h == hcsmax);
         // With 32 bit compiles, we've got memory to burn
-        hcsmax += (__INTSIZE == 4) ? (hcsmax + 128) : 100;
+        hcsmax += hcsmax + 128;
         assert(h < hcsmax);
 #if TX86
         hcstab = (hcs *) util_realloc(hcstab,hcsmax,sizeof(hcs));
@@ -503,7 +499,7 @@ STATIC void addhcstab(elem *e,int hash)
   hcstab[h].Hhash = hash;
   hcsarray.top++;
 }
-
+
 /***************************
  * "touch" the elem.
  * If it is a pointer, "touch" all the suspects
@@ -530,10 +526,8 @@ STATIC void touchlvalue(elem *e)
                 hcstab[i].Helem = NULL;
     }
 
-#ifdef DEBUG
     if (!(e->Eoper == OPvar || e->Eoper == OPrelconst))
         elem_print(e);
-#endif
     assert(e->Eoper == OPvar || e->Eoper == OPrelconst);
     switch (e->EV.sp.Vsym->Sclass)
     {
@@ -561,14 +555,12 @@ STATIC void touchlvalue(elem *e)
             touchstar();
             break;
         default:
-#ifdef DEBUG
             elem_print(e);
             symbol_print(e->EV.sp.Vsym);
-#endif
             assert(0);
     }
 }
-
+
 /**************************
  * "touch" variables that could be changed by a function call or
  * an indirect assignment.
@@ -653,8 +645,8 @@ STATIC void touchfunc(int flag)
  */
 
 STATIC void touchstar()
-{ register int i;
-  register elem *e;
+{ int i;
+  elem *e;
 
   for (i = hcsarray.touchstari; i < hcsarray.top; i++)
   {     e = hcstab[i].Helem;
@@ -686,8 +678,8 @@ STATIC void touchall()
  */
 
 STATIC void touchaccess(elem *ev)
-{ register int i;
-  register elem *e;
+{ int i;
+  elem *e;
 
   ev = ev->E1;
   for (i = 0; i < hcsarray.top; i++)

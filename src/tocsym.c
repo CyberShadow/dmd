@@ -43,11 +43,12 @@
 #include "outbuf.h"
 #include "irstate.h"
 
+typedef Array<struct Symbol *> Symbols;
+
 void slist_add(Symbol *s);
 void slist_reset();
 
 Classsym *fake_classsym(Identifier *id);
-Symbols *Symbols_create();
 type *Type_toCtype(Type *t);
 dt_t **ClassReferenceExp_toInstanceDt(ClassReferenceExp *ce, dt_t **pdt);
 dt_t **Expression_toDt(Expression *e, dt_t **pdt);
@@ -134,8 +135,8 @@ Symbol *toSymbol(Dsymbol *s)
                 TYPE *t;
                 if (vd->storage_class & (STCout | STCref))
                 {
-                    // should be TYref, but problems in back end
-                    t = type_pointer(Type_toCtype(vd->type));
+                    t = type_allocn(TYnref, Type_toCtype(vd->type));
+                    t->Tcount++;
                 }
                 else if (vd->storage_class & STClazy)
                 {
@@ -149,8 +150,8 @@ Symbol *toSymbol(Dsymbol *s)
                 {
                     if (config.exe == EX_WIN64 && vd->type->size(Loc()) > REGSIZE)
                     {
-                        // should be TYref, but problems in back end
-                        t = type_pointer(Type_toCtype(vd->type));
+                        t = type_allocn(TYnref, Type_toCtype(vd->type));
+                        t->Tcount++;
                     }
                     else
                     {
@@ -166,7 +167,7 @@ Symbol *toSymbol(Dsymbol *s)
 
                 if (vd->isDataseg())
                 {
-                    if (vd->isThreadlocal())
+                    if (vd->isThreadlocal() && !(vd->storage_class & STCtemp))
                     {
                         /* Thread local storage
                          */
@@ -180,7 +181,7 @@ Symbol *toSymbol(Dsymbol *s)
                             char *p = vd->loc.toChars();
                             fprintf(global.stdmsg, "%s: %s is thread local\n", p ? p : "", vd->toChars());
                             if (p)
-                                mem.free(p);
+                                mem.xfree(p);
                         }
                     }
                     s->Sclass = SCextern;
@@ -251,11 +252,6 @@ Symbol *toSymbol(Dsymbol *s)
                 vd->csym = s;
             }
             result = vd->csym;
-        }
-
-        void visit(ClassInfoDeclaration *cid)
-        {
-            cid->cd->accept(this);
         }
 
         void visit(TypeInfoDeclaration *tid)
@@ -335,6 +331,7 @@ Symbol *toSymbol(Dsymbol *s)
                             break;
 
                         case LINKc:
+                        case LINKobjc:
                             t->Tmangle = mTYman_c;
                             break;
 
@@ -653,18 +650,16 @@ Symbol *aaGetSymbol(TypeAArray *taa, const char *func, int flags)
 #endif
 
         // Dumb linear symbol table - should use associative array!
-        static Symbols *sarray = NULL;
+        static Symbols sarray;
 
         //printf("aaGetSymbol(func = '%s', flags = %d, key = %p)\n", func, flags, key);
         char *id = (char *)alloca(3 + strlen(func) + 1);
         sprintf(id, "_aa%s", func);
-        if (!sarray)
-            sarray = Symbols_create();
 
         // See if symbol is already in sarray
-        for (size_t i = 0; i < sarray->dim; i++)
+        for (size_t i = 0; i < sarray.dim; i++)
         {
-            Symbol *s = (*sarray)[i];
+            Symbol *s = sarray[i];
             if (strcmp(id, s->Sident) == 0)
             {
 #ifdef DEBUG
@@ -686,7 +681,7 @@ Symbol *aaGetSymbol(TypeAArray *taa, const char *func, int flags)
         t->Tmangle = mTYman_c;
         s->Stype = t;
 
-        sarray->push(s);                        // remember it
+        sarray.push(s);                         // remember it
         return s;
 }
 

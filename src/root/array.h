@@ -24,11 +24,11 @@
 template <typename TYPE>
 struct Array
 {
-    size_t dim;
+    d_size_t dim;
     TYPE *data;
 
   private:
-    size_t allocdim;
+    d_size_t allocdim;
     #define SMALLARRAYCAP       1
     TYPE smallarray[SMALLARRAYCAP];    // inline storage for small arrays
 
@@ -43,23 +43,23 @@ struct Array
     ~Array()
     {
         if (data != &smallarray[0])
-            mem.free(data);
+            mem.xfree(data);
     }
 
     char *toChars()
     {
-        char **buf = (char **)mem.malloc(dim * sizeof(char *));
-        size_t len = 2;
-        for (size_t u = 0; u < dim; u++)
+        char **buf = (char **)mem.xmalloc(dim * sizeof(char *));
+        d_size_t len = 2;
+        for (d_size_t u = 0; u < dim; u++)
         {
             buf[u] = ((RootObject *)data[u])->toChars();
             len += strlen(buf[u]) + 1;
         }
-        char *str = (char *)mem.malloc(len);
+        char *str = (char *)mem.xmalloc(len);
 
         str[0] = '[';
         char *p = str + 1;
-        for (size_t u = 0; u < dim; u++)
+        for (d_size_t u = 0; u < dim; u++)
         {
             if (u)
                 *p++ = ',';
@@ -69,11 +69,11 @@ struct Array
         }
         *p++ = ']';
         *p = 0;
-        mem.free(buf);
+        mem.xfree(buf);
         return str;
     }
 
-    void reserve(size_t nentries)
+    void reserve(d_size_t nentries)
     {
         //printf("Array::reserve: dim = %d, allocdim = %d, nentries = %d\n", (int)dim, (int)allocdim, (int)nentries);
         if (allocdim - dim < nentries)
@@ -86,23 +86,23 @@ struct Array
                 }
                 else
                 {   allocdim = nentries;
-                    data = (TYPE *)mem.malloc(allocdim * sizeof(*data));
+                    data = (TYPE *)mem.xmalloc(allocdim * sizeof(*data));
                 }
             }
             else if (allocdim == SMALLARRAYCAP)
             {
                 allocdim = dim + nentries;
-                data = (TYPE *)mem.malloc(allocdim * sizeof(*data));
+                data = (TYPE *)mem.xmalloc(allocdim * sizeof(*data));
                 memcpy(data, &smallarray[0], dim * sizeof(*data));
             }
             else
             {   allocdim = dim + nentries;
-                data = (TYPE *)mem.realloc(data, allocdim * sizeof(*data));
+                data = (TYPE *)mem.xrealloc(data, allocdim * sizeof(*data));
             }
         }
     }
 
-    void setDim(size_t newdim)
+    void setDim(d_size_t newdim)
     {
         if (dim < newdim)
         {
@@ -120,10 +120,10 @@ struct Array
                 if (dim <= SMALLARRAYCAP)
                 {
                     memcpy(&smallarray[0], data, dim * sizeof(*data));
-                    mem.free(data);
+                    mem.xfree(data);
                 }
                 else
-                    data = (TYPE *)mem.realloc(data, dim * sizeof(*data));
+                    data = (TYPE *)mem.xrealloc(data, dim * sizeof(*data));
             }
             allocdim = dim;
         }
@@ -142,7 +142,7 @@ struct Array
         dim++;
     }
 
-    void remove(size_t i)
+    void remove(d_size_t i)
     {
         if (dim - i - 1)
             memmove(data + i, data + i + 1, (dim - i - 1) * sizeof(data[0]));
@@ -187,7 +187,7 @@ struct Array
         return data;
     }
 
-    TYPE& operator[] (size_t index)
+    TYPE& operator[] (d_size_t index)
     {
 #ifdef DEBUG
         assert(index < dim);
@@ -195,7 +195,7 @@ struct Array
         return data[index];
     }
 
-    void insert(size_t index, TYPE v)
+    void insert(d_size_t index, TYPE v)
     {
         reserve(1);
         memmove(data + index + 1, data + index, (dim - index) * sizeof(*data));
@@ -203,11 +203,11 @@ struct Array
         dim++;
     }
 
-    void insert(size_t index, Array *a)
+    void insert(d_size_t index, Array *a)
     {
         if (a)
         {
-            size_t d = a->dim;
+            d_size_t d = a->dim;
             reserve(d);
             if (dim != index)
                 memmove(data + index + d, data + index, (dim - index) * sizeof(*data));
