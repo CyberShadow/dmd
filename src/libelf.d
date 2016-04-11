@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -276,16 +276,15 @@ public:
                     if (m == objmodules.dim)
                     {
                         reason = __LINE__;
-                        goto Lcorrupt;
-                        // didn't find it
+                        goto Lcorrupt; // didn't find it
                     }
                     ElfObjModule* om = objmodules[m];
                     //printf("\t%x\n", (char *)om->base - (char *)buf);
                     if (moff + ElfLibHeader.sizeof == cast(char*)om.base - cast(char*)buf)
                     {
                         addSymbol(om, name, 1);
-                        //                  if (mstart == m)
-                        //                      mstart++;
+                        //if (mstart == m)
+                        //    mstart++;
                         break;
                     }
                 }

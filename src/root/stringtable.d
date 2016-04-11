@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ *
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:    $(DMDSRC root/_stringtable.d)
+ */
 
 module ddmd.root.stringtable;
 
@@ -42,11 +44,14 @@ private uint calcHash(const(char)* key, size_t len) pure nothrow @nogc
     {
     case 3:
         h ^= data[2] << 16;
+        goto case;
     case 2:
         h ^= data[1] << 8;
+        goto case;
     case 1:
         h ^= data[0];
         h *= m;
+        goto default;
     default:
         break;
     }
@@ -86,12 +91,12 @@ struct StringValue
         return cast(char*)(&this + 1);
     }
 
-    extern (C++) const(size_t) len()
+    extern (C++) size_t len() const
     {
         return length;
     }
 
-    extern (C++) const(const(char)*) toDchars()
+    extern (C++) const(char)* toDchars() const
     {
         return cast(const(char)*)(&this + 1);
     }

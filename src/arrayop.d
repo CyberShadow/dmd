@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the
+ * $(LINK2 http://www.dlang.org, D programming language).
+ *
+ * Copyright:   Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:     $(LINK2 http://www.digitalmars.com, Walter Bright)
+ * License:     $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:      $(DMDSRC _arrayop.d)
+ */
 
 module ddmd.arrayop;
 
@@ -18,7 +20,6 @@ import ddmd.globals;
 import ddmd.id;
 import ddmd.identifier;
 import ddmd.mtype;
-import ddmd.root.aav;
 import ddmd.root.outbuffer;
 import ddmd.statement;
 import ddmd.tokens;
@@ -27,7 +28,8 @@ import ddmd.visitor;
 /**************************************
  * Hash table of array op functions already generated or known about.
  */
-extern (C++) __gshared AA* arrayfuncs;
+private __gshared FuncDeclaration[void*] arrayfuncs;
+
 
 /**************************************
  * Structure to contain information needed to insert an array op call
@@ -177,12 +179,15 @@ extern (C++) Expression arrayOp(BinExp e, Scope* sc)
     /* Append deco of array element type
      */
     buf.writestring(e.type.toBasetype().nextOf().toBasetype().mutableOf().deco);
-    char* name = buf.peekString();
-    Identifier ident = Identifier.idPool(name);
-    FuncDeclaration* pFd = cast(FuncDeclaration*)dmd_aaGet(&arrayfuncs, cast(void*)ident);
-    FuncDeclaration fd = *pFd;
-    if (!fd)
+    auto ident = Identifier.idPool(buf.peekSlice());
+
+    FuncDeclaration* pFd = cast(void*)ident in arrayfuncs;
+    FuncDeclaration fd;
+    if (pFd)
+        fd = *pFd;
+    else
         fd = buildArrayOp(ident, e, sc, e.loc);
+
     if (fd && fd.errors)
     {
         const(char)* fmt;
@@ -195,7 +200,8 @@ extern (C++) Expression arrayOp(BinExp e, Scope* sc)
         e.error(fmt, e.toChars(), tbn.toChars());
         return new ErrorExp();
     }
-    *pFd = fd;
+    if (!pFd)
+        arrayfuncs[cast(void*)ident] = fd;
     Expression ev = new VarExp(e.loc, fd);
     Expression ec = new CallExp(e.loc, ev, arguments);
     return ec.semantic(sc);

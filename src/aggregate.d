@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the
+ * $(LINK2 http://www.dlang.org, D programming language).
+ *
+ * Copyright:   Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:     $(LINK2 http://www.digitalmars.com, Walter Bright)
+ * License:     $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:      $(DMDSRC _aggregate.d)
+ */
 
 module ddmd.aggregate;
 
@@ -36,9 +38,9 @@ import ddmd.visitor;
 
 enum Sizeok : int
 {
-    SIZEOKnone,             // size of aggregate is not computed yet
+    SIZEOKnone,             // size of aggregate is not yet able to compute
+    SIZEOKfwd,              // size of aggregate is ready to compute
     SIZEOKdone,             // size of aggregate is set correctly
-    SIZEOKfwd,              // error in computing size of aggregate
 }
 
 alias SIZEOKnone = Sizeok.SIZEOKnone;
@@ -60,7 +62,7 @@ alias BASEOKsemanticdone = Baseok.BASEOKsemanticdone;
 
 /***********************************************************
  */
-extern (C++) class AggregateDeclaration : ScopeDsymbol
+extern (C++) abstract class AggregateDeclaration : ScopeDsymbol
 {
 public:
     Type type;
@@ -113,21 +115,12 @@ public:
         sizeok = SIZEOKnone; // size not determined yet
     }
 
-    override final void setScope(Scope* sc)
-    {
-        if (sizeok == SIZEOKdone)
-            return;
-        ScopeDsymbol.setScope(sc);
-    }
-
     override final void semantic2(Scope* sc)
     {
-        //printf("AggregateDeclaration::semantic2(%s) type = %s, errors = %d\n", toChars(), type->toChars(), errors);
+        //printf("AggregateDeclaration::semantic2(%s) type = %s, errors = %d\n", toChars(), type.toChars(), errors);
         if (!members)
             return;
 
-        if (_scope && sizeok == SIZEOKfwd) // Bugzilla 12531
-            semantic(null);
         if (_scope)
         {
             error("has forward references");
@@ -138,16 +131,18 @@ public:
         sc2.stc &= STCsafe | STCtrusted | STCsystem;
         sc2.parent = this;
         //if (isUnionDeclaration())     // TODO
-        //    sc2->inunion = 1;
+        //    sc2.inunion = 1;
         sc2.protection = Prot(PROTpublic);
         sc2.explicitProtection = 0;
         sc2.structalign = STRUCTALIGN_DEFAULT;
         sc2.userAttribDecl = null;
 
+        determineSize(loc);
+
         for (size_t i = 0; i < members.dim; i++)
         {
             Dsymbol s = (*members)[i];
-            //printf("\t[%d] %s\n", i, s->toChars());
+            //printf("\t[%d] %s\n", i, s.toChars());
             s.semantic2(sc2);
         }
 
@@ -215,80 +210,138 @@ public:
             sd.semanticTypeInfoMembers();
     }
 
-    override final uint size(Loc loc)
+    /***************************************
+     * Find all instance fields, then push them into `fields`.
+     *
+     * Runs semantic() for all instance field variables, but also
+     * the field types can reamin yet not resolved forward references,
+     * except direct recursive definitions.
+     * After the process sizeok is set to SIZEOKfwd.
+     *
+     * Returns:
+     *      false if any errors occur.
+     */
+    final bool determineFields()
     {
-        //printf("AggregateDeclaration::size() %s, scope = %p\n", toChars(), scope);
-        if (loc.linnum == 0)
-            loc = this.loc;
-        if (sizeok != SIZEOKdone && _scope)
-        {
-            semantic(null);
+        if (sizeok != SIZEOKnone)
+            return true;
 
-            // Determine the instance size of base class first.
-            if (ClassDeclaration cd = isClassDeclaration())
-                cd.baseClass.size(loc);
+        //printf("determineFields() %s, fields.dim = %d\n", toChars(), fields.dim);
+
+        extern (C++) static int func(Dsymbol s, void* param)
+        {
+            auto v = s.isVarDeclaration();
+            if (!v)
+                return 0;
+            if (v.storage_class & STCmanifest)
+                return 0;
+
+            if (v._scope)
+                v.semantic(null);
+            if (v.aliassym)
+                return 0;   // If this variable was really a tuple, skip it.
+
+            if (v.storage_class & (STCstatic | STCextern | STCtls | STCgshared | STCmanifest | STCctfe | STCtemplateparameter))
+                return 0;
+            if (!v.isField() || v.sem < SemanticDone)
+                return 1;   // unresolvable forward reference
+
+            auto ad = cast(AggregateDeclaration)param;
+            ad.fields.push(v);
+
+            if (v.storage_class & STCref)
+                return 0;
+            auto tv = v.type.baseElemOf();
+            if (tv.ty != Tstruct)
+                return 0;
+            if (ad == (cast(TypeStruct)tv).sym)
+            {
+                const(char)* psz = (v.type.toBasetype().ty == Tsarray) ? "static array of " : "";
+                ad.error("cannot have field %s with %ssame struct type", v.toChars(), psz);
+                ad.type = Type.terror;
+                ad.errors = true;
+                return 1;
+            }
+            return 0;
         }
 
-        if (sizeok != SIZEOKdone && members)
+        fields.setDim(0);
+
+        for (size_t i = 0; i < members.dim; i++)
         {
-            /* See if enough is done to determine the size,
-             * meaning all the fields are done.
-             */
-            struct SV
-            {
-                /* Returns:
-                 *  0       this member doesn't need further processing to determine struct size
-                 *  1       this member does
-                 */
-                extern (C++) static int func(Dsymbol s, void* param)
-                {
-                    VarDeclaration v = s.isVarDeclaration();
-                    if (v)
-                    {
-                        /* Bugzilla 12799: enum a = ...; is a VarDeclaration and
-                         * STCmanifest is already set in parssing stage. So we can
-                         * check this before the semantic() call.
-                         */
-                        if (v.storage_class & STCmanifest)
-                            return 0;
-
-                        if (v._scope)
-                            v.semantic(null);
-                        if (v.storage_class & (STCstatic | STCextern | STCtls | STCgshared | STCmanifest | STCctfe | STCtemplateparameter))
-                            return 0;
-                        if (v.isField() && v.sem >= SemanticDone)
-                            return 0;
-                        return 1;
-                    }
-                    return 0;
-                }
-            }
-
-            SV sv;
-            for (size_t i = 0; i < members.dim; i++)
-            {
-                Dsymbol s = (*members)[i];
-                if (s.apply(&SV.func, &sv))
-                    goto L1;
-            }
-            finalizeSize(null);
-
-        L1:
+            auto s = (*members)[i];
+            if (s.apply(&func, cast(void*)this))
+                return false;
         }
+
+        if (sizeok != SIZEOKdone)
+            sizeok = SIZEOKfwd;
+
+        return true;
+    }
+
+    /***************************************
+     * Collect all instance fields, then determine instance size.
+     * Returns:
+     *      false if failed to determine the size.
+     */
+    final bool determineSize(Loc loc)
+    {
+        //printf("AggregateDeclaration::determineSize() %s, sizeok = %d\n", toChars(), sizeok);
+
+        // The previous instance size finalizing had:
+        if (type.ty == Terror)
+            return false;   // failed already
+        if (sizeok == SIZEOKdone)
+            return true;    // succeeded
 
         if (!members)
         {
             error(loc, "unknown size");
+            return false;
         }
-        else if (sizeok != SIZEOKdone)
+
+        if (_scope)
+            semantic(null);
+
+        // Determine the instance size of base class first.
+        if (auto cd = isClassDeclaration())
         {
-            error(loc, "no size yet for forward reference");
-            //*(char*)0=0;
+            cd = cd.baseClass;
+            if (cd && !cd.determineSize(loc))
+                goto Lfail;
         }
-        return structsize;
+
+        // Determine instance fields when sizeok == SIZEOKnone
+        if (!determineFields())
+            goto Lfail;
+        if (sizeok != SIZEOKdone)
+            finalizeSize();
+
+        // this aggregate type has:
+        if (type.ty == Terror)
+            return false;   // marked as invalid during the finalizing.
+        if (sizeok == SIZEOKdone)
+            return true;    // succeeded to calculate instance size.
+
+    Lfail:
+        // There's unresolvable forward reference.
+        if (type != Type.terror)
+            error(loc, "no size because of forward reference");
+        type = Type.terror;
+        errors = true;
+        return false;
     }
 
-    abstract void finalizeSize(Scope* sc);
+    abstract void finalizeSize();
+
+    override final uint size(Loc loc)
+    {
+        //printf("+AggregateDeclaration::size() %s, scope = %p, sizeok = %d\n", toChars(), _scope, sizeok);
+        determineSize(loc);
+        //printf("-AggregateDeclaration::size() %s, scope = %p, sizeok = %d\n", toChars(), _scope, sizeok);
+        return structsize;
+    }
 
     /***************************************
      * Calculate field[i].overlapped, and check that all of explicit
@@ -331,7 +384,7 @@ public:
 
                 // vd and v2 are overlapping. If either has destructors, postblits, etc., then error
                 //printf("overlapping fields %s and %s\n", vd->toChars(), v2->toChars());
-                foreach (k; 0.. 2)
+                foreach (k; 0 .. 2)
                 {
                     auto v = k == 0 ? vd : v2;
                     Type tv = v.type.baseElemOf();
@@ -519,7 +572,7 @@ public:
      * alignment: struct alignment that is in effect
      * size: alignment requirement of field
      */
-    final static void alignmember(structalign_t alignment, uint size, uint* poffset)
+    static void alignmember(structalign_t alignment, uint size, uint* poffset)
     {
         //printf("alignment = %d, size = %d, offset = %d\n",alignment,size,offset);
         switch (alignment)
@@ -556,7 +609,7 @@ public:
      * paggalignsize: size of aggregate for alignment purposes (updated)
      * isunion:       the aggregate is a union
      */
-    final static uint placeField(uint* nextoffset, uint memsize, uint memalignsize,
+    static uint placeField(uint* nextoffset, uint memsize, uint memalignsize,
         structalign_t alignment, uint* paggsize, uint* paggalignsize, bool isunion)
     {
         uint ofs = *nextoffset;
@@ -608,6 +661,8 @@ public:
         return enclosing !is null;
     }
 
+    /* Append vthis field (this.tupleof[$-1]) to make this aggregate type nested.
+     */
     final void makeNested()
     {
         if (enclosing) // if already nested
@@ -620,19 +675,20 @@ public:
             return;
 
         // If nested struct, add in hidden 'this' pointer to outer scope
-        Dsymbol s = toParent2();
+        auto s = toParent2();
         if (!s)
             return;
-        AggregateDeclaration ad = s.isAggregateDeclaration();
-        FuncDeclaration fd = s.isFuncDeclaration();
         Type t = null;
-        if (fd)
+        if (auto fd = s.isFuncDeclaration())
         {
             enclosing = fd;
-            AggregateDeclaration agg = fd.isMember2();
-            t = agg ? agg.handleType() : Type.tvoidptr;
+
+            /* Bugzilla 14422: If a nested class parent is a function, its
+             * context pointer (== `outer`) should be void* always.
+             */
+            t = Type.tvoidptr;
         }
-        else if (ad)
+        else if (auto ad = s.isAggregateDeclaration())
         {
             if (isClassDeclaration() && ad.isClassDeclaration())
             {
@@ -640,7 +696,7 @@ public:
             }
             else if (isStructDeclaration())
             {
-                if (TemplateInstance ti = ad.parent.isTemplateInstance())
+                if (auto ti = ad.parent.isTemplateInstance())
                 {
                     enclosing = ti.enclosing;
                 }
@@ -649,14 +705,27 @@ public:
         }
         if (enclosing)
         {
-            //printf("makeNested %s, enclosing = %s\n", toChars(), enclosing->toChars());
+            //printf("makeNested %s, enclosing = %s\n", toChars(), enclosing.toChars());
             assert(t);
             if (t.ty == Tstruct)
                 t = Type.tvoidptr; // t should not be a ref type
+
             assert(!vthis);
             vthis = new ThisDeclaration(loc, t);
             //vthis->storage_class |= STCref;
+
+            // Emulate vthis.addMember()
             members.push(vthis);
+
+            // Emulate vthis.semantic()
+            vthis.storage_class |= STCfield;
+            vthis.parent = this;
+            vthis.protection = Prot(PROTpublic);
+            vthis.alignment = t.alignment();
+            vthis.sem = SemanticDone;
+
+            if (sizeok == SIZEOKfwd)
+                fields.push(vthis);
         }
     }
 
@@ -670,7 +739,7 @@ public:
      */
     final Dsymbol searchCtor()
     {
-        Dsymbol s = search(Loc(), Id.ctor);
+        auto s = search(Loc(), Id.ctor);
         if (s)
         {
             if (!(s.isCtorDeclaration() ||
@@ -680,6 +749,28 @@ public:
                 s.error("is not a constructor; identifiers starting with __ are reserved for the implementation");
                 errors = true;
                 s = null;
+            }
+        }
+        if (s && s.toParent() != this)
+            s = null; // search() looks through ancestor classes
+        if (s)
+        {
+            // Finish all constructors semantics to determine this->noDefaultCtor.
+            struct SearchCtor
+            {
+                extern (C++) static int fp(Dsymbol s, void* ctxt)
+                {
+                    auto f = s.isCtorDeclaration();
+                    if (f && f.semanticRun == PASSinit)
+                        f.semantic(null);
+                    return 0;
+                }
+            }
+
+            for (size_t i = 0; i < members.dim; i++)
+            {
+                auto sm = (*members)[i];
+                sm.apply(&SearchCtor.fp, null);
             }
         }
         return s;
@@ -700,7 +791,7 @@ public:
     Symbol* stag; // tag symbol for debug data
     Symbol* sinit;
 
-    override final AggregateDeclaration isAggregateDeclaration()
+    override final inout(AggregateDeclaration) isAggregateDeclaration() inout
     {
         return this;
     }

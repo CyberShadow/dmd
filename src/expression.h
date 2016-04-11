@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -68,7 +68,7 @@ TemplateDeclaration *getFuncTemplateDecl(Dsymbol *s);
 Expression *valueNoDtor(Expression *e);
 int modifyFieldVar(Loc loc, Scope *sc, VarDeclaration *var, Expression *e1);
 Expression *resolveAliasThis(Scope *sc, Expression *e, bool gag = false);
-Expression *callCpCtor(Scope *sc, Expression *e);
+Expression *doCopyOrMove(Scope *sc, Expression *e);
 Expression *resolveOpDollar(Scope *sc, ArrayExp *ae, Expression **pe0);
 Expression *resolveOpDollar(Scope *sc, ArrayExp *ae, IntervalExp *ie, Expression **pe0);
 Expression *integralPromotions(Expression *e, Scope *sc);
@@ -141,9 +141,9 @@ public:
     void print();
     char *toChars();
     virtual void printAST(int ident = 0);
-    void error(const char *format, ...);
-    void warning(const char *format, ...);
-    void deprecation(const char *format, ...);
+    void error(const char *format, ...) const;
+    void warning(const char *format, ...) const;
+    void deprecation(const char *format, ...) const;
 
     // creates a single expression which is effectively (e1, e2)
     // this new expression does not necessarily need to have valid D source code representation,
@@ -174,6 +174,7 @@ public:
         return ::castTo(this, sc, t);
     }
     virtual Expression *resolveLoc(Loc loc, Scope *sc);
+    virtual bool checkType();
     virtual bool checkValue();
     bool checkScalar();
     bool checkNoBool();
@@ -287,7 +288,6 @@ class IdentifierExp : public Expression
 {
 public:
     Identifier *ident;
-    Declaration *var;
 
     IdentifierExp(Loc loc, Identifier *ident);
     static IdentifierExp *create(Loc loc, Identifier *ident);
@@ -310,7 +310,7 @@ public:
     Dsymbol *s;
     bool hasOverloads;
 
-    DsymbolExp(Loc loc, Dsymbol *s, bool hasOverloads = false);
+    DsymbolExp(Loc loc, Dsymbol *s, bool hasOverloads = true);
     Expression *semantic(Scope *sc);
     static Expression resolve(Loc loc, Scope *sc, Dsymbol *s, bool hasOverloads);
     bool isLvalue();
@@ -377,11 +377,11 @@ public:
     bool isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
     Expression *modifiableLvalue(Scope *sc, Expression *e);
-    unsigned charAt(uinteger_t i);
+    unsigned charAt(uinteger_t i) const;
     void accept(Visitor *v) { v->visit(this); }
-    char *toStringz();
-    size_t numberOfCodeUnits(int tynto = 0);
-    void writeTo(void* dest, bool zero, int tyto = 0);
+    const char *toStringz() const;
+    size_t numberOfCodeUnits(int tynto = 0) const;
+    void writeTo(void* dest, bool zero, int tyto = 0) const;
     char *toPtr();
 };
 
@@ -470,10 +470,9 @@ public:
     Expressions *elements;      // parallels sd->fields[] with NULL entries for fields to skip
     Type *stype;                // final type of result (can be different from sd's type)
 
-    Symbol *sinit;              // if this is a defaultInitLiteral, this symbol contains the default initializer
+    bool useStaticInit;         // if this is true, use the StructDeclaration's init symbol
     Symbol *sym;                // back end symbol to initialize with literal
-    size_t soffset;             // offset from start of s
-    int fillHoles;              // fill alignment 'holes' with zero
+
     OwnedBy ownedByCtfe;
 
     // pointer to the origin instance of the expression.
@@ -512,6 +511,7 @@ public:
     TypeExp(Loc loc, Type *type);
     Expression *syntaxCopy();
     Expression *semantic(Scope *sc);
+    bool checkType();
     bool checkValue();
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -536,6 +536,7 @@ public:
     TemplateExp(Loc loc, TemplateDeclaration *td, FuncDeclaration *fd = NULL);
     bool isLvalue();
     Expression *toLvalue(Scope *sc, Expression *e);
+    bool checkType();
     bool checkValue();
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -599,7 +600,7 @@ class SymOffExp : public SymbolExp
 public:
     dinteger_t offset;
 
-    SymOffExp(Loc loc, Declaration *var, dinteger_t offset, bool hasOverloads = false);
+    SymOffExp(Loc loc, Declaration *var, dinteger_t offset, bool hasOverloads = true);
     Expression *semantic(Scope *sc);
     bool isBool(bool result);
 
@@ -611,8 +612,8 @@ public:
 class VarExp : public SymbolExp
 {
 public:
-    VarExp(Loc loc, Declaration *var, bool hasOverloads = false);
-    static VarExp *create(Loc loc, Declaration *var, bool hasOverloads = false);
+    VarExp(Loc loc, Declaration *var, bool hasOverloads = true);
+    static VarExp *create(Loc loc, Declaration *var, bool hasOverloads = true);
     bool equals(RootObject *o);
     Expression *semantic(Scope *sc);
     int checkModifiable(Scope *sc, int flag);
@@ -653,6 +654,7 @@ public:
     Expression *semantic(Scope *sc, Expressions *arguments);
     MATCH matchType(Type *to, Scope *sc, FuncExp **pfe, int flag = 0);
     char *toChars();
+    bool checkType();
     bool checkValue();
 
     void accept(Visitor *v) { v->visit(this); }
@@ -717,7 +719,7 @@ public:
     Identifier *id;     // can be NULL
     TOK tok;       // ':' or '=='
     Type *tspec;        // can be NULL
-    TOK tok2;      // 'struct', 'union', 'typedef', etc.
+    TOK tok2;      // 'struct', 'union', etc.
     TemplateParameters *parameters;
 
     IsExp(Loc loc, Type *targ, Identifier *id, TOK tok, Type *tspec,
@@ -848,7 +850,7 @@ public:
     Declaration *var;
     bool hasOverloads;
 
-    DotVarExp(Loc loc, Expression *e, Declaration *var, bool hasOverloads = false);
+    DotVarExp(Loc loc, Expression *e, Declaration *var, bool hasOverloads = true);
     Expression *semantic(Scope *sc);
     int checkModifiable(Scope *sc, int flag);
     bool checkReadModifyWrite();
@@ -878,7 +880,7 @@ public:
     FuncDeclaration *func;
     bool hasOverloads;
 
-    DelegateExp(Loc loc, Expression *e, FuncDeclaration *func, bool hasOverloads = false);
+    DelegateExp(Loc loc, Expression *e, FuncDeclaration *func, bool hasOverloads = true);
     Expression *semantic(Scope *sc);
 
     void accept(Visitor *v) { v->visit(this); }
@@ -973,14 +975,6 @@ class NotExp : public UnaExp
 {
 public:
     NotExp(Loc loc, Expression *e);
-    Expression *semantic(Scope *sc);
-    void accept(Visitor *v) { v->visit(this); }
-};
-
-class BoolExp : public UnaExp
-{
-public:
-    BoolExp(Loc loc, Expression *e, Type *type);
     Expression *semantic(Scope *sc);
     void accept(Visitor *v) { v->visit(this); }
 };
@@ -1170,8 +1164,8 @@ public:
 
 enum MemorySet
 {
-    MemorySet_blockAssign     = 1,    // setting the contents of an array
-    MemorySet_referenceInit   = 2,    // setting the reference of STCref variable
+    blockAssign     = 1,    // setting the contents of an array
+    referenceInit   = 2,    // setting the reference of STCref variable
 };
 
 class AssignExp : public BinExp

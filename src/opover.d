@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -43,22 +43,14 @@ extern (C++) bool isCommutative(TOK op)
     case TOKand:
     case TOKor:
     case TOKxor:
-        // EqualExp
+    // EqualExp
     case TOKequal:
     case TOKnotequal:
-        // CmpExp
+    // CmpExp
     case TOKlt:
     case TOKle:
     case TOKgt:
     case TOKge:
-    case TOKunord:
-    case TOKlg:
-    case TOKleg:
-    case TOKule:
-    case TOKul:
-    case TOKuge:
-    case TOKug:
-    case TOKue:
         return true;
     default:
         break;
@@ -508,7 +500,7 @@ extern (C++) Expression op_overload(Expression e, Scope* sc)
                         /* Rewrite op(a[arguments]) as:
                          *      a.opIndexUnary!(op)(arguments)
                          */
-                        Expressions* a = cast(Expressions*)ae.arguments.copy();
+                        Expressions* a = ae.arguments.copy();
                         Objects* tiargs = opToArg(sc, e.op);
                         result = new DotTemplateInstanceExp(e.loc, ae.e1, Id.opIndexUnary, tiargs);
                         result = new CallExp(e.loc, result, a);
@@ -676,7 +668,7 @@ extern (C++) Expression op_overload(Expression e, Scope* sc)
                     /* Rewrite e1[arguments] as:
                      *      e1.opIndex(arguments)
                      */
-                    Expressions* a = cast(Expressions*)ae.arguments.copy();
+                    Expressions* a = ae.arguments.copy();
                     result = new DotIdExp(ae.loc, ae.e1, Id.index);
                     result = new CallExp(ae.loc, result, a);
                     if (maybeSlice) // a[] might be: a.opSlice()
@@ -1020,25 +1012,6 @@ extern (C++) Expression op_overload(Expression e, Scope* sc)
                         case TOKge:
                             e.op = TOKle;
                             break;
-                            // Floating point compares
-                        case TOKule:
-                            e.op = TOKuge;
-                            break;
-                        case TOKul:
-                            e.op = TOKug;
-                            break;
-                        case TOKuge:
-                            e.op = TOKule;
-                            break;
-                        case TOKug:
-                            e.op = TOKul;
-                            break;
-                            // These are symmetric
-                        case TOKunord:
-                        case TOKlg:
-                        case TOKleg:
-                        case TOKue:
-                            break;
                         default:
                             break;
                         }
@@ -1238,10 +1211,15 @@ extern (C++) Expression op_overload(Expression e, Scope* sc)
                     return;
                 }
 
-                /* Rewrite:
+                /* Do memberwise equality.
+                 * Rewrite:
                  *      e1 == e2
                  * as:
                  *      e1.tupleof == e2.tupleof
+                 *
+                 * If sd is a nested struct, and if it's nested in a class, it will
+                 * also compare the parent class's equality. Otherwise, compares
+                 * the identity of parent context through void*.
                  */
                 if (e.att1 && t1 == e.att1) return;
                 if (e.att2 && t2 == e.att2) return;
@@ -1365,7 +1343,7 @@ extern (C++) Expression op_overload(Expression e, Scope* sc)
                         /* Rewrite a[arguments] op= e2 as:
                          *      a.opIndexOpAssign!(op)(e2, arguments)
                          */
-                        Expressions* a = cast(Expressions*)ae.arguments.copy();
+                        Expressions* a = ae.arguments.copy();
                         a.insert(0, e.e2);
                         Objects* tiargs = opToArg(sc, e.op);
                         result = new DotTemplateInstanceExp(e.loc, ae.e1, Id.opIndexOpAssign, tiargs);
@@ -1652,20 +1630,6 @@ extern (C++) Expression compare_overload(BinExp e, Scope* sc, Identifier id)
             case TOKge:
                 e.op = TOKle;
                 break;
-                // Floating point compares
-            case TOKule:
-                e.op = TOKuge;
-                break;
-            case TOKul:
-                e.op = TOKug;
-                break;
-            case TOKuge:
-                e.op = TOKule;
-                break;
-            case TOKug:
-                e.op = TOKul;
-                break;
-                // The rest are symmetric
             default:
                 break;
             }
@@ -1719,7 +1683,7 @@ extern (C++) Expression build_overload(Loc loc, Scope* sc, Expression ethis, Exp
     //earg->type->print();
     Declaration decl = d.isDeclaration();
     if (decl)
-        e = new DotVarExp(loc, ethis, decl, 0);
+        e = new DotVarExp(loc, ethis, decl, false);
     else
         e = new DotIdExp(loc, ethis, d.ident);
     e = new CallExp(loc, e, earg);
@@ -1968,8 +1932,7 @@ extern (C++) bool inferApplyArgTypes(ForeachStatement fes, Scope* sc, ref Dsymbo
             break;
         }
     default:
-        break;
-        // ignore error, caught later
+        break; // ignore error, caught later
     }
     return true;
 }
@@ -2044,11 +2007,9 @@ extern (C++) static int inferApplyArgTypesY(TypeFunction tf, Parameters* paramet
      */
     nparams = Parameter.dim(tf.parameters);
     if (nparams == 0 || tf.varargs)
-        goto Lnomatch;
-    // not enough parameters
+        goto Lnomatch; // not enough parameters
     if (parameters.dim != nparams)
-        goto Lnomatch;
-    // not enough parameters
+        goto Lnomatch; // not enough parameters
     for (size_t u = 0; u < nparams; u++)
     {
         p = (*parameters)[u];

@@ -4,7 +4,7 @@
  * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
  * Authors: Walter Bright, http://www.digitalmars.com
  * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
- * Source:    $(DMDSRC cppmangle.d)
+ * Source:    $(DMDSRC _cppmangle.d)
  */
 
 module ddmd.cppmangle;
@@ -17,6 +17,7 @@ import ddmd.declaration;
 import ddmd.dstruct;
 import ddmd.dsymbol;
 import ddmd.dtemplate;
+import ddmd.errors;
 import ddmd.expression;
 import ddmd.func;
 import ddmd.globals;
@@ -72,8 +73,10 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
             if (components_on)
                 for (size_t i = 0; i < components.dim; i++)
                 {
+                    //printf("    component[%d] = %s\n", i, components[i] ? components[i].toChars() : null);
                     if (p == components[i])
                     {
+                        //printf("\tmatch\n");
                         /* Sequence is S_, S0_, .., S9_, SA_, ..., SZ_, S10_, ...
                          */
                         buf.writeByte('S');
@@ -102,7 +105,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
 
         void store(RootObject p)
         {
-            //printf("store %s\n", p ? p.toChars() : null);
+            //printf("store %s\n", p ? p.toChars() : "null");
             if (components_on)
                 components.push(p);
         }
@@ -116,7 +119,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                 if (!skipname && !substitute(ti.tempdecl))
                 {
                     store(ti.tempdecl);
-                    const(char)* name = ti.toAlias().ident.toChars();
+                    const(char)* name = ti.tempdecl.toAlias().ident.toChars();
                     buf.printf("%d%s", strlen(name), name);
                 }
                 buf.writeByte('I');
@@ -173,7 +176,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                         else
                         {
                             s.error("Internal Compiler Error: C++ %s template value parameter is not supported", tv.valType.toChars());
-                            assert(0);
+                            fatal();
                         }
                     }
                     else if (!tp || tp.isTemplateTypeParameter())
@@ -189,7 +192,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                         if (!d && !e)
                         {
                             s.error("Internal Compiler Error: %s is unsupported parameter for C++ template: (%s)", o.toChars());
-                            assert(0);
+                            fatal();
                         }
                         if (d && d.isFuncDeclaration())
                         {
@@ -219,13 +222,13 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                         else
                         {
                             s.error("Internal Compiler Error: %s is unsupported parameter for C++ template", o.toChars());
-                            assert(0);
+                            fatal();
                         }
                     }
                     else
                     {
                         s.error("Internal Compiler Error: C++ templates support only integral value, type parameters, alias templates and alias function parameters");
-                        assert(0);
+                        fatal();
                     }
                 }
                 if (is_var_arg)
@@ -262,9 +265,13 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                 }
                 if (p && !p.isModule())
                 {
-                    prefix_name(p);
+                    if (p.ident == Id.std && is_initial_qualifier(p))
+                        buf.writestring("St");
+                    else
+                        prefix_name(p);
                 }
-                store(s);
+                if (!(s.ident == Id.std && is_initial_qualifier(s)))
+                    store(s);
                 source_name(s);
             }
         }
@@ -323,10 +330,10 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                         // Replace ::std::basic_string < char, ::std::char_traits<char>, ::std::allocator<char> >
                         // with Ss
                         //printf("xx: '%.*s'\n", (int)(buf.offset - off), buf.data + off);
-                        if (buf.offset - off >= 26 && memcmp(buf.data + off, cast(char*)"IcSt11char_traitsIcESaIcEE", 26) == 0)
+                        if (buf.offset - off >= 26 && memcmp(buf.data + off, "IcSt11char_traitsIcESaIcEE".ptr, 26) == 0)
                         {
                             buf.remove(off - 2, 28);
-                            buf.insert(off - 2, cast(const(char)*)"Ss", 2);
+                            buf.insert(off - 2, "Ss".ptr, 2);
                             return;
                         }
                         buf.setsize(off);
@@ -344,7 +351,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                         source_name(se, true);
                         components_on = true;
                         //printf("xx: '%.*s'\n", (int)(buf.offset - off), buf.data + off);
-                        if (buf.offset - off >= 21 && memcmp(buf.data + off, cast(char*)"IcSt11char_traitsIcEE", 21) == 0)
+                        if (buf.offset - off >= 21 && memcmp(buf.data + off, "IcSt11char_traitsIcEE".ptr, 21) == 0)
                         {
                             buf.remove(off, 21);
                             char[2] mbuf;
@@ -386,7 +393,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
             if (!(d.storage_class & (STCextern | STCgshared)))
             {
                 d.error("Internal Compiler Error: C++ static non- __gshared non-extern variables not supported");
-                assert(0);
+                fatal();
             }
             Dsymbol p = d.toParent();
             if (p && !p.isModule()) //for example: char Namespace1::beta[6] should be mangled as "_ZN10Namespace14betaE"
@@ -422,7 +429,9 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
             TypeFunction tf = cast(TypeFunction)d.type;
             buf.writestring("_Z");
             Dsymbol p = d.toParent();
-            if (p && !p.isModule() && tf.linkage == LINKcpp)
+            TemplateDeclaration ftd = getFuncTemplateDecl(d);
+
+            if (p && !p.isModule() && tf.linkage == LINKcpp && !ftd)
             {
                 buf.writeByte('N');
                 if (d.type.isConst())
@@ -430,22 +439,27 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                 prefix_name(p);
                 // See ABI 5.1.8 Compression
                 // Replace ::std::allocator with Sa
-                if (buf.offset >= 17 && memcmp(buf.data, cast(char*)"_ZN3std9allocator", 17) == 0)
+                if (buf.offset >= 17 && memcmp(buf.data, "_ZN3std9allocator".ptr, 17) == 0)
                 {
                     buf.remove(3, 14);
-                    buf.insert(3, cast(const(char)*)"Sa", 2);
+                    buf.insert(3, "Sa".ptr, 2);
                 }
                 // Replace ::std::basic_string with Sb
-                if (buf.offset >= 21 && memcmp(buf.data, cast(char*)"_ZN3std12basic_string", 21) == 0)
+                if (buf.offset >= 21 && memcmp(buf.data, "_ZN3std12basic_string".ptr, 21) == 0)
                 {
                     buf.remove(3, 18);
-                    buf.insert(3, cast(const(char)*)"Sb", 2);
+                    buf.insert(3, "Sb".ptr, 2);
                 }
                 // Replace ::std with St
-                if (buf.offset >= 7 && memcmp(buf.data, cast(char*)"_ZN3std", 7) == 0)
+                if (buf.offset >= 7 && memcmp(buf.data, "_ZN3std".ptr, 7) == 0)
                 {
                     buf.remove(3, 4);
-                    buf.insert(3, cast(const(char)*)"St", 2);
+                    buf.insert(3, "St".ptr, 2);
+                }
+                if (buf.offset >= 8 && memcmp(buf.data, "_ZNK3std".ptr, 8) == 0)
+                {
+                    buf.remove(4, 4);
+                    buf.insert(4, "St".ptr, 2);
                 }
                 if (d.isDtorDeclaration())
                 {
@@ -456,6 +470,13 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                     source_name(d);
                 }
                 buf.writeByte('E');
+            }
+            else if (ftd)
+            {
+                source_name(p);
+                this.is_top_level = true;
+                tf.nextOf().accept(this);
+                this.is_top_level = false;
             }
             else
             {
@@ -487,7 +508,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                     // Mangle static arrays as pointers
                     t.error(Loc(), "Internal Compiler Error: unable to pass static array to extern(C++) function.");
                     t.error(Loc(), "Use pointer instead.");
-                    assert(0);
+                    fatal();
                     //t = t.nextOf().pointerTo();
                 }
                 /* If it is a basic, enum or struct type,
@@ -516,7 +537,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
             this.components_on = true;
         }
 
-        char* mangleOf(Dsymbol s)
+        const(char)* mangleOf(Dsymbol s)
         {
             VarDeclaration vd = s.isVarDeclaration();
             FuncDeclaration fd = s.isFuncDeclaration();
@@ -546,7 +567,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
             {
                 t.error(Loc(), "Internal Compiler Error: unsupported type %s\n", t.toChars());
             }
-            assert(0); //Assert, because this error should be handled in frontend
+            fatal(); //Fatal, because this error should be handled in frontend
         }
 
         override void visit(TypeBasic t)
@@ -619,7 +640,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                 c = 'd';
                 break;
             case Tfloat80:
-                c = (Target.realsize - Target.realpad == 16) ? 'g' : 'e';
+                c = Target.realislongdouble ? 'e' : 'g';
                 break;
             case Tbool:
                 c = 'b';
@@ -764,20 +785,20 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
              *  # types are possible return type, then parameter types
              */
             /* ABI says:
-             "The type of a non-static member function is considered to be different,
-             for the purposes of substitution, from the type of a namespace-scope or
-             static member function whose type appears similar. The types of two
-             non-static member functions are considered to be different, for the
-             purposes of substitution, if the functions are members of different
-             classes. In other words, for the purposes of substitution, the class of
-             which the function is a member is considered part of the type of
-             function."
+                "The type of a non-static member function is considered to be different,
+                for the purposes of substitution, from the type of a namespace-scope or
+                static member function whose type appears similar. The types of two
+                non-static member functions are considered to be different, for the
+                purposes of substitution, if the functions are members of different
+                classes. In other words, for the purposes of substitution, the class of
+                which the function is a member is considered part of the type of
+                function."
 
-             BUG: Right now, types of functions are never merged, so our simplistic
-             component matcher always finds them to be different.
-             We should use Type.equals on these, and use different
-             TypeFunctions for non-static member functions, and non-static
-             member functions of different classes.
+                BUG: Right now, types of functions are never merged, so our simplistic
+                component matcher always finds them to be different.
+                We should use Type.equals on these, and use different
+                TypeFunctions for non-static member functions, and non-static
+                member functions of different classes.
              */
             if (substitute(t))
                 return;
@@ -800,7 +821,7 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
 
         override void visit(TypeStruct t)
         {
-            Identifier id = t.sym.ident;
+            const id = t.sym.ident;
             //printf("struct id = '%s'\n", id.toChars());
             char c;
             if (id == Id.__c_long)
@@ -893,26 +914,47 @@ static if (TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TAR
                 store(null);
             store(t);
         }
+
+        final const(char)* mangle_typeinfo(Dsymbol s)
+        {
+            buf.writestring("_ZTI");
+            cpp_mangle_name(s, false);
+            return buf.extractString();
+        }
     }
 
-    extern (C++) char* toCppMangle(Dsymbol s)
+    extern (C++) const(char)* toCppMangle(Dsymbol s)
     {
         //printf("toCppMangle(%s)\n", s.toChars());
         scope CppMangleVisitor v = new CppMangleVisitor();
         return v.mangleOf(s);
     }
+
+    extern (C++) const(char)* cppTypeInfoMangle(Dsymbol s)
+    {
+        //printf("cppTypeInfoMangle(%s)\n", s.toChars());
+        scope CppMangleVisitor v = new CppMangleVisitor();
+        return v.mangle_typeinfo(s);
+    }
 }
 else static if (TARGET_WINDOS)
 {
     // Windows DMC and Microsoft Visual C++ mangling
-    enum VC_SAVED_TYPE_CNT = 10;
-    enum VC_SAVED_IDENT_CNT = 10;
+    enum VC_SAVED_TYPE_CNT = 10u;
+    enum VC_SAVED_IDENT_CNT = 10u;
 
     extern (C++) final class VisualCPPMangler : Visitor
     {
         alias visit = super.visit;
         const(char)*[VC_SAVED_IDENT_CNT] saved_idents;
         Type[VC_SAVED_TYPE_CNT] saved_types;
+
+        // IS_NOT_TOP_TYPE: when we mangling one argument, we can call visit several times (for base types of arg type)
+        // but we must save only arg type:
+        // For example: if we have an int** argument, we should save "int**" but visit will be called for "int**", "int*", "int"
+        // This flag is set up by the visit(NextType, ) function  and should be reset when the arg type output is finished.
+        // MANGLE_RETURN_TYPE: return type shouldn't be saved and substituted in arguments
+        // IGNORE_CONST: in some cases we should ignore CV-modifiers.
 
         enum Flags : int
         {
@@ -958,7 +1000,7 @@ else static if (TARGET_WINDOS)
             {
                 type.error(Loc(), "Internal Compiler Error: unsupported type %s\n", type.toChars());
             }
-            assert(0); // Assert, because this error should be handled in frontend
+            fatal(); //Fatal, because this error should be handled in frontend
         }
 
         override void visit(TypeBasic type)
@@ -982,15 +1024,18 @@ else static if (TARGET_WINDOS)
             {
                 switch (type.ty)
                 {
-                    case Tint64:
-                    case Tuns64:
-                    case Tint128:
-                    case Tuns128:
-                    case Tfloat80:
-                    case Twchar:
-                        if (checkTypeSaved(type))
-                            return;
-                    default:
+                case Tint64:
+                case Tuns64:
+                case Tint128:
+                case Tuns128:
+                case Tfloat80:
+                case Twchar:
+                    if (checkTypeSaved(type))
+                        return;
+                    break;
+
+                default:
+                    break;
                 }
             }
             mangleModifier(type);
@@ -1206,7 +1251,7 @@ else static if (TARGET_WINDOS)
 
         override void visit(TypeStruct type)
         {
-            Identifier id = type.sym.ident;
+            const id = type.sym.ident;
             char c;
             if (id == Id.__c_long_double)
                 c = 'O'; // VC++ long double
@@ -1313,7 +1358,7 @@ else static if (TARGET_WINDOS)
             flags &= ~IGNORE_CONST;
         }
 
-        char* mangleOf(Dsymbol s)
+        const(char)* mangleOf(Dsymbol s)
         {
             VarDeclaration vd = s.isVarDeclaration();
             FuncDeclaration fd = s.isFuncDeclaration();
@@ -1342,7 +1387,9 @@ else static if (TARGET_WINDOS)
             if (d.needThis()) // <flags> ::= <virtual/protection flag> <const/volatile flag> <calling convention flag>
             {
                 // Pivate methods always non-virtual in D and it should be mangled as non-virtual in C++
-                if (d.isVirtual() && d.vtblIndex != -1)
+                //printf("%s: isVirtualMethod = %d, isVirtual = %d, vtblIndex = %d, interfaceVirtual = %p\n",
+                    //d.toChars(), d.isVirtualMethod(), d.isVirtual(), cast(int)d.vtblIndex, d.interfaceVirtual);
+                if (d.isVirtual() && (d.vtblIndex != -1 || d.interfaceVirtual || d.overrideInterface()))
                 {
                     switch (d.protection.kind)
                     {
@@ -1404,7 +1451,7 @@ else static if (TARGET_WINDOS)
                 // <flags> ::= Y <calling convention flag>
                 buf.writeByte('Y');
             }
-            const(char)* args = mangleFunctionType(cast(TypeFunction)d.type, cast(bool)d.needThis(), d.isCtorDeclaration() || d.isDtorDeclaration());
+            const(char)* args = mangleFunctionType(cast(TypeFunction)d.type, d.needThis(), d.isCtorDeclaration() || d.isDtorDeclaration());
             buf.writestring(args);
         }
 
@@ -1415,7 +1462,7 @@ else static if (TARGET_WINDOS)
             if (!(d.storage_class & (STCextern | STCgshared)))
             {
                 d.error("Internal Compiler Error: C++ static non- __gshared non-extern variables not supported");
-                assert(0);
+                fatal();
             }
             buf.writeByte('?');
             mangleIdent(d);
@@ -1443,7 +1490,7 @@ else static if (TARGET_WINDOS)
             Type t = d.type;
             if (t.isImmutable() || t.isShared())
             {
-                visit(cast(Type)t);
+                visit(t);
                 return;
             }
             if (t.isConst())
@@ -1539,7 +1586,7 @@ else static if (TARGET_WINDOS)
                         else
                         {
                             sym.error("Internal Compiler Error: C++ %s template value parameter is not supported", tv.valType.toChars());
-                            assert(0);
+                            fatal();
                         }
                     }
                     else if (!tp || tp.isTemplateTypeParameter())
@@ -1555,7 +1602,7 @@ else static if (TARGET_WINDOS)
                         if (!d && !e)
                         {
                             sym.error("Internal Compiler Error: %s is unsupported parameter for C++ template", o.toChars());
-                            assert(0);
+                            fatal();
                         }
                         if (d && d.isFuncDeclaration())
                         {
@@ -1596,7 +1643,7 @@ else static if (TARGET_WINDOS)
                                 else
                                 {
                                     sym.error("Internal Compiler Error: C++ templates support only integral value, type parameters, alias templates and alias function parameters");
-                                    assert(0);
+                                    fatal();
                                 }
                             }
                             tmp.mangleIdent(d);
@@ -1604,13 +1651,13 @@ else static if (TARGET_WINDOS)
                         else
                         {
                             sym.error("Internal Compiler Error: %s is unsupported parameter for C++ template: (%s)", o.toChars());
-                            assert(0);
+                            fatal();
                         }
                     }
                     else
                     {
                         sym.error("Internal Compiler Error: C++ templates support only integral value, type parameters, alias templates and alias function parameters");
-                        assert(0);
+                        fatal();
                     }
                 }
                 name = tmp.buf.extractString();
@@ -1639,7 +1686,7 @@ else static if (TARGET_WINDOS)
         // returns true if name already saved
         bool checkAndSaveIdent(const(char)* name)
         {
-            for (uint i = 0; i < VC_SAVED_IDENT_CNT; i++)
+            foreach (i; 0 .. VC_SAVED_IDENT_CNT)
             {
                 if (!saved_idents[i]) // no saved same name
                 {
@@ -1657,7 +1704,7 @@ else static if (TARGET_WINDOS)
 
         void saveIdent(const(char)* name)
         {
-            for (size_t i = 0; i < VC_SAVED_IDENT_CNT; i++)
+            foreach (i; 0 .. VC_SAVED_IDENT_CNT)
             {
                 if (!saved_idents[i]) // no saved same name
                 {
@@ -1759,7 +1806,7 @@ else static if (TARGET_WINDOS)
                 return;
             if (type.isImmutable() || type.isShared())
             {
-                visit(cast(Type)type);
+                visit(type);
                 return;
             }
             if (type.isConst())
@@ -1841,7 +1888,7 @@ else static if (TARGET_WINDOS)
                 flags &= ~IGNORE_CONST;
                 if (rettype.ty == Tstruct || rettype.ty == Tenum)
                 {
-                    Identifier id = rettype.toDsymbol(null).ident;
+                    const id = rettype.toDsymbol(null).ident;
                     if (id != Id.__c_long_double && id != Id.__c_long && id != Id.__c_ulong)
                     {
                         tmp.buf.writeByte('?');
@@ -1905,10 +1952,16 @@ else static if (TARGET_WINDOS)
         }
     }
 
-    extern (C++) char* toCppMangle(Dsymbol s)
+    extern (C++) const(char)* toCppMangle(Dsymbol s)
     {
         scope VisualCPPMangler v = new VisualCPPMangler(!global.params.mscoff);
         return v.mangleOf(s);
+    }
+
+    extern (C++) const(char)* cppTypeInfoMangle(Dsymbol s)
+    {
+        //printf("cppTypeInfoMangle(%s)\n", s.toChars());
+        assert(0);
     }
 }
 else

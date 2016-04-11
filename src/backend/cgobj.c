@@ -265,6 +265,7 @@ struct Objstate
     int segidx;                 // index of next SEGDEF record
     int extidx;                 // index of next EXTDEF record
     int pubnamidx;              // index of COMDAT public name index
+    Outbuffer *reset_symbuf;    // Keep pointers to reset symbols
 
     Symbol *startaddress;       // if !NULL, then Symbol is start address
 
@@ -590,10 +591,26 @@ Obj *Obj::init(Outbuffer *objbuf, const char *filename, const char *csegname)
         //printf("Obj::init()\n");
         Obj *mobj = new Obj();
 
+        Outbuffer *reset_symbuf = obj.reset_symbuf;
+        if (reset_symbuf)
+        {
+            symbol **p = (symbol **)reset_symbuf->buf;
+            const size_t n = reset_symbuf->size() / sizeof(symbol *);
+            for (size_t i = 0; i < n; ++i)
+                symbol_reset(p[i]);
+            reset_symbuf->setsize(0);
+        }
+        else
+        {
+            reset_symbuf = new Outbuffer(50 * sizeof(symbol *));
+        }
+
         memset(&obj,0,sizeof(obj));
 
         obj.buf = objbuf;
         obj.buf->reserve(40000);
+
+        obj.reset_symbuf = reset_symbuf; // reuse buffer
 
         obj.lastfardatasegi = -1;
 
@@ -1594,7 +1611,6 @@ void Obj::segment_group(targ_size_t codesize,targ_size_t datasize,
 #endif
 }
 
-//#if NEWSTATICDTOR
 
 /**************************************
  * Symbol is the function that calls the static constructors.
@@ -1676,7 +1692,6 @@ void Obj::staticdtor(Symbol *s)
     assert(0);
 }
 
-//#else
 
 /***************************************
  * Stuff pointer to function in its own segment.
@@ -1737,7 +1752,6 @@ void Obj::funcptr(Symbol *s)
     obj.lnameidx += 3;                  // for next time
 }
 
-//#endif
 
 /***************************************
  * Stuff pointer to function in its own segment.
@@ -1872,6 +1886,7 @@ int Obj::comdat(Symbol *s)
     tym_t ty;
 
     symbol_debug(s);
+    obj.reset_symbuf->write(&s, sizeof(s));
     ty = s->ty();
     isfunc = tyfunc(ty) != 0;
 
@@ -1921,12 +1936,11 @@ int Obj::comdat(Symbol *s)
 #endif
                                 break;
 
-#if TARGET_SEGMENTED
             case mTYcs:         lr->flags |= 0x08;      // data in code seg
                                 atyp = 0x11;    break;
 
             case mTYfar:        atyp = 0x12;    break;
-#endif
+
             case mTYthread:     lr->pubbase = Obj::tlsseg()->segidx;
                                 atyp = 0x10;    // pick any (also means it is
                                                 // not searched for in a library)
@@ -2294,10 +2308,8 @@ size_t Obj::mangle(Symbol *s,char *dest)
             break;
 #if SCPP || MARS
         case mTYman_cpp:
-#if NEWMANGLE
             memcpy(dest + 1,name,len);
             break;
-#endif
 #endif
         case mTYman_std:
             if (!(config.flags4 & CFG4oldstdmangle) &&
@@ -2326,9 +2338,7 @@ size_t Obj::mangle(Symbol *s,char *dest)
             dest[1 + len] = 0;
             break;
         default:
-#ifdef DEBUG
             symbol_print(s);
-#endif
             assert(0);
     }
     if (ilen > (255-2-sizeof(int)*3))
@@ -2445,6 +2455,8 @@ void Obj::pubdef(int seg,Symbol *s,targ_size_t offset)
     unsigned ti;
 
     assert(offset < 100000000);
+    obj.reset_symbuf->write(&s, sizeof(s));
+
     int idx = SegData[seg]->segidx;
     if (obj.pubdatai + 1 + (IDMAX + IDOHD) + 4 + 2 > sizeof(obj.pubdata) ||
         idx != getindex(obj.pubdata + 1))
@@ -2516,6 +2528,7 @@ int Obj::external(Symbol *s)
 {
     //dbg_printf("Obj::external('%s')\n",s->Sident);
     symbol_debug(s);
+    obj.reset_symbuf->write(&s, sizeof(s));
     if (obj.extdatai + (IDMAX + IDOHD) + 3 > sizeof(obj.extdata))
         outextdata();
 
@@ -2716,6 +2729,7 @@ STATIC void obj_modend()
         // Turn startaddress into a fixup.
         // Borrow heavilly from Obj::reftoident()
 
+        obj.reset_symbuf->write(&s, sizeof(s));
         symbol_debug(s);
         offset = 0;
         ty = s->ty();
@@ -2752,9 +2766,7 @@ STATIC void obj_modend()
                 offset += s->Soffset;
                 break;
             default:
-    #ifdef DEBUG
                 //symbol_print(s);
-    #endif
                 assert(0);
         }
 
@@ -2764,17 +2776,11 @@ STATIC void obj_modend()
             switch (s->Sfl)
             {
                 case FLextern:
-                    if (!(ty & (
-#if TARGET_SEGMENTED
-                                    mTYcs |
-#endif
-                                    mTYthread)))
+                    if (!(ty & (mTYcs | mTYthread)))
                         goto L1;
                 case FLfunc:
-#if TARGET_SEGMENTED
                 case FLfardata:
                 case FLcsdata:
-#endif
                 case FLtlsdata:
                     if (config.exe & EX_flat)
                     {   fd |= FD_F1;
@@ -2799,17 +2805,11 @@ STATIC void obj_modend()
             switch (s->Sfl)
             {
                 case FLextern:
-                    if (!(ty & (
-#if TARGET_SEGMENTED
-                                    mTYcs |
-#endif
-                                    mTYthread)))
+                    if (!(ty & (mTYcs | mTYthread)))
                         goto L1;
                 case FLfunc:
-#if TARGET_SEGMENTED
                 case FLfardata:
                 case FLcsdata:
-#endif
                 case FLtlsdata:
                     if (config.exe & EX_flat)
                     {   fd |= FD_F1;
@@ -3113,11 +3113,7 @@ void Obj::ledata(int seg,targ_size_t offset,targ_size_t data,
 {   unsigned i;
     unsigned size;                      // number of bytes to output
 
-#if TARGET_SEGMENTED
     unsigned ptrsize = tysize[TYfptr];
-#else
-    unsigned ptrsize = I64 ? 10 : 6;
-#endif
 
     if ((lcfd & LOCxx) == obj.LOCpointer)
         size = ptrsize;
@@ -3187,11 +3183,7 @@ L1:     ;
 void Obj::write_long(int seg,targ_size_t offset,unsigned long data,
         unsigned lcfd,unsigned idx1,unsigned idx2)
 {
-#if TARGET_SEGMENTED
     unsigned sz = tysize[TYfptr];
-#else
-    unsigned sz = I64 ? 10 : 6;
-#endif
     Ledatarec *lr = SegData[seg]->ledata;
     if (!lr)
          lr = ledata_new(seg, offset);
@@ -3393,11 +3385,7 @@ int Obj::reftoident(int seg,targ_size_t offset,Symbol *s,targ_size_t val,
                 break;
             case CFoff | CFseg:
                 lc = obj.LOCpointer;
-#if TARGET_SEGMENTED
                 numbytes = tysize[TYfptr];
-#else
-                numbytes = I64 ? 10 : 6;
-#endif
                 break;
         }
         break;
@@ -3442,9 +3430,7 @@ int Obj::reftoident(int seg,targ_size_t offset,Symbol *s,targ_size_t val,
                 val += s->Soffset;
             break;
         default:
-#ifdef DEBUG
             symbol_print(s);
-#endif
             assert(0);
     }
 
@@ -3455,17 +3441,11 @@ int Obj::reftoident(int seg,targ_size_t offset,Symbol *s,targ_size_t val,
         switch (s->Sfl)
         {
             case FLextern:
-                if (!(ty & (
-#if TARGET_SEGMENTED
-                                mTYcs |
-#endif
-                                mTYthread)))
+                if (!(ty & (mTYcs | mTYthread)))
                     goto L1;
             case FLfunc:
-#if TARGET_SEGMENTED
             case FLfardata:
             case FLcsdata:
-#endif
             case FLtlsdata:
                 if (config.exe & EX_flat)
                 {   lc |= FD_F1;
@@ -3490,17 +3470,11 @@ int Obj::reftoident(int seg,targ_size_t offset,Symbol *s,targ_size_t val,
         switch (s->Sfl)
         {
             case FLextern:
-                if (!(ty & (
-#if TARGET_SEGMENTED
-                                mTYcs |
-#endif
-                                mTYthread)))
+                if (!(ty & (mTYcs | mTYthread)))
                     goto L1;
             case FLfunc:
-#if TARGET_SEGMENTED
             case FLfardata:
             case FLcsdata:
-#endif
             case FLtlsdata:
                 if (config.exe & EX_flat)
                 {   lc |= FD_F1;

@@ -251,23 +251,9 @@ char *strupr(char *);
 // C++ Language Features
 #define ANGLE_BRACKET_HACK      0       // >> means two template arglist closes
 
-// C Language Features
-#define CPP_COMMENT             1       // allow C++ style comments
-
 // C/C++ Language Features
 #define IMPLIED_PRAGMA_ONCE     1       // include guards count as #pragma once
-#define PSEUDO_REGS             1
-#define INLINE_ASM              1       // support inline assembler
-#define HIDDENPARAM_1ST_ARG     1
-#define HEADER_LIST             1
-#define PASCAL_STRINGS          0
-#define KEYWORD_WITH            1
-#define EECONTEXT               1
-#define LOCALE                  0       // locale support for Unicode conversion
-#define HEXFLOATS               1       // support hex floating point constants
-#define OVERLOAD_CV_PARAM       1       // if int foo(int i) and int foo(const int i)
-                                        // are different
-#define CPP0X                   1       // support C++0x features
+const bool HEADER_LIST          = true;
 
 // Support generating code for 16 bit memory models
 #define SIXTEENBIT              (SCPP && TARGET_WINDOS)
@@ -278,8 +264,6 @@ char *strupr(char *);
  */
 #define TARGET_SEGMENTED     (!MARS && TARGET_WINDOS)
 
-
-#define STATEMENT_SCOPES CPP
 
 #if __GNUC__
 #define LDOUBLE                 0       // no support for true long doubles
@@ -341,11 +325,7 @@ typedef long double longdouble;
 //      2: new style
 #define NTEXCEPTIONS            2
 
-#define NEWSTATICDTOR           1       // support new style static destructors
-
 // For Shared Code Base
-#define TARGET_INLINEFUNC_NAMES
-#define PASCAL pascal
 #if _WINDLL
 #define dbg_printf dll_printf
 #else
@@ -365,11 +345,7 @@ typedef long double longdouble;
 #define ANSI        config.ansi_c
 #define ANSI_STRICT config.ansi_c
 #define ANSI_RELAX  config.ansi_c
-#ifndef TRIGRAPHS
 #define TRIGRAPHS   ANSI
-#endif
-#define ARG_TRUE
-#define ARG_FALSE
 #define T80x86(x)       x
 
 // For Share MEM_ macros - default to mem_xxx package
@@ -492,20 +468,7 @@ typedef unsigned        targ_uns;
 #define CENTSIZE        16
 #define FLOATSIZE       4
 #define DOUBLESIZE      8
-#if TARGET_OSX
-#define LNGDBLSIZE      16      // 80 bit reals
-#elif TARGET_LINUX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
-#define LNGDBLSIZE      12      // 80 bit reals
-#else
-#define LNGDBLSIZE      10      // 80 bit reals
-#endif
-#define TMAXSIZE        LNGDBLSIZE      // largest size a constant can be
-
-#if 0
-#define NDPSAVESIZE     DOUBLESIZE
-#else
-#define NDPSAVESIZE     LNGDBLSIZE
-#endif
+#define TMAXSIZE        16      // largest size a constant can be
 
 #define intsize         tysize[TYint]
 #define REGSIZE         tysize[TYnptr]
@@ -531,7 +494,6 @@ typedef targ_uns        targ_size_t;    /* size_t for the target machine */
                                 // they are separate
 #define UNICODE         1       // support Unicode (wchar_t is unsigned short)
 #define DLCMSGS         0       // if 1, have all messages in a file
-#define NEWMANGLE       TARGET_WINDOS   // use MS name mangling scheme
 #define NEWTEMPMANGLE   (!(config.flags4 & CFG4oldtmangle))     // do new template mangling
 #define USEDLLSHELL     _WINDLL
 #define FARCLASSES      1       // support near/far classes
@@ -612,7 +574,14 @@ typedef int bool;
 #endif
 
 #if _WINDLL
-#define COPYRIGHT "Copyright © 2001 Digital Mars"
+/* We reference the required Windows-1252 encoding of the copyright symbol
+   by escaping its character code (0xA9) rather than directly embedding it in
+   the source text. The character code is invalid in UTF-8, which causes some
+   of our source-code preprocessing tools (e.g. tolf) to choke. */
+#ifndef COPYRIGHT_SYMBOL
+#define COPYRIGHT_SYMBOL "\xA9"
+#endif
+#define COPYRIGHT "Copyright " COPYRIGHT_SYMBOL " 2001 Digital Mars"
 #else
 #ifdef DEBUG
 #define COPYRIGHT "Copyright (C) Digital Mars 2000-2013.  All Rights Reserved.\n\

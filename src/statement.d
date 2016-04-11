@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -10,6 +10,7 @@ module ddmd.statement;
 
 import core.stdc.stdarg;
 import core.stdc.stdio;
+
 import ddmd.aggregate;
 import ddmd.aliasthis;
 import ddmd.arrayop;
@@ -26,6 +27,7 @@ import ddmd.declaration;
 import ddmd.denum;
 import ddmd.dimport;
 import ddmd.dinterpret;
+import ddmd.dmodule;
 import ddmd.dscope;
 import ddmd.dsymbol;
 import ddmd.dtemplate;
@@ -66,8 +68,7 @@ extern (C++) Identifier fixupLabelName(Scope* sc, Identifier ident)
         const(char)* prefix = flags == SCOPErequire ? "__in_" : "__out_";
         OutBuffer buf;
         buf.printf("%s%s", prefix, ident.toChars());
-        const(char)* name = buf.extractString();
-        ident = Identifier.idPool(name);
+        ident = Identifier.idPool(buf.peekSlice());
     }
     return ident;
 }
@@ -129,7 +130,7 @@ alias BEany = BE.BEany;
 
 /***********************************************************
  */
-extern (C++) class Statement : RootObject
+extern (C++) abstract class Statement : RootObject
 {
 public:
     Loc loc;
@@ -152,7 +153,7 @@ public:
         fflush(stderr);
     }
 
-    override final char* toChars()
+    override final const(char)* toChars()
     {
         HdrGenState hgs;
         OutBuffer buf;
@@ -1130,7 +1131,7 @@ public:
         this.exp = new DeclarationExp(loc, declaration);
     }
 
-    final static ExpStatement create(Loc loc, Expression exp)
+    static ExpStatement create(Loc loc, Expression exp)
     {
         return new ExpStatement(loc, exp);
     }
@@ -1144,27 +1145,19 @@ public:
     {
         if (exp)
         {
-            //printf("ExpStatement::semantic() %s\n", exp->toChars());
-            version (none)
-            {
-                // Doesn't work because of difficulty dealing with things like a.b.c!(args).Foo!(args)
-                // See if this should be rewritten as a TemplateMixin
-                if (exp.op == TOKdeclaration)
-                {
-                    DeclarationExp de = cast(DeclarationExp)exp;
-                    Dsymbol s = de.declaration;
-                    printf("s: %s %s\n", s.kind(), s.toChars());
-                    VarDeclaration v = s.isVarDeclaration();
-                    if (v)
-                    {
-                        printf("%s, %d\n", v.type.toChars(), v.type.ty);
-                    }
-                }
-            }
+            //printf("ExpStatement::semantic() %s\n", exp.toChars());
             exp = exp.semantic(sc);
             exp = resolveProperties(sc, exp);
             exp = exp.addDtorHook(sc);
+            if (checkNonAssignmentArrayOp(exp))
+                exp = new ErrorExp();
+            if (auto f = isFuncAddress(exp))
+            {
+                if (f.checkForwardRef(exp.loc))
+                    exp = new ErrorExp();
+            }
             discardValue(exp);
+
             exp = exp.optimize(WANTvalue);
             exp = checkGC(sc, exp);
             if (exp.op == TOKerror)
@@ -1180,42 +1173,17 @@ public:
         *sentry = null;
         *sexception = null;
         *sfinally = null;
-        if (exp)
+        if (exp && exp.op == TOKdeclaration)
         {
-            if (exp.op == TOKdeclaration)
+            auto de = cast(DeclarationExp)exp;
+            auto v = de.declaration.isVarDeclaration();
+            if (v && !v.isDataseg())
             {
-                DeclarationExp de = cast(DeclarationExp)exp;
-                VarDeclaration v = de.declaration.isVarDeclaration();
-                if (v && !v.noscope && !v.isDataseg())
+                if (v.needsScopeDtor())
                 {
-                    Expression e = v.edtor;
-                    if (e)
-                    {
-                        //printf("dtor is: "); e->print();
-                        version (none)
-                        {
-                            if (v.type.toBasetype().ty == Tstruct)
-                            {
-                                /* Need a 'gate' to turn on/off destruction,
-                                 * in case v gets moved elsewhere.
-                                 */
-                                Identifier id = Identifier.generateId("__runDtor");
-                                auto ie = new ExpInitializer(loc, new IntegerExp(1));
-                                auto rd = new VarDeclaration(loc, Type.tint32, id, ie);
-                                rd.storage_class |= STCtemp;
-                                *sentry = new ExpStatement(loc, rd);
-                                v.rundtor = rd;
-                                /* Rewrite e as:
-                                 *  rundtor && e
-                                 */
-                                Expression ve = new VarExp(loc, v.rundtor);
-                                e = new AndAndExp(loc, ve, e);
-                                e.type = Type.tbool;
-                            }
-                        }
-                        *sfinally = new DtorExpStatement(loc, e, v);
-                    }
-                    v.noscope = 1; // don't add in dtor again
+                    //printf("dtor is: "); v.edtor.print();
+                    *sfinally = new DtorExpStatement(loc, v.edtor, v);
+                    v.noscope = true; // don't add in dtor again
                 }
             }
         }
@@ -1335,7 +1303,7 @@ public:
             {
                 se = se.toUTF8(sc);
                 uint errors = global.errors;
-                scope Parser p = new Parser(loc, sc._module, cast(char*)se.string, se.len, 0);
+                scope Parser p = new Parser(loc, sc._module, se.toStringz(), se.len, 0);
                 p.nextToken();
                 while (p.token.value != TOKeof)
                 {
@@ -1400,7 +1368,7 @@ public:
         statements.push(s2);
     }
 
-    final static CompoundStatement create(Loc loc, Statement s1, Statement s2)
+    static CompoundStatement create(Loc loc, Statement s1, Statement s2)
     {
         return new CompoundStatement(loc, s1, s2);
     }
@@ -1873,6 +1841,8 @@ public:
 
         condition = condition.semantic(sc);
         condition = resolveProperties(sc, condition);
+        if (checkNonAssignmentArrayOp(condition))
+            condition = new ErrorExp();
         condition = condition.optimize(WANTvalue);
         condition = checkGC(sc, condition);
 
@@ -1985,6 +1955,8 @@ public:
 
             condition = condition.semantic(sc);
             condition = resolveProperties(sc, condition);
+            if (checkNonAssignmentArrayOp(condition))
+                condition = new ErrorExp();
             condition = condition.optimize(WANTvalue);
             condition = checkGC(sc, condition);
 
@@ -1994,6 +1966,8 @@ public:
         {
             increment = increment.semantic(sc);
             increment = resolveProperties(sc, increment);
+            if (checkNonAssignmentArrayOp(increment))
+                increment = new ErrorExp();
             increment = increment.optimize(WANTvalue);
             increment = checkGC(sc, increment);
         }
@@ -2109,8 +2083,7 @@ public:
             aggr.op != TOKtype && !aggr.isLvalue())
         {
             // Bugzilla 14653: Extend the life of rvalue aggregate till the end of foreach.
-            vinit = new VarDeclaration(loc, aggr.type, Identifier.generateId("__aggr"), new ExpInitializer(loc, aggr));
-            vinit.storage_class |= STCtemp;
+            vinit = copyToTemp(STCrvalue, "__aggr", aggr);
             vinit.semantic(sc);
             aggr = new VarExp(aggr.loc, vinit);
         }
@@ -2531,7 +2504,9 @@ public:
                 }
 
                 // T value = tmp[key];
-                value._init = new ExpInitializer(loc, new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, key)));
+                IndexExp indexExp = new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, key));
+                indexExp.indexIsInBounds = true; // disabling bounds checking in foreach statements.
+                value._init = new ExpInitializer(loc, indexExp);
                 Statement ds = new ExpStatement(loc, value);
 
                 if (dim == 2)
@@ -2625,9 +2600,7 @@ public:
                 }
                 else
                 {
-                    auto rid = Identifier.generateId("__r");
-                    r = new VarDeclaration(loc, null, rid, new ExpInitializer(loc, aggr));
-                    r.storage_class |= STCtemp;
+                    r = copyToTemp(0, "__r", aggr);
                     _init = new ExpStatement(loc, r);
                     if (vinit)
                         _init = new CompoundStatement(loc, new ExpStatement(loc, vinit), _init);
@@ -2659,11 +2632,7 @@ public:
                 }
                 else
                 {
-                    auto id = Identifier.generateId("__front");
-                    auto ei = new ExpInitializer(loc, einit);
-                    auto vd = new VarDeclaration(loc, null, id, ei);
-                    vd.storage_class |= STCtemp | STCctfe | STCref | STCforeach;
-
+                    auto vd = copyToTemp(STCref, "__front", einit);
                     makeargs = new ExpStatement(loc, vd);
 
                     Type tfront;
@@ -2944,7 +2913,7 @@ public:
                     }
                     exps.push(new IntegerExp(Loc(), keysize, Type.tsize_t));
                     exps.push(flde);
-                    ec = new VarExp(Loc(), fdapply[i]);
+                    ec = new VarExp(Loc(), fdapply[i], false);
                     ec = new CallExp(loc, ec, exps);
                     ec.type = Type.tint32; // don't run semantic() on ec
                 }
@@ -3004,7 +2973,7 @@ public:
                         flde = new CastExp(loc, flde, flde.type);
                         flde.type = dgty;
                     }
-                    ec = new VarExp(Loc(), fdapply);
+                    ec = new VarExp(Loc(), fdapply, false);
                     ec = new CallExp(loc, ec, aggr, flde);
                     ec.type = Type.tint32; // don't run semantic() on ec
                 }
@@ -3404,10 +3373,10 @@ public:
 
             if (match.edtor)
             {
-                Statement sdtor = new ExpStatement(loc, match.edtor);
+                Statement sdtor = new DtorExpStatement(loc, match.edtor, match);
                 sdtor = new OnScopeStatement(loc, TOKon_scope_exit, sdtor);
                 ifbody = new CompoundStatement(loc, sdtor, ifbody);
-                match.noscope = 1;
+                match.noscope = true;
             }
         }
         else
@@ -3416,6 +3385,8 @@ public:
             condition = resolveProperties(scd, condition);
             condition = condition.addDtorHook(scd);
         }
+        if (checkNonAssignmentArrayOp(condition))
+            condition = new ErrorExp();
         condition = checkGC(scd, condition);
 
         // Convert to boolean after declaring prm so this works:
@@ -3583,7 +3554,7 @@ public:
                     if (se)
                     {
                         se = se.toUTF8(sc);
-                        fprintf(stderr, "%.*s", cast(int)se.len, cast(char*)se.string);
+                        fprintf(stderr, "%.*s", cast(int)se.len, se.string);
                     }
                     else
                         fprintf(stderr, "%s", e.toChars());
@@ -3624,11 +3595,7 @@ public:
                     }
                     else if (global.params.verbose)
                     {
-                        char* name = cast(char*)mem.malloc(se.len + 1);
-                        memcpy(name, se.string, se.len);
-                        name[se.len] = 0;
-                        fprintf(global.stdmsg, "library   %s\n", name);
-                        mem.free(name);
+                        fprintf(global.stdmsg, "library   %.*s\n", cast(int)se.len, se.string);
                     }
                 }
             }
@@ -3823,10 +3790,13 @@ public:
                 break;
             }
         }
+        if (checkNonAssignmentArrayOp(condition))
+            condition = new ErrorExp();
         condition = condition.optimize(WANTvalue);
         condition = checkGC(sc, condition);
         if (condition.op == TOKerror)
             conditionError = true;
+
         bool needswitcherror = false;
         sc = sc.push();
         sc.sbreak = this;
@@ -4246,6 +4216,11 @@ public:
             error("goto default not in switch statement");
             return new ErrorStatement();
         }
+        if (sw.isFinal)
+        {
+            error("goto default not allowed in final switch statement");
+            return new ErrorStatement();
+        }
         return this;
     }
 
@@ -4405,13 +4380,11 @@ public:
 
             exp = exp.semantic(sc);
             exp = resolveProperties(sc, exp);
-            if (exp.type && exp.type.ty != Tvoid ||
-                exp.op == TOKfunction ||
-                exp.op == TOKtype ||
-                exp.op == TOKtemplate)
+            if (exp.checkType())
+                exp = new ErrorExp();
+            if (auto f = isFuncAddress(exp))
             {
-                // don't make error for void expression
-                if (exp.checkValue())
+                if (fd.inferRetType && f.checkForwardRef(exp.loc))
                     exp = new ErrorExp();
             }
             if (checkNonAssignmentArrayOp(exp))
@@ -4685,8 +4658,7 @@ public:
                         Statement s = new ReturnStatement(Loc(), new IntegerExp(sc.fes.cases.dim + 1));
                         return s;
                     }
-                    break;
-                    // can't break to it
+                    break; // can't break to it
                 }
                 LabelStatement ls = scx.slabel;
                 if (ls && ls.ident == ident)
@@ -4785,8 +4757,7 @@ public:
                         Statement s = new ReturnStatement(Loc(), new IntegerExp(sc.fes.cases.dim + 1));
                         return s;
                     }
-                    break;
-                    // can't continue to it
+                    break; // can't continue to it
                 }
                 ls = scx.slabel;
                 if (ls && ls.ident == ident)
@@ -4859,6 +4830,7 @@ public:
             exp = checkGC(sc, exp);
             if (exp.op == TOKerror)
                 goto Lbody;
+
             ClassDeclaration cd = exp.type.isClassHandle();
             if (!cd)
             {
@@ -4875,9 +4847,11 @@ public:
                     error("missing or corrupt object.d");
                     fatal();
                 }
+
                 Type t = ClassDeclaration.object.type;
                 t = t.semantic(Loc(), sc).toBasetype();
                 assert(t.ty == Tclass);
+
                 exp = new CastExp(loc, exp, t);
                 exp = exp.semantic(sc);
             }
@@ -4888,24 +4862,26 @@ public:
                  *  _d_monitorenter(tmp);
                  *  try { body } finally { _d_monitorexit(tmp); }
                  */
-                Identifier id = Identifier.generateId("__sync");
-                auto ie = new ExpInitializer(loc, exp);
-                auto tmp = new VarDeclaration(loc, exp.type, id, ie);
-                tmp.storage_class |= STCtemp;
+                auto tmp = copyToTemp(0, "__sync", exp);
+
                 auto cs = new Statements();
                 cs.push(new ExpStatement(loc, tmp));
+
                 auto args = new Parameters();
                 args.push(new Parameter(0, ClassDeclaration.object.type, null, null));
+
                 FuncDeclaration fdenter = FuncDeclaration.genCfunc(args, Type.tvoid, Id.monitorenter);
-                Expression e = new CallExp(loc, new VarExp(loc, fdenter), new VarExp(loc, tmp));
+                Expression e = new CallExp(loc, new VarExp(loc, fdenter, false), new VarExp(loc, tmp));
                 e.type = Type.tvoid; // do not run semantic on e
+
                 cs.push(new ExpStatement(loc, e));
                 FuncDeclaration fdexit = FuncDeclaration.genCfunc(args, Type.tvoid, Id.monitorexit);
-                e = new CallExp(loc, new VarExp(loc, fdexit), new VarExp(loc, tmp));
+                e = new CallExp(loc, new VarExp(loc, fdexit, false), new VarExp(loc, tmp));
                 e.type = Type.tvoid; // do not run semantic on e
                 Statement s = new ExpStatement(loc, e);
                 s = new TryFinallyStatement(loc, _body, s);
                 cs.push(s);
+
                 s = new CompoundStatement(loc, cs);
                 return s.semantic(sc);
             }
@@ -4917,34 +4893,40 @@ public:
              *  _d_criticalenter(critsec.ptr);
              *  try { body } finally { _d_criticalexit(critsec.ptr); }
              */
-            Identifier id = Identifier.generateId("__critsec");
-            Type t = new TypeSArray(Type.tint8, new IntegerExp(Target.ptrsize + Target.critsecsize()));
+            auto id = Identifier.generateId("__critsec");
+            auto t = Type.tint8.sarrayOf(Target.ptrsize + Target.critsecsize());
             auto tmp = new VarDeclaration(loc, t, id, null);
             tmp.storage_class |= STCtemp | STCgshared | STCstatic;
+
             auto cs = new Statements();
             cs.push(new ExpStatement(loc, tmp));
+
             /* This is just a dummy variable for "goto skips declaration" error.
              * Backend optimizer could remove this unused variable.
              */
             auto v = new VarDeclaration(loc, Type.tvoidptr, Identifier.generateId("__sync"), null);
             v.semantic(sc);
             cs.push(new ExpStatement(loc, v));
+
             auto args = new Parameters();
             args.push(new Parameter(0, t.pointerTo(), null, null));
+
             FuncDeclaration fdenter = FuncDeclaration.genCfunc(args, Type.tvoid, Id.criticalenter, STCnothrow);
             Expression e = new DotIdExp(loc, new VarExp(loc, tmp), Id.ptr);
             e = e.semantic(sc);
-            e = new CallExp(loc, new VarExp(loc, fdenter), e);
+            e = new CallExp(loc, new VarExp(loc, fdenter, false), e);
             e.type = Type.tvoid; // do not run semantic on e
             cs.push(new ExpStatement(loc, e));
+
             FuncDeclaration fdexit = FuncDeclaration.genCfunc(args, Type.tvoid, Id.criticalexit, STCnothrow);
             e = new DotIdExp(loc, new VarExp(loc, tmp), Id.ptr);
             e = e.semantic(sc);
-            e = new CallExp(loc, new VarExp(loc, fdexit), e);
+            e = new CallExp(loc, new VarExp(loc, fdexit, false), e);
             e.type = Type.tvoid; // do not run semantic on e
             Statement s = new ExpStatement(loc, e);
             s = new TryFinallyStatement(loc, _body, s);
             cs.push(s);
+
             s = new CompoundStatement(loc, cs);
             return s.semantic(sc);
         }
@@ -5053,11 +5035,9 @@ public:
                      *   }
                      * }
                      */
-                    _init = new ExpInitializer(loc, exp);
-                    wthis = new VarDeclaration(loc, exp.type, Identifier.generateId("__withtmp"), _init);
-                    wthis.storage_class |= STCtemp;
-                    auto es = new ExpStatement(loc, wthis);
-                    exp = new VarExp(loc, wthis);
+                    auto tmp = copyToTemp(0, "__withtmp", exp);
+                    auto es = new ExpStatement(loc, tmp);
+                    this.exp = new VarExp(loc, tmp);
                     Statement ss = new ScopeStatement(loc, new CompoundStatement(loc, es, this));
                     return ss.semantic(sc);
                 }
@@ -5123,6 +5103,10 @@ public:
 
     override Statement semantic(Scope* sc)
     {
+        uint flags;
+        enum FLAGcpp = 1;
+        enum FLAGd = 2;
+
         _body = _body.semanticScope(sc, null, null);
         assert(_body);
         /* Even if body is empty, still do semantic analysis on catches
@@ -5131,17 +5115,20 @@ public:
         foreach (i, c; *catches)
         {
             c.semantic(sc);
-            if (c.type.ty == Terror)
+            if (c.errors)
             {
                 catchErrors = true;
                 continue;
             }
+            auto cd = c.type.toBasetype().isClassHandle();
+            flags |= cd.isCPPclass() ? FLAGcpp : FLAGd;
+
             // Determine if current catch 'hides' any previous catches
             foreach (j; 0 .. i)
             {
                 Catch cj = (*catches)[j];
-                char* si = c.loc.toChars();
-                char* sj = cj.loc.toChars();
+                const si = c.loc.toChars();
+                const sj = cj.loc.toChars();
                 if (c.type.toBasetype().implicitConvTo(cj.type.toBasetype()))
                 {
                     error("catch at %s hides catch at %s", sj, si);
@@ -5149,6 +5136,16 @@ public:
                 }
             }
         }
+
+        if (sc.func)
+        {
+            if (flags == (FLAGcpp | FLAGd))
+            {
+                error("cannot mix catching D and C++ exceptions in the same try-catch");
+                catchErrors = true;
+            }
+        }
+
         if (catchErrors)
             return new ErrorStatement();
         if (_body.isErrorStatement())
@@ -5197,6 +5194,8 @@ public:
     VarDeclaration var;
     Statement handler;
 
+    bool errors;                // set if semantic processing errors
+
     // was generated by the compiler, wasn't present in source code
     bool internalCatch;
 
@@ -5225,6 +5224,7 @@ public:
             {
                 // If enclosing is scope(success) or scope(exit), this will be placed in finally block.
                 error(loc, "cannot put catch statement inside %s", Token.toChars(sc.os.tok));
+                errors = true;
             }
             if (sc.tf)
             {
@@ -5235,6 +5235,7 @@ public:
                  * body into a nested function.
                  */
                 error(loc, "cannot put catch statement inside finally block");
+                errors = true;
             }
         }
         auto sym = new ScopeDsymbol();
@@ -5249,27 +5250,52 @@ public:
             type = tid;
         }
         type = type.semantic(loc, sc);
-        ClassDeclaration cd = type.toBasetype().isClassHandle();
-        if (!cd || ((cd != ClassDeclaration.throwable) && !ClassDeclaration.throwable.isBaseOf(cd, null)))
+        if (type == Type.terror)
+            errors = true;
+        else
         {
-            if (type != Type.terror)
+            auto cd = type.toBasetype().isClassHandle();
+            if (!cd)
+            {
+                error(loc, "can only catch class objects, not '%s'", type.toChars());
+                errors = true;
+            }
+            else if (cd.isCPPclass())
+            {
+                if (!Target.cppExceptions)
+                {
+                    error(loc, "catching C++ class objects not supported for this target");
+                    errors = true;
+                }
+                if (sc.func && !sc.intypeof && !internalCatch && sc.func.setUnsafe())
+                {
+                    error(loc, "cannot catch C++ class objects in @safe code");
+                    errors = true;
+                }
+            }
+            else if (cd != ClassDeclaration.throwable && !ClassDeclaration.throwable.isBaseOf(cd, null))
             {
                 error(loc, "can only catch class objects derived from Throwable, not '%s'", type.toChars());
-                type = Type.terror;
+                errors = true;
             }
+            else if (sc.func && !sc.intypeof && !internalCatch &&
+                     cd != ClassDeclaration.exception && !ClassDeclaration.exception.isBaseOf(cd, null) &&
+                     sc.func.setUnsafe())
+            {
+                error(loc, "can only catch class objects derived from Exception in @safe code, not '%s'", type.toChars());
+                errors = true;
+            }
+
+            if (ident)
+            {
+                var = new VarDeclaration(loc, type, ident, null);
+                var.semantic(sc);
+                sc.insert(var);
+            }
+            handler = handler.semantic(sc);
+            if (handler && handler.isErrorStatement())
+                errors = true;
         }
-        else if (sc.func && !sc.intypeof && !internalCatch && cd != ClassDeclaration.exception && !ClassDeclaration.exception.isBaseOf(cd, null) && sc.func.setUnsafe())
-        {
-            error(loc, "can only catch class objects derived from Exception in @safe code, not '%s'", type.toChars());
-            type = Type.terror;
-        }
-        else if (ident)
-        {
-            var = new VarDeclaration(loc, type, ident, null);
-            var.semantic(sc);
-            sc.insert(var);
-        }
-        handler = handler.semantic(sc);
         sc.pop();
     }
 }
@@ -5418,10 +5444,7 @@ public:
                  *  sexception:    x = true;
                  *  sfinally: if (!x) statement;
                  */
-                Identifier id = Identifier.generateId("__os");
-                auto ie = new ExpInitializer(loc, new IntegerExp(Loc(), 0, Type.tbool));
-                auto v = new VarDeclaration(loc, Type.tbool, id, ie);
-                v.storage_class |= STCtemp;
+                auto v = copyToTemp(0, "__os", new IntegerExp(Loc(), 0, Type.tbool));
                 *sentry = new ExpStatement(loc, v);
                 Expression e = new IntegerExp(Loc(), 1, Type.tbool);
                 e = new AssignExp(Loc(), new VarExp(Loc(), v), e);
@@ -5911,7 +5934,7 @@ public:
                 s.aliasdecls.push(ad);
             }
             s.semantic(sc);
-            //s->semantic2(sc);     // Bugzilla 14666
+            Module.addDeferredSemantic2(s);     // Bugzilla 14666
             sc.insert(s);
             foreach (aliasdecl; s.aliasdecls)
             {

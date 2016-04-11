@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the
+ * $(LINK2 http://www.dlang.org, D programming language).
+ *
+ * Copyright:   Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:     $(LINK2 http://www.digitalmars.com, Walter Bright)
+ * License:     $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:      $(DMDSRC _argtypes.d)
+ */
 
 module ddmd.argtypes;
 
@@ -18,7 +20,11 @@ import ddmd.visitor;
  * This breaks a type down into 'simpler' types that can be passed to a function
  * in registers, and returned in registers.
  * It's highly platform dependent.
- * Returning a tuple of zero length means the type cannot be passed/returned in registers.
+ * Params:
+ *      t = type to break down
+ * Returns:
+ *      tuple of types, each element can be passed in a register.
+ *      A tuple of zero length means the type cannot be passed/returned in registers.
  */
 extern (C++) TypeTuple toArgTypes(Type t)
 {
@@ -173,10 +179,16 @@ extern (C++) TypeTuple toArgTypes(Type t)
 
         /*************************************
          * This merges two types into an 8byte type.
+         * Params:
+         *      t1 = first type (can be null)
+         *      t2 = second type (can be null)
+         *      offset2 = offset of t2 from start of t1
+         * Returns:
+         *      type that encompasses both t1 and t2, null if cannot be done
          */
         static Type argtypemerge(Type t1, Type t2, uint offset2)
         {
-            //printf("argtypemerge(%s, %s, %d)\n", t1 ? t1->toChars() : "", t2 ? t2->toChars() : "", offset2);
+            //printf("argtypemerge(%s, %s, %d)\n", t1 ? t1.toChars() : "", t2 ? t2.toChars() : "", offset2);
             if (!t1)
             {
                 assert(!t2 || offset2 == 0);
@@ -217,14 +229,9 @@ extern (C++) TypeTuple toArgTypes(Type t)
                 case 4:
                     t = Type.tint32;
                     break;
-                case 5:
-                case 6:
-                case 7:
-                case 8:
+                default:
                     t = Type.tint64;
                     break;
-                default:
-                    assert(0);
                 }
             }
             return t;
@@ -270,7 +277,7 @@ extern (C++) TypeTuple toArgTypes(Type t)
 
         override void visit(TypeStruct t)
         {
-            //printf("TypeStruct::toArgTypes() %s\n", t->toChars());
+            //printf("TypeStruct.toArgTypes() %s\n", t.toChars());
             if (!t.sym.isPOD() || t.sym.fields.dim == 0)
             {
             Lmemory:
@@ -293,6 +300,7 @@ extern (C++) TypeTuple toArgTypes(Type t)
             case 3:
                 if (!global.params.is64bit)
                     goto Lmemory;
+                goto case;
             case 4:
                 t1 = Type.tint32;
                 break;
@@ -301,6 +309,7 @@ extern (C++) TypeTuple toArgTypes(Type t)
             case 7:
                 if (!global.params.is64bit)
                     goto Lmemory;
+                goto case;
             case 8:
                 t1 = Type.tint64;
                 break;
@@ -329,7 +338,7 @@ extern (C++) TypeTuple toArgTypes(Type t)
                     for (size_t i = 0; i < t.sym.fields.dim; i++)
                     {
                         VarDeclaration f = t.sym.fields[i];
-                        //printf("f->type = %s\n", f->type->toChars());
+                        //printf("  [%d] %s f.type = %s\n", cast(int)i, f.toChars(), f.type.toChars());
                         TypeTuple tup = toArgTypes(f.type);
                         if (!tup)
                             goto Lmemory;
@@ -364,6 +373,8 @@ extern (C++) TypeTuple toArgTypes(Type t)
                         }
                         // First field in 8byte must be at start of 8byte
                         assert(t1 || f.offset == 0);
+                        //printf("ft1 = %s\n", ft1 ? ft1.toChars() : "null");
+                        //printf("ft2 = %s\n", ft2 ? ft2.toChars() : "null");
                         if (ft1)
                         {
                             t1 = argtypemerge(t1, ft1, f.offset);

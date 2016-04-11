@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -31,7 +31,7 @@ else
 extern (C++) class Library
 {
 public:
-    final static Library factory()
+    static Library factory()
     {
         static if (TARGET_WINDOS)
         {

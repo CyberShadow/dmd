@@ -101,8 +101,8 @@ void comsubs()
         blc = bl;
         while (bln && list_nitems(bln->Bpred) == 1 &&
                 ((blc->BC == BCiftrue &&
-                  list_block(list_next(blc->Bsucc)) == bln) ||
-                 (blc->BC == BCgoto && list_block(blc->Bsucc) == bln)
+                  blc->nthSucc(1) == bln) ||
+                 (blc->BC == BCgoto && blc->nthSucc(0) == bln)
                 ) &&
                bln->BC != BCasm         // no CSE's extending across ASM blocks
               )
@@ -300,13 +300,13 @@ STATIC void ecom(elem **pe)
         ecom(&e->E1);
         ecom(&e->E2);
         break;
-#if TARGET_SEGMENTED
+
     case OPvp_fp:
     case OPcvp_fp:
         ecom(&e->E1);
         touchaccess(e);
         break;
-#endif
+
     case OPind:
         ecom(&e->E1);
         /* Generally, CSEing a *(double *) results in worse code        */
@@ -373,9 +373,7 @@ STATIC void ecom(elem **pe)
 #if TX86
     case OPsqrt: case OPsin: case OPcos:
 #endif
-#if TARGET_SEGMENTED
     case OPoffset: case OPnp_fp: case OPnp_f16p: case OPf16p_np:
-#endif
         ecom(&e->E1);
         break;
     case OPhalt:
@@ -624,12 +622,10 @@ STATIC void touchfunc(int flag)
             case OPmemcmp:
             case OPbt:
                 goto L1;
-#if TARGET_SEGMENTED
             case OPvp_fp:
             case OPcvp_fp:
                 if (flag == 0)          /* function calls destroy vptrfptr's, */
                     break;              /* not indirect assignments     */
-#endif
             L1:
                 pe->Helem = NULL;
                 break;
@@ -671,7 +667,6 @@ STATIC void touchall()
     hcsarray.touchfunci[1] = hcsarray.top;
 }
 
-#if TARGET_SEGMENTED
 /*****************************************
  * Eliminate any common subexpressions that could be modified
  * if a handle pointer access occurs.
@@ -690,6 +685,5 @@ STATIC void touchaccess(elem *ev)
             hcstab[i].Helem = NULL;
   }
 }
-#endif
 
 #endif // !SPP

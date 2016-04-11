@@ -154,11 +154,6 @@ enum LANG
 #define TRUE            1
 #define FALSE           0
 
-#ifndef ARG_TRUE
-#define ARG_TRUE        ,TRUE
-#define ARG_FALSE       ,FALSE
-#endif
-
 #define arraysize(array)        (sizeof(array) / sizeof(array[0]))
 
 #define IDMAX   900 //467 //254 // identifier max (excluding terminating 0)
@@ -728,7 +723,12 @@ typedef struct FUNC_S
     size_t typesTableDim;       // number used in typesTable[]
     size_t typesTableCapacity;  // allocated capacity of typesTable[]
 
+#if ELFOBJ
     unsigned LSDAoffset;        // offset in LSDA segment of the LSDA data for this function
+#endif
+#if MACHOBJ
+    Symbol *LSDAsym;            // GCC_except_table%d
+#endif
 } func_t;
 
 #define func_calloc()   ((func_t *) mem_fcalloc(sizeof(func_t)))
@@ -1621,9 +1621,8 @@ enum
     DT_xoff,
     DT_nbytes,
     DT_common,
-    DT_symsize,
     DT_coff,
-    DT_ibytes, // 7
+    DT_ibytes, // 6
 };
 
 // An efficient way to clear aligned memory

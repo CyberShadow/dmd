@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -334,7 +334,7 @@ struct nlist
     uint8_t n_sect;
     int16_t n_desc;
     uint32_t n_value;
-};
+}
 
 struct nlist_64
 {

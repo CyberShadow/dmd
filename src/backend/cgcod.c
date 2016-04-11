@@ -250,7 +250,7 @@ tryagain:
             block* b = dfo[dfoidx];
             blcodgen(b);                        // gen code in depth-first order
             //printf("b->Bregcon.used = %s\n", regm_str(b->Bregcon.used));
-            cgreg_used(dfoidx,b->Bregcon.used); // gather register used information
+            cgreg_used(dfoidx, b->Bregcon.used); // gather register used information
         }
     }
     else
@@ -683,6 +683,7 @@ code *prolog()
 Lagain:
     spoff = 0;
     char guessneedframe = needframe;
+    int cfa_offset = 0;
 //    if (needframe && config.exe & (EX_LINUX | EX_FREEBSD | EX_SOLARIS) && !(usednteh & ~NTEHjmonitor))
 //      usednteh |= NTEHpassthru;
 
@@ -781,16 +782,17 @@ Lagain:
 
     CSoff = alignsection(Alloca.offset - cstop * REGSIZE, REGSIZE, bias);
 
-#if TX86
-    NDPoff = alignsection(CSoff - NDP::savetop * NDPSAVESIZE, REGSIZE, bias);
-#else
-    NDPoff = CSoff;
-#endif
+    NDPoff = alignsection(CSoff - NDP::savetop * tysize[TYldouble], REGSIZE, bias);
 
     regm_t topush = fregsaved & ~mfuncreg;          // mask of registers that need saving
     pushoffuse = false;
     pushoff = NDPoff;
-    if (config.flags4 & CFG4speed && (I32 || I64))
+    /* We don't keep track of all the pushes and pops in a function. Hence,
+     * using POP REG to restore registers in the epilog doesn't work, because the Dwarf unwinder
+     * won't be setting ESP correctly. With pushoffuse, the registers are restored
+     * from EBP, which is kept track of properly.
+     */
+    if ((config.flags4 & CFG4speed || config.ehmethod == EH_DWARF) && (I32 || I64))
     {
         /* Instead of pushing the registers onto the stack one by one,
          * allocate space in the stack frame and copy/restore them there.
@@ -895,7 +897,7 @@ Lagain:
     }
     else if (needframe)                 // if variables or parameters
     {
-        c = cat(c, prolog_frame(farfunc, &xlocalsize, &enter));
+        c = cat(c, prolog_frame(farfunc, &xlocalsize, &enter, &cfa_offset));
         hasframe = 1;
     }
 
@@ -991,7 +993,7 @@ Lagain:
     }
 #endif
 
-    c = prolog_saveregs(c, topush);
+    c = prolog_saveregs(c, topush, cfa_offset);
 
 Lcont:
 
@@ -1222,9 +1224,7 @@ void stackoffsets(int flags)
             case SCbprel:
                 break;
             default:
-#ifdef DEBUG
                 symbol_print(s);
-#endif
                 assert(0);
         }
     }
@@ -1988,6 +1988,22 @@ L3:
 #endif
 }
 
+/******************************
+ * Determine registers that should be destroyed upon arrival
+ * to code entry point for exception handling.
+ */
+regm_t lpadregs()
+{
+    regm_t used;
+    if (config.ehmethod == EH_DWARF)
+        used = allregs & ~mfuncreg;
+    else
+        used = (I32 | I64) ? allregs : (ALLREGS | mES);
+    //printf("lpadregs(): used=%s, allregs=%s, mfuncreg=%s\n", regm_str(used), regm_str(allregs), regm_str(mfuncreg));
+    return used;
+}
+
+
 /*************************
  * Mark registers as used.
  */
@@ -2619,12 +2635,11 @@ code *codelem(elem *e,regm_t *pretregs,bool constflag)
                     break;
 
                 case TYnptr:
-#if TARGET_SEGMENTED
                 case TYsptr:
                 case TYcptr:
-#endif
                     *pretregs |= IDXREGS;
                     break;
+
                 case TYshort:
                 case TYushort:
                 case TYint:
@@ -2635,11 +2650,9 @@ code *codelem(elem *e,regm_t *pretregs,bool constflag)
                 case TYullong:
                 case TYcent:
                 case TYucent:
-#if TARGET_SEGMENTED
                 case TYfptr:
                 case TYhptr:
                 case TYvptr:
-#endif
                     *pretregs |= ALLREGS;
                     break;
             }

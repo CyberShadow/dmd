@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -25,7 +25,9 @@ struct Target
     extern (C++) static __gshared int realsize;             // size a real consumes in memory
     extern (C++) static __gshared int realpad;              // 'padding' added to the CPU real size to bring it up to realsize
     extern (C++) static __gshared int realalignsize;        // alignment for reals
+    extern (C++) static __gshared bool realislongdouble;    // distinguish between C 'long double' and '__float128'
     extern (C++) static __gshared bool reverseCppOverloads; // with dmc and cl, overloaded functions are grouped and in reverse order
+    extern (C++) static __gshared bool cppExceptions;       // set if catching C++ exceptions is supported
     extern (C++) static __gshared int c_longsize;           // size of a C 'long' or 'unsigned long' type
     extern (C++) static __gshared int c_long_doublesize;    // size of a C 'long double'
     extern (C++) static __gshared int classinfosize;        // size of 'ClassInfo'
@@ -79,9 +81,13 @@ struct Target
                 c_longsize = 8;
             }
         }
+        realislongdouble = true;
         c_long_doublesize = realsize;
         if (global.params.is64bit && global.params.isWindows)
             c_long_doublesize = 8;
+
+        cppExceptions = global.params.isLinux || global.params.isFreeBSD ||
+            global.params.isOSX;
     }
 
     /******************************
@@ -263,7 +269,6 @@ struct Target
         default:
             assert(0);
         }
-        return null; // avoid warning
     }
 
     /******************************

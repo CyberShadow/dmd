@@ -1,10 +1,10 @@
 /**
  * Compiler implementation of the D programming language
  *
- * Copyright: Copyright (c) 1999-2015 by Digital Mars, All Rights Reserved
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
  * Authors: Walter Bright, http://www.digitalmars.com
  * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
- * Source:    $(DMDSRC inline.d)
+ * Source:    $(DMDSRC _inline.d)
  */
 
 module ddmd.inline;
@@ -35,27 +35,30 @@ import ddmd.tokens;
 import ddmd.visitor;
 
 private:
+
 enum LOG = false;
 enum CANINLINE_LOG = false;
+enum EXPANDINLINE_LOG = false;
 
-/* ========== Compute cost of inlining =============== */
-
-/* Walk trees to determine if inlining can be done, and if so,
- * if it is too complex to be worth inlining or not.
- */
 enum COST_MAX = 250;
 enum STATEMENT_COST = 0x1000;
-enum STATEMENT_COST_MAX = 250 * 0x1000;
+enum STATEMENT_COST_MAX = 250 * STATEMENT_COST;
 
 // STATEMENT_COST be power of 2 and greater than COST_MAX
-//static assert((STATEMENT_COST & (STATEMENT_COST - 1)) == 0);
-//static assert(STATEMENT_COST > COST_MAX);
+static assert((STATEMENT_COST & (STATEMENT_COST - 1)) == 0);
+static assert(STATEMENT_COST > COST_MAX);
 
 bool tooCostly(int cost)
 {
     return ((cost & (STATEMENT_COST - 1)) >= COST_MAX);
 }
 
+/***********************************************************
+ * Compute cost of inlining.
+ *
+ * Walk trees to determine if inlining can be done, and if so,
+ * if it is too complex to be worth inlining or not.
+ */
 extern (C++) final class InlineCostVisitor : Visitor
 {
     alias visit = super.visit;
@@ -355,7 +358,7 @@ public:
             TupleDeclaration td = vd.toAlias().isTupleDeclaration();
             if (td)
             {
-                cost = COST_MAX; // finish DeclarationExp.doInline
+                cost = COST_MAX; // finish DeclarationExp.doInlineAs
                 return;
             }
             if (!hdrscan && vd.isDataseg())
@@ -404,13 +407,14 @@ public:
     }
 }
 
-/* ======================== Perform the inlining ============================== */
-
 /***********************************************************
- * Inlining is done by:
- * o    Converting to an Expression
- * o    Copying the trees of the function to be inlined
- * o    Renaming the variables
+ * Represent a context to inline statements and expressions.
+ *
+ * Todo:
+ *  It would be better to make foundReturn an instance field of DoInlineAs visitor class,
+ *  like as DoInlineAs!Result.result field, because it's one another result of inlining.
+ *  The best would be to return a pair of result Expression and a bool value as foundReturn
+ *  from doInlineAs function.
  */
 final class InlineDoState
 {
@@ -430,241 +434,178 @@ final class InlineDoState
     }
 }
 
-Statement inlineAsStatement(Statement s, InlineDoState ids)
+/***********************************************************
+ * Perform the inlining from (Statement or Expression) to (Statement or Expression).
+ *
+ * Inlining is done by:
+ *  - Converting to an Expression
+ *  - Copying the trees of the function to be inlined
+ *  - Renaming the variables
+ */
+extern (C++) final class DoInlineAs(Result) : Visitor
+if (is(Result == Statement) || is(Result == Expression))
 {
-    extern (C++) final class InlineAsStatement : Visitor
+    alias visit = super.visit;
+public:
+    InlineDoState ids;
+    Result result;
+
+    enum asStatements = is(Result == Statement);
+
+    extern (D) this(InlineDoState ids)
     {
-        alias visit = super.visit;
-    public:
-        InlineDoState ids;
-        Statement result;
-
-        extern (D) this(InlineDoState ids)
-        {
-            this.ids = ids;
-        }
-
-        override void visit(Statement s)
-        {
-            assert(0); // default is we can't inline it
-        }
-
-        override void visit(ExpStatement s)
-        {
-            static if (LOG)
-            {
-                if (s.exp)
-                    printf("ExpStatement.inlineAsStatement() '%s'\n", s.exp.toChars());
-            }
-            result = new ExpStatement(s.loc, s.exp ? doInline(s.exp, ids) : null);
-        }
-
-        override void visit(CompoundStatement s)
-        {
-            //printf("CompoundStatement.inlineAsStatement() %d\n", s.statements.dim);
-            auto as = new Statements();
-            as.reserve(s.statements.dim);
-            foreach (sx; *s.statements)
-            {
-                if (sx)
-                {
-                    as.push(inlineAsStatement(sx, ids));
-                    if (ids.foundReturn)
-                        break;
-                }
-                else
-                    as.push(null);
-            }
-            result = new CompoundStatement(s.loc, as);
-        }
-
-        override void visit(UnrolledLoopStatement s)
-        {
-            //printf("UnrolledLoopStatement.inlineAsStatement() %d\n", s.statements.dim);
-            auto as = new Statements();
-            as.reserve(s.statements.dim);
-            foreach (sx; *s.statements)
-            {
-                if (sx)
-                {
-                    as.push(inlineAsStatement(sx, ids));
-                    if (ids.foundReturn)
-                        break;
-                }
-                else
-                    as.push(null);
-            }
-            result = new UnrolledLoopStatement(s.loc, as);
-        }
-
-        override void visit(ScopeStatement s)
-        {
-            //printf("ScopeStatement.inlineAsStatement() %d\n", s.statement.dim);
-            result = s.statement ? new ScopeStatement(s.loc, inlineAsStatement(s.statement, ids)) : s;
-        }
-
-        override void visit(IfStatement s)
-        {
-            assert(!s.prm);
-            Expression condition = s.condition ? doInline(s.condition, ids) : null;
-            Statement ifbody = s.ifbody ? inlineAsStatement(s.ifbody, ids) : null;
-            bool bodyReturn = ids.foundReturn;
-            ids.foundReturn = false;
-            Statement elsebody = s.elsebody ? inlineAsStatement(s.elsebody, ids) : null;
-            ids.foundReturn = ids.foundReturn && bodyReturn;
-            result = new IfStatement(s.loc, s.prm, condition, ifbody, elsebody);
-        }
-
-        override void visit(ReturnStatement s)
-        {
-            //printf("ReturnStatement.inlineAsStatement() '%s'\n", s.exp ? s.exp.toChars() : "");
-            ids.foundReturn = true;
-            if (s.exp) // Bugzilla 14560: 'return' must not leave in the expand result
-                result = new ReturnStatement(s.loc, doInline(s.exp, ids));
-        }
-
-        override void visit(ImportStatement s)
-        {
-            result = null;
-        }
-
-        override void visit(ForStatement s)
-        {
-            //printf("ForStatement.inlineAsStatement()\n");
-            Statement _init = s._init ? inlineAsStatement(s._init, ids) : null;
-            Expression condition = s.condition ? doInline(s.condition, ids) : null;
-            Expression increment = s.increment ? doInline(s.increment, ids) : null;
-            Statement _body = s._body ? inlineAsStatement(s._body, ids) : null;
-            result = new ForStatement(s.loc, _init, condition, increment, _body, s.endloc);
-        }
-
-        override void visit(ThrowStatement s)
-        {
-            //printf("ThrowStatement.inlineAsStatement() '%s'\n", s.exp.toChars());
-            result = new ThrowStatement(s.loc, doInline(s.exp, ids));
-        }
+        this.ids = ids;
     }
 
-    scope InlineAsStatement v = new InlineAsStatement(ids);
-    s.accept(v);
-    return v.result;
-}
+    // Statement -> (Statement | Expression)
 
-/***********************************************************
- */
-Expression doInline(Statement s, InlineDoState ids)
-{
-    extern (C++) final class InlineStatement : Visitor
+    override void visit(Statement s)
     {
-        alias visit = super.visit;
-    public:
-        InlineDoState ids;
-        Expression result;
+        printf("Statement.doInlineAs!%s()\n%s\n", Result.stringof.ptr, s.toChars());
+        fflush(stdout);
+        assert(0); // default is we can't inline it
+    }
 
-        extern (D) this(InlineDoState ids)
+    override void visit(ExpStatement s)
+    {
+        static if (LOG)
         {
-            this.ids = ids;
+            if (s.exp)
+                printf("ExpStatement.doInlineAs!%s() '%s'\n", Result.stringof.ptr, s.exp.toChars());
         }
 
-        override void visit(Statement s)
+        auto exp = doInlineAs!Expression(s.exp, ids);
+        static if (asStatements)
+            result = new ExpStatement(s.loc, exp);
+        else
+            result = exp;
+    }
+
+    override void visit(CompoundStatement s)
+    {
+        //printf("CompoundStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.dim);
+        static if (asStatements)
         {
-            printf("Statement.doInline()\n%s\n", s.toChars());
-            fflush(stdout);
-            assert(0); // default is we can't inline it
+            auto as = new Statements();
+            as.reserve(s.statements.dim);
         }
 
-        override void visit(ExpStatement s)
+        foreach (i, sx; *s.statements)
         {
-            static if (LOG)
+            if (!sx)
+                continue;
+            static if (asStatements)
             {
-                if (s.exp)
-                    printf("ExpStatement.doInline() '%s'\n", s.exp.toChars());
+                as.push(doInlineAs!Statement(sx, ids));
             }
-            result = s.exp ? doInline(s.exp, ids) : null;
-        }
-
-        override void visit(CompoundStatement s)
-        {
-            //printf("CompoundStatement.doInline() %d\n", s.statements.dim);
-            foreach (i; 0 .. s.statements.dim)
+            else
             {
-                Statement sx = (*s.statements)[i];
-                if (sx)
+                /* Specifically allow:
+                 *  if (condition)
+                 *      return exp1;
+                 *  return exp2;
+                 */
+                IfStatement ifs;
+                Statement s3;
+                if ((ifs = sx.isIfStatement()) !is null &&
+                    ifs.ifbody &&
+                    ifs.ifbody.isReturnStatement() &&
+                    !ifs.elsebody &&
+                    i + 1 < s.statements.dim &&
+                    (s3 = (*s.statements)[i + 1]) !is null &&
+                    s3.isReturnStatement()
+                   )
                 {
-                    /* Specifically allow:
-                     *  if (condition)
-                     *  return exp1;
-                     *  return exp2;
+                    /* Rewrite as ?:
                      */
-                    IfStatement ifs;
-                    Statement s3;
-                    if ((ifs = sx.isIfStatement()) !is null &&
-                        ifs.ifbody &&
-                        ifs.ifbody.isReturnStatement() &&
-                        !ifs.elsebody &&
-                        i + 1 < s.statements.dim &&
-                        (s3 = (*s.statements)[i + 1]) !is null &&
-                        s3.isReturnStatement()
-                       )
-                    {
-                        /* Rewrite as ?:
-                         */
-                        Expression econd = doInline(ifs.condition, ids);
-                        assert(econd);
-                        Expression e1 = doInline(ifs.ifbody, ids);
-                        assert(ids.foundReturn);
-                        Expression e2 = doInline(s3, ids);
+                    auto econd = doInlineAs!Expression(ifs.condition, ids);
+                    assert(econd);
+                    auto e1 = doInlineAs!Expression(ifs.ifbody, ids);
+                    assert(ids.foundReturn);
+                    auto e2 = doInlineAs!Expression(s3, ids);
 
-                        Expression e = new CondExp(econd.loc, econd, e1, e2);
-                        e.type = e1.type;
-                        if (e.type.ty == Ttuple)
-                        {
-                            e1.type = Type.tvoid;
-                            e2.type = Type.tvoid;
-                            e.type = Type.tvoid;
-                        }
-                        result = Expression.combine(result, e);
-                    }
-                    else
+                    Expression e = new CondExp(econd.loc, econd, e1, e2);
+                    e.type = e1.type;
+                    if (e.type.ty == Ttuple)
                     {
-                        Expression e = doInline(sx, ids);
-                        result = Expression.combine(result, e);
+                        e1.type = Type.tvoid;
+                        e2.type = Type.tvoid;
+                        e.type = Type.tvoid;
                     }
-                    if (ids.foundReturn)
-                        break;
-                }
-            }
-        }
-
-        override void visit(UnrolledLoopStatement s)
-        {
-            //printf("UnrolledLoopStatement.doInline() %d\n", s.statements.dim);
-            foreach (sx; *s.statements)
-            {
-                if (sx)
-                {
-                    Expression e = doInline(sx, ids);
                     result = Expression.combine(result, e);
-                    if (ids.foundReturn)
-                        break;
+                }
+                else
+                {
+                    auto e = doInlineAs!Expression(sx, ids);
+                    result = Expression.combine(result, e);
                 }
             }
+
+            if (ids.foundReturn)
+                break;
         }
 
-        override void visit(ScopeStatement s)
+        static if (asStatements)
+            result = new CompoundStatement(s.loc, as);
+    }
+
+    override void visit(UnrolledLoopStatement s)
+    {
+        //printf("UnrolledLoopStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.dim);
+        static if (asStatements)
         {
-            result = s.statement ? doInline(s.statement, ids) : null;
+            auto as = new Statements();
+            as.reserve(s.statements.dim);
         }
 
-        override void visit(IfStatement s)
+        foreach (sx; *s.statements)
         {
-            assert(!s.prm);
-            Expression econd = doInline(s.condition, ids);
-            assert(econd);
-            Expression e1 = s.ifbody ? doInline(s.ifbody, ids) : null;
-            bool bodyReturn = ids.foundReturn;
-            ids.foundReturn = false;
-            Expression e2 = s.elsebody ? doInline(s.elsebody, ids) : null;
+            if (!sx)
+                continue;
+            auto r = doInlineAs!Result(sx, ids);
+            static if (asStatements)
+                as.push(r);
+            else
+                result = Expression.combine(result, r);
+
+            if (ids.foundReturn)
+                break;
+        }
+
+        static if (asStatements)
+            result = new UnrolledLoopStatement(s.loc, as);
+    }
+
+    override void visit(ScopeStatement s)
+    {
+        //printf("ScopeStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statement.dim);
+        auto r = doInlineAs!Result(s.statement, ids);
+        static if (asStatements)
+            result = new ScopeStatement(s.loc, r);
+        else
+            result = r;
+    }
+
+    override void visit(IfStatement s)
+    {
+        assert(!s.prm);
+        auto econd = doInlineAs!Expression(s.condition, ids);
+        assert(econd);
+
+        auto ifbody = doInlineAs!Result(s.ifbody, ids);
+        bool bodyReturn = ids.foundReturn;
+
+        ids.foundReturn = false;
+        auto elsebody = doInlineAs!Result(s.elsebody, ids);
+
+        static if (asStatements)
+        {
+            result = new IfStatement(s.loc, s.prm, econd, ifbody, elsebody);
+        }
+        else
+        {
+            alias e1 = ifbody;
+            alias e2 = elsebody;
             if (e1 && e2)
             {
                 result = new CondExp(econd.loc, econd, e1, e2);
@@ -690,95 +631,113 @@ Expression doInline(Statement s, InlineDoState ids)
             {
                 result = econd;
             }
-            ids.foundReturn = ids.foundReturn && bodyReturn;
         }
-
-        override void visit(ReturnStatement s)
-        {
-            //printf("ReturnStatement.doInline() '%s'\n", s.exp ? s.exp.toChars() : "");
-            ids.foundReturn = true;
-            result = s.exp ? doInline(s.exp, ids) : null;
-        }
-
-        override void visit(ImportStatement s)
-        {
-        }
+        ids.foundReturn = ids.foundReturn && bodyReturn;
     }
 
-    scope InlineStatement v = new InlineStatement(ids);
-    s.accept(v);
-    return v.result;
-}
-
-/***********************************************************
- */
-Expression doInline(Expression e, InlineDoState ids)
-{
-    extern (C++) final class InlineExpression : Visitor
+    override void visit(ReturnStatement s)
     {
-        alias visit = super.visit;
-    public:
-        InlineDoState ids;
-        Expression result;
+        //printf("ReturnStatement.doInlineAs!%s() '%s'\n", Result.stringof.ptr, s.exp ? s.exp.toChars() : "");
+        ids.foundReturn = true;
 
-        extern (D) this(InlineDoState ids)
+        auto exp = doInlineAs!Expression(s.exp, ids);
+        if (!exp) // Bugzilla 14560: 'return' must not leave in the expand result
+            return;
+        static if (asStatements)
+            result = new ReturnStatement(s.loc, exp);
+        else
+            result = exp;
+    }
+
+    override void visit(ImportStatement s)
+    {
+    }
+
+    override void visit(ForStatement s)
+    {
+        //printf("ForStatement.doInlineAs!%s()\n", Result.stringof.ptr);
+        static if (asStatements)
         {
-            this.ids = ids;
+            auto sinit = doInlineAs!Statement(s._init, ids);
+            auto scond = doInlineAs!Expression(s.condition, ids);
+            auto sincr = doInlineAs!Expression(s.increment, ids);
+            auto sbody = doInlineAs!Statement(s._body, ids);
+            result = new ForStatement(s.loc, sinit, scond, sincr, sbody, s.endloc);
         }
+        else
+            result = null;  // cannot be inlined as an Expression
+    }
 
+    override void visit(ThrowStatement s)
+    {
+        //printf("ThrowStatement.doInlineAs!%s() '%s'\n", Result.stringof.ptr, s.exp.toChars());
+        static if (asStatements)
+            result = new ThrowStatement(s.loc, doInlineAs!Expression(s.exp, ids));
+        else
+            result = null;  // cannot be inlined as an Expression
+    }
+
+    // Expression -> (Statement | Expression)
+
+    static if (asStatements)
+    {
+        override void visit(Expression e)
+        {
+            result = new ExpStatement(e.loc, doInlineAs!Expression(e, ids));
+        }
+    }
+    else
+    {
         /******************************
-         * Perform doInline() on an array of Expressions.
+         * Perform doInlineAs() on an array of Expressions.
          */
-        Expressions* arrayExpressiondoInline(Expressions* a)
+        Expressions* arrayExpressionDoInline(Expressions* a)
         {
             if (!a)
                 return null;
+
             auto newa = new Expressions();
             newa.setDim(a.dim);
-            foreach (i;  0 .. a.dim)
+
+            foreach (i; 0 .. a.dim)
             {
-                Expression e = (*a)[i];
-                if (e)
-                    e = doInline(e, ids);
-                (*newa)[i] = e;
+                (*newa)[i] = doInlineAs!Expression((*a)[i], ids);
             }
             return newa;
         }
 
         override void visit(Expression e)
         {
-            //printf("Expression.doInline(%s): %s\n", Token.toChars(e.op), e.toChars());
+            //printf("Expression.doInlineAs!%s(%s): %s\n", Result.stringof.ptr, Token.toChars(e.op), e.toChars());
             result = e.copy();
         }
 
         override void visit(SymOffExp e)
         {
-            //printf("SymOffExp.doInline(%s)\n", e.toChars());
+            //printf("SymOffExp.doInlineAs!%s(%s)\n", Result.stringof.ptr, e.toChars());
             foreach (i; 0 .. ids.from.dim)
             {
-                if (e.var == ids.from[i])
-                {
-                    SymOffExp se = cast(SymOffExp)e.copy();
-                    se.var = cast(Declaration)ids.to[i];
-                    result = se;
-                    return;
-                }
+                if (e.var != ids.from[i])
+                    continue;
+                auto se = cast(SymOffExp)e.copy();
+                se.var = cast(Declaration)ids.to[i];
+                result = se;
+                return;
             }
             result = e;
         }
 
         override void visit(VarExp e)
         {
-            //printf("VarExp.doInline(%s)\n", e.toChars());
+            //printf("VarExp.doInlineAs!%s(%s)\n", Result.stringof.ptr, e.toChars());
             foreach (i; 0 .. ids.from.dim)
             {
-                if (e.var == ids.from[i])
-                {
-                    VarExp ve = cast(VarExp)e.copy();
-                    ve.var = cast(Declaration)ids.to[i];
-                    result = ve;
-                    return;
-                }
+                if (e.var != ids.from[i])
+                    continue;
+                auto ve = cast(VarExp)e.copy();
+                ve.var = cast(Declaration)ids.to[i];
+                result = ve;
+                return;
             }
             if (ids.fd && e.var == ids.fd.vthis)
             {
@@ -786,6 +745,7 @@ Expression doInline(Expression e, InlineDoState ids)
                 result.type = e.type;
                 return;
             }
+
             /* Inlining context pointer access for nested referenced variables.
              * For example:
              *      auto fun() {
@@ -805,18 +765,18 @@ Expression doInline(Expression e, InlineDoState ids)
              * should be inlined to:
              *      auto x = *(t.vthis.vthis + i.voffset) + *(t.vthis + g.voffset)
              */
-            VarDeclaration v = e.var.isVarDeclaration();
+            auto v = e.var.isVarDeclaration();
             if (v && v.nestedrefs.dim && ids.vthis)
             {
                 Dsymbol s = ids.fd;
-                FuncDeclaration fdv = v.toParent().isFuncDeclaration();
+                auto fdv = v.toParent().isFuncDeclaration();
                 assert(fdv);
                 result = new VarExp(e.loc, ids.vthis);
                 result.type = ids.vthis.type;
                 while (s != fdv)
                 {
-                    FuncDeclaration f = s.isFuncDeclaration();
-                    if (AggregateDeclaration ad = s.isThis())
+                    auto f = s.isFuncDeclaration();
+                    if (auto ad = s.isThis())
                     {
                         assert(ad.vthis);
                         result = new DotVarExp(e.loc, result, ad.vthis);
@@ -842,13 +802,14 @@ Expression doInline(Expression e, InlineDoState ids)
                 //printf("\t==> result = %s, type = %s\n", result.toChars(), result.type.toChars());
                 return;
             }
+
             result = e;
         }
 
         override void visit(ThisExp e)
         {
             //if (!ids.vthis)
-            //e.error("no 'this' when inlining %s", ids.parent.toChars());
+            //    e.error("no 'this' when inlining %s", ids.parent.toChars());
             if (!ids.vthis)
             {
                 result = e;
@@ -867,18 +828,17 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(DeclarationExp e)
         {
-            //printf("DeclarationExp.doInline(%s)\n", e.toChars());
-            if (VarDeclaration vd = e.declaration.isVarDeclaration())
+            //printf("DeclarationExp.doInlineAs!%s(%s)\n", Result.stringof.ptr, e.toChars());
+            if (auto vd = e.declaration.isVarDeclaration())
             {
                 version (none)
                 {
                     // Need to figure this out before inlining can work for tuples
-                    TupleDeclaration td = vd.toAlias().isTupleDeclaration();
-                    if (td)
+                    if (auto tup = vd.toAlias().isTupleDeclaration())
                     {
-                        foreach (i; 0 .. td.objects.dim)
+                        foreach (i; 0 .. tup.objects.dim)
                         {
-                            DsymbolExp se = (*td.objects)[i];
+                            DsymbolExp se = (*tup.objects)[i];
                             assert(se.op == TOKdsymbol);
                             se.s;
                         }
@@ -886,52 +846,55 @@ Expression doInline(Expression e, InlineDoState ids)
                         return;
                     }
                 }
-                if (!vd.isStatic())
+                if (vd.isStatic())
+                    return;
+
+                if (ids.fd && vd == ids.fd.nrvo_var)
                 {
-                    if (ids.fd && vd == ids.fd.nrvo_var)
+                    foreach (i; 0 .. ids.from.dim)
                     {
-                        foreach (i; 0 .. ids.from.dim)
+                        if (vd != ids.from[i])
+                            continue;
+                        if (vd._init && !vd._init.isVoidInitializer())
                         {
-                            if (vd == ids.from[i])
-                            {
-                                if (vd._init && !vd._init.isVoidInitializer())
-                                {
-                                    result = vd._init.toExpression();
-                                    assert(result);
-                                    result = doInline(result, ids);
-                                }
-                                else
-                                    result = new IntegerExp(vd._init.loc, 0, Type.tint32);
-                                return;
-                            }
-                        }
-                    }
-                    auto vto = new VarDeclaration(vd.loc, vd.type, vd.ident, vd._init);
-                    memcpy(cast(void*)vto, cast(void*)vd, __traits(classInstanceSize, VarDeclaration));
-                    vto.parent = ids.parent;
-                    vto.csym = null;
-                    vto.isym = null;
-                    ids.from.push(vd);
-                    ids.to.push(vto);
-                    if (vd._init)
-                    {
-                        if (vd._init.isVoidInitializer())
-                        {
-                            vto._init = new VoidInitializer(vd._init.loc);
+                            result = vd._init.toExpression();
+                            assert(result);
+                            result = doInlineAs!Expression(result, ids);
                         }
                         else
-                        {
-                            Expression ei = vd._init.toExpression();
-                            assert(ei);
-                            vto._init = new ExpInitializer(ei.loc, doInline(ei, ids));
-                        }
+                            result = new IntegerExp(vd._init.loc, 0, Type.tint32);
+                        return;
                     }
-                    DeclarationExp de = cast(DeclarationExp)e.copy();
-                    de.declaration = vto;
-                    result = de;
-                    return;
                 }
+
+                auto vto = new VarDeclaration(vd.loc, vd.type, vd.ident, vd._init);
+                memcpy(cast(void*)vto, cast(void*)vd, __traits(classInstanceSize, VarDeclaration));
+                vto.parent = ids.parent;
+                vto.csym = null;
+                vto.isym = null;
+
+                ids.from.push(vd);
+                ids.to.push(vto);
+
+                if (vd._init)
+                {
+                    if (vd._init.isVoidInitializer())
+                    {
+                        vto._init = new VoidInitializer(vd._init.loc);
+                    }
+                    else
+                    {
+                        auto ei = vd._init.toExpression();
+                        assert(ei);
+                        vto._init = new ExpInitializer(ei.loc, doInlineAs!Expression(ei, ids));
+                    }
+                }
+                auto de = cast(DeclarationExp)e.copy();
+                de.declaration = vto;
+                result = de;
+                return;
             }
+
             /* This needs work, like DeclarationExp.toElem(), if we are
              * to handle TemplateMixin's. For now, we just don't inline them.
              */
@@ -940,11 +903,11 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(TypeidExp e)
         {
-            //printf("TypeidExp.doInline(): %s\n", e.toChars());
-            TypeidExp te = cast(TypeidExp)e.copy();
-            if (Expression ex = isExpression(te.obj))
+            //printf("TypeidExp.doInlineAs!%s(): %s\n", Result.stringof.ptr, e.toChars());
+            auto te = cast(TypeidExp)e.copy();
+            if (auto ex = isExpression(te.obj))
             {
-                te.obj = doInline(ex, ids);
+                te.obj = doInlineAs!Expression(ex, ids);
             }
             else
                 assert(isType(te.obj));
@@ -953,12 +916,11 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(NewExp e)
         {
-            //printf("NewExp.doInline(): %s\n", e.toChars());
-            NewExp ne = cast(NewExp)e.copy();
-            if (e.thisexp)
-                ne.thisexp = doInline(e.thisexp, ids);
-            ne.newargs = arrayExpressiondoInline(e.newargs);
-            ne.arguments = arrayExpressiondoInline(e.arguments);
+            //printf("NewExp.doInlineAs!%s(): %s\n", Result.stringof.ptr, e.toChars());
+            auto ne = cast(NewExp)e.copy();
+            ne.thisexp = doInlineAs!Expression(e.thisexp, ids);
+            ne.newargs = arrayExpressionDoInline(e.newargs);
+            ne.arguments = arrayExpressionDoInline(e.arguments);
             result = ne;
 
             semanticTypeInfo(null, e.type);
@@ -967,14 +929,15 @@ Expression doInline(Expression e, InlineDoState ids)
         override void visit(DeleteExp e)
         {
             visit(cast(UnaExp)e);
+
             Type tb = e.e1.type.toBasetype();
             if (tb.ty == Tarray)
             {
                 Type tv = tb.nextOf().baseElemOf();
                 if (tv.ty == Tstruct)
                 {
-                    TypeStruct ts = cast(TypeStruct)tv;
-                    StructDeclaration sd = ts.sym;
+                    auto ts = cast(TypeStruct)tv;
+                    auto sd = ts.sym;
                     if (sd.dtor)
                         semanticTypeInfo(null, ts);
                 }
@@ -983,33 +946,32 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(UnaExp e)
         {
-            UnaExp ue = cast(UnaExp)e.copy();
-            ue.e1 = doInline(e.e1, ids);
+            auto ue = cast(UnaExp)e.copy();
+            ue.e1 = doInlineAs!Expression(e.e1, ids);
             result = ue;
         }
 
         override void visit(AssertExp e)
         {
-            AssertExp ae = cast(AssertExp)e.copy();
-            ae.e1 = doInline(e.e1, ids);
-            if (e.msg)
-                ae.msg = doInline(e.msg, ids);
+            auto ae = cast(AssertExp)e.copy();
+            ae.e1 = doInlineAs!Expression(e.e1, ids);
+            ae.msg = doInlineAs!Expression(e.msg, ids);
             result = ae;
         }
 
         override void visit(BinExp e)
         {
-            BinExp be = cast(BinExp)e.copy();
-            be.e1 = doInline(e.e1, ids);
-            be.e2 = doInline(e.e2, ids);
+            auto be = cast(BinExp)e.copy();
+            be.e1 = doInlineAs!Expression(e.e1, ids);
+            be.e2 = doInlineAs!Expression(e.e2, ids);
             result = be;
         }
 
         override void visit(CallExp e)
         {
-            CallExp ce = cast(CallExp)e.copy();
-            ce.e1 = doInline(e.e1, ids);
-            ce.arguments = arrayExpressiondoInline(e.arguments);
+            auto ce = cast(CallExp)e.copy();
+            ce.e1 = doInlineAs!Expression(e.e1, ids);
+            ce.arguments = arrayExpressionDoInline(e.arguments);
             result = ce;
         }
 
@@ -1019,7 +981,7 @@ Expression doInline(Expression e, InlineDoState ids)
 
             if (e.e1.op == TOKarraylength)
             {
-                ArrayLengthExp ale = cast(ArrayLengthExp)e.e1;
+                auto ale = cast(ArrayLengthExp)e.e1;
                 Type tn = ale.e1.type.toBasetype().nextOf();
                 semanticTypeInfo(null, tn);
             }
@@ -1046,76 +1008,77 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(IndexExp e)
         {
-            IndexExp are = cast(IndexExp)e.copy();
-            are.e1 = doInline(e.e1, ids);
+            auto are = cast(IndexExp)e.copy();
+            are.e1 = doInlineAs!Expression(e.e1, ids);
             if (e.lengthVar)
             {
                 //printf("lengthVar\n");
-                VarDeclaration vd = e.lengthVar;
+                auto vd = e.lengthVar;
                 auto vto = new VarDeclaration(vd.loc, vd.type, vd.ident, vd._init);
                 memcpy(cast(void*)vto, cast(void*)vd, __traits(classInstanceSize, VarDeclaration));
                 vto.parent = ids.parent;
                 vto.csym = null;
                 vto.isym = null;
+
                 ids.from.push(vd);
                 ids.to.push(vto);
+
                 if (vd._init && !vd._init.isVoidInitializer())
                 {
-                    ExpInitializer ie = vd._init.isExpInitializer();
+                    auto ie = vd._init.isExpInitializer();
                     assert(ie);
-                    vto._init = new ExpInitializer(ie.loc, doInline(ie.exp, ids));
+                    vto._init = new ExpInitializer(ie.loc, doInlineAs!Expression(ie.exp, ids));
                 }
                 are.lengthVar = vto;
             }
-            are.e2 = doInline(e.e2, ids);
+            are.e2 = doInlineAs!Expression(e.e2, ids);
             result = are;
         }
 
         override void visit(SliceExp e)
         {
-            SliceExp are = cast(SliceExp)e.copy();
-            are.e1 = doInline(e.e1, ids);
+            auto are = cast(SliceExp)e.copy();
+            are.e1 = doInlineAs!Expression(e.e1, ids);
             if (e.lengthVar)
             {
                 //printf("lengthVar\n");
-                VarDeclaration vd = e.lengthVar;
+                auto vd = e.lengthVar;
                 auto vto = new VarDeclaration(vd.loc, vd.type, vd.ident, vd._init);
                 memcpy(cast(void*)vto, cast(void*)vd, __traits(classInstanceSize, VarDeclaration));
                 vto.parent = ids.parent;
                 vto.csym = null;
                 vto.isym = null;
+
                 ids.from.push(vd);
                 ids.to.push(vto);
+
                 if (vd._init && !vd._init.isVoidInitializer())
                 {
-                    ExpInitializer ie = vd._init.isExpInitializer();
+                    auto ie = vd._init.isExpInitializer();
                     assert(ie);
-                    vto._init = new ExpInitializer(ie.loc, doInline(ie.exp, ids));
+                    vto._init = new ExpInitializer(ie.loc, doInlineAs!Expression(ie.exp, ids));
                 }
+
                 are.lengthVar = vto;
             }
-            if (e.lwr)
-                are.lwr = doInline(e.lwr, ids);
-            if (e.upr)
-                are.upr = doInline(e.upr, ids);
+            are.lwr = doInlineAs!Expression(e.lwr, ids);
+            are.upr = doInlineAs!Expression(e.upr, ids);
             result = are;
         }
 
         override void visit(TupleExp e)
         {
-            TupleExp ce = cast(TupleExp)e.copy();
-            if (e.e0)
-                ce.e0 = doInline(e.e0, ids);
-            ce.exps = arrayExpressiondoInline(e.exps);
+            auto ce = cast(TupleExp)e.copy();
+            ce.e0 = doInlineAs!Expression(e.e0, ids);
+            ce.exps = arrayExpressionDoInline(e.exps);
             result = ce;
         }
 
         override void visit(ArrayLiteralExp e)
         {
-            ArrayLiteralExp ce = cast(ArrayLiteralExp)e.copy();
-            if (e.basis)
-                ce.basis = doInline(e.basis, ids);
-            ce.elements = arrayExpressiondoInline(e.elements);
+            auto ce = cast(ArrayLiteralExp)e.copy();
+            ce.basis = doInlineAs!Expression(e.basis, ids);
+            ce.elements = arrayExpressionDoInline(e.elements);
             result = ce;
 
             semanticTypeInfo(null, e.type);
@@ -1123,9 +1086,9 @@ Expression doInline(Expression e, InlineDoState ids)
 
         override void visit(AssocArrayLiteralExp e)
         {
-            AssocArrayLiteralExp ce = cast(AssocArrayLiteralExp)e.copy();
-            ce.keys = arrayExpressiondoInline(e.keys);
-            ce.values = arrayExpressiondoInline(e.values);
+            auto ce = cast(AssocArrayLiteralExp)e.copy();
+            ce.keys = arrayExpressionDoInline(e.keys);
+            ce.values = arrayExpressionDoInline(e.values);
             result = ce;
 
             semanticTypeInfo(null, e.type);
@@ -1138,37 +1101,53 @@ Expression doInline(Expression e, InlineDoState ids)
                 result = e.inlinecopy;
                 return;
             }
-            StructLiteralExp ce = cast(StructLiteralExp)e.copy();
+            auto ce = cast(StructLiteralExp)e.copy();
             e.inlinecopy = ce;
-            ce.elements = arrayExpressiondoInline(e.elements);
+            ce.elements = arrayExpressionDoInline(e.elements);
             e.inlinecopy = null;
             result = ce;
         }
 
         override void visit(ArrayExp e)
         {
-            ArrayExp ce = cast(ArrayExp)e.copy();
-            ce.e1 = doInline(e.e1, ids);
-            ce.arguments = arrayExpressiondoInline(e.arguments);
+            auto ce = cast(ArrayExp)e.copy();
+            ce.e1 = doInlineAs!Expression(e.e1, ids);
+            ce.arguments = arrayExpressionDoInline(e.arguments);
             result = ce;
         }
 
         override void visit(CondExp e)
         {
-            CondExp ce = cast(CondExp)e.copy();
-            ce.econd = doInline(e.econd, ids);
-            ce.e1 = doInline(e.e1, ids);
-            ce.e2 = doInline(e.e2, ids);
+            auto ce = cast(CondExp)e.copy();
+            ce.econd = doInlineAs!Expression(e.econd, ids);
+            ce.e1 = doInlineAs!Expression(e.e1, ids);
+            ce.e2 = doInlineAs!Expression(e.e2, ids);
             result = ce;
         }
     }
+}
 
-    scope InlineExpression v = new InlineExpression(ids);
-    e.accept(v);
+/// ditto
+Result doInlineAs(Result)(Statement s, InlineDoState ids)
+{
+    if (!s)
+        return null;
+
+    scope DoInlineAs!Result v = new DoInlineAs!Result(ids);
+    s.accept(v);
     return v.result;
 }
 
-/* ========== Walk the parse trees, and inline expand functions ============= */
+/// ditto
+Result doInlineAs(Result)(Expression e, InlineDoState ids)
+{
+    if (!e)
+        return null;
+
+    scope DoInlineAs!Result v = new DoInlineAs!Result(ids);
+    e.accept(v);
+    return v.result;
+}
 
 /***********************************************************
  * Walk the trees, looking for functions to inline.
@@ -1199,36 +1178,59 @@ public:
         {
             printf("ExpStatement.inlineScan(%s)\n", s.toChars());
         }
-        if (s.exp)
+        if (!s.exp)
+            return;
+
+        Statement inlineScanExpAsStatement(ref Expression exp)
         {
-            /* TODO: It's a problematic inlineScan call. If s.exp is a TOKcall,
-             * CallExp.inlineScan would try to expand the call as expression.
-             * If it's impossible, a false "cannot inline function" error
-             * would be reported.
-             */
-            inlineScan(s.exp); // inline as an expression
-
-            /* If there's a TOKcall at the top, then it failed to inline
+            /* If there's a TOKcall at the top, then it may fail to inline
              * as an Expression. Try to inline as a Statement instead.
-             * Note that inline scanning of s.exp.e1 and s.exp.arguments was already done.
              */
-            if (s.exp && s.exp.op == TOKcall)
+            if (exp.op == TOKcall)
             {
-                CallExp ce = cast(CallExp)s.exp;
-
-                /* Workaround for Bugzilla 15296.
-                 *
-                 * Before the PR#5121, here was inlined a function call only
-                 * when ce.e1.op == TOKvar.
-                 * After the PR, visitCallExp has started to handle TOKdotvar
-                 * and TOKstar. However it was not good for the issue case.
-                 *
-                 * Revive a restriction which was in previous code to avoid regression.
-                 */
-                if (ce.e1.op == TOKvar)
-                    visitCallExp(ce, null, true);
+                visitCallExp(cast(CallExp)exp, null, true);
+                if (eresult)
+                    exp = eresult;
+                auto s = sresult;
+                sresult = null;
+                eresult = null;
+                return s;
             }
+
+            /* If there's a CondExp or CommaExp at the top, then its
+             * sub-expressions may be inlined as statements.
+             */
+            if (exp.op == TOKquestion)
+            {
+                auto e = cast(CondExp)exp;
+                inlineScan(e.econd);
+                auto s1 = inlineScanExpAsStatement(e.e1);
+                auto s2 = inlineScanExpAsStatement(e.e2);
+                if (!s1 && !s2)
+                    return null;
+                auto ifbody   = !s1 ? new ExpStatement(e.e1.loc, e.e1) : s1;
+                auto elsebody = !s2 ? new ExpStatement(e.e2.loc, e.e2) : s2;
+                return new IfStatement(exp.loc, null, e.econd, ifbody, elsebody);
+            }
+            if (exp.op == TOKcomma)
+            {
+                auto e = cast(CommaExp)exp;
+                auto s1 = inlineScanExpAsStatement(e.e1);
+                auto s2 = inlineScanExpAsStatement(e.e2);
+                if (!s1 && !s2)
+                    return null;
+                auto a = new Statements();
+                a.push(!s1 ? new ExpStatement(e.e1.loc, e.e1) : s1);
+                a.push(!s2 ? new ExpStatement(e.e2.loc, e.e2) : s2);
+                return new CompoundStatement(exp.loc, a);
+            }
+
+            // inline as an expression
+            inlineScan(exp);
+            return null;
         }
+
+        sresult = inlineScanExpAsStatement(s.exp);
     }
 
     override void visit(CompoundStatement s)
@@ -1482,8 +1484,7 @@ public:
                      */
                     inlineScan(e.e1);
                 }
-                inlineScan(ce.e1);
-                arrayInlineScan(ce.arguments);
+
                 visitCallExp(ce, e.e1, false);
                 if (eresult)
                 {
@@ -1499,8 +1500,6 @@ public:
     override void visit(CallExp e)
     {
         //printf("CallExp.inlineScan() %s\n", e.toChars());
-        inlineScan(e.e1);
-        arrayInlineScan(e.arguments);
         visitCallExp(e, null, false);
     }
 
@@ -1511,18 +1510,23 @@ public:
      *  e = the function call
      *  eret = if !null, then this is the lvalue of the nrvo function result
      *  asStatements = if inline as statements rather than as an Expression
+     * Returns:
+     *  this.eresult if asStatements == false
+     *  this.sresult if asStatements == true
      */
     void visitCallExp(CallExp e, Expression eret, bool asStatements)
     {
-        //printf("visitCallExp() %s\n", e.toChars());
+        inlineScan(e.e1);
+        arrayInlineScan(e.arguments);
 
+        //printf("visitCallExp() %s\n", e.toChars());
         FuncDeclaration fd;
 
         void inlineFd()
         {
             if (fd && fd != parent && canInline(fd, false, false, asStatements))
             {
-                expandInline(fd, parent, eret, null, e.arguments, asStatements, eresult, sresult, again);
+                expandInline(e.loc, fd, parent, eret, null, e.arguments, asStatements, eresult, sresult, again);
             }
         }
 
@@ -1585,7 +1589,7 @@ public:
                 }
                 else
                 {
-                    expandInline(fd, parent, eret, dve.e1, e.arguments, asStatements, eresult, sresult, again);
+                    expandInline(e.loc, fd, parent, eret, dve.e1, e.arguments, asStatements, eresult, sresult, again);
                 }
             }
         }
@@ -1790,6 +1794,24 @@ public:
     }
 }
 
+/***********************************************************
+ * Test that `fd` can be inlined.
+ *
+ * Params:
+ *  hasthis = `true` if the function call has explicit 'this' expression.
+ *  hdrscan = `true` if the inline scan is for 'D header' content.
+ *  statementsToo = `true` if the function call is placed on ExpStatement.
+ *      It means more code-block dependent statements in fd body - ForStatement,
+ *      ThrowStatement, etc. can be inlined.
+ *
+ * Returns:
+ *  true if the function body can be expanded.
+ *
+ * Todo:
+ *  - Would be able to eliminate `hasthis` parameter, because semantic analysis
+ *    no longer accepts calls of contextful function without valid 'this'.
+ *  - Would be able to eliminate `hdrscan` parameter, because it's always false.
+ */
 bool canInline(FuncDeclaration fd, bool hasthis, bool hdrscan, bool statementsToo)
 {
     int cost;
@@ -1878,7 +1900,7 @@ bool canInline(FuncDeclaration fd, bool hasthis, bool hdrscan, bool statementsTo
 
         /* Bugzilla 14560: If fd returns void, all explicit `return;`s
          * must not appear in the expanded result.
-         * See also ReturnStatement.inlineAsStatement().
+         * See also ReturnStatement.doInlineAs!Statement().
          */
     }
 
@@ -1981,7 +2003,7 @@ Lno:
     return false;
 }
 
-/**************************
+/***********************************************************
  * Scan function implementations in Module m looking for functions that can be inlined,
  * and inline them in situ.
  *
@@ -2011,11 +2033,12 @@ public void inlineScanModule(Module m)
     m.semanticRun = PASSinlinedone;
 }
 
-/********************************************
+/***********************************************************
  * Expand a function call inline,
  *      ethis.fd(arguments)
  *
  * Params:
+ *      callLoc = location of CallExp
  *      fd = function to expand
  *      parent = function that the call to fd is being expanded into
  *      eret = expression describing the lvalue of where the return value goes
@@ -2026,120 +2049,135 @@ public void inlineScanModule(Module m)
  *      sresult = if expanding to a statement, this is where the statement is written to
  *      again = if true, then fd can be inline scanned again because there may be
  *           more opportunities for inlining
- * Returns:
- *      Expression it expanded to (null if ps is not null)
  */
-void expandInline(FuncDeclaration fd, FuncDeclaration parent, Expression eret,
+void expandInline(Loc callLoc, FuncDeclaration fd, FuncDeclaration parent, Expression eret,
         Expression ethis, Expressions* arguments, bool asStatements,
         out Expression eresult, out Statement sresult, out bool again)
 {
-    Expression e = null;
-    Statements* as = null;
     TypeFunction tf = cast(TypeFunction)fd.type;
-    static if (LOG || CANINLINE_LOG)
-    {
+    static if (LOG || CANINLINE_LOG || EXPANDINLINE_LOG)
         printf("FuncDeclaration.expandInline('%s')\n", fd.toChars());
+    static if (EXPANDINLINE_LOG)
+    {
+        if (eret) printf("\teret = %s\n", eret.toChars());
+        if (ethis) printf("\tethis = %s\n", ethis.toChars());
     }
     scope ids = new InlineDoState(parent, fd);
 
-    if (asStatements)
-        as = new Statements();
+    if (fd.isNested())
+    {
+        if (!parent.inlinedNestedCallees)
+            parent.inlinedNestedCallees = new FuncDeclarations();
+        parent.inlinedNestedCallees.push(fd);
+    }
 
-    VarDeclaration vret = null;
+    VarDeclaration vret;    // will be set the function call result
     if (eret)
     {
         if (eret.op == TOKvar)
         {
             vret = (cast(VarExp)eret).var.isVarDeclaration();
             assert(!(vret.storage_class & (STCout | STCref)));
+            eret = null;
         }
         else
         {
             /* Inlining:
              *   this.field = foo();   // inside constructor
              */
-            vret = new VarDeclaration(fd.loc, eret.type, Identifier.generateId("_satmp"), null);
-            vret.storage_class |= STCtemp | STCforeach | STCref;
+            auto ei = new ExpInitializer(callLoc, null);
+            auto tmp = Identifier.generateId("__retvar");
+            vret = new VarDeclaration(fd.loc, eret.type, tmp, ei);
+            vret.storage_class |= STCtemp | STCref;
             vret.linkage = LINKd;
             vret.parent = parent;
 
-            Expression de = new DeclarationExp(fd.loc, vret);
-            de.type = Type.tvoid;
-            e = Expression.combine(e, de);
+            ei.exp = new ConstructExp(fd.loc, vret, eret);
+            ei.exp.type = vret.type;
 
-            Expression ex = new ConstructExp(fd.loc, vret, eret);
-            ex.type = vret.type;
-            e = Expression.combine(e, ex);
+            auto de = new DeclarationExp(fd.loc, vret);
+            de.type = Type.tvoid;
+            eret = de;
+        }
+
+        if (!asStatements && fd.nrvo_var)
+        {
+            ids.from.push(fd.nrvo_var);
+            ids.to.push(vret);
+        }
+    }
+    else
+    {
+        if (!asStatements && fd.nrvo_var)
+        {
+            auto tmp = Identifier.generateId("__retvar");
+            vret = new VarDeclaration(fd.loc, fd.nrvo_var.type, tmp, new VoidInitializer(fd.loc));
+            assert(!tf.isref);
+            vret.storage_class = STCtemp | STCrvalue;
+            vret.linkage = tf.linkage;
+            vret.parent = parent;
+
+            auto de = new DeclarationExp(fd.loc, vret);
+            de.type = Type.tvoid;
+            eret = de;
+
+            ids.from.push(fd.nrvo_var);
+            ids.to.push(vret);
         }
     }
 
     // Set up vthis
+    VarDeclaration vthis;
     if (ethis)
     {
-        if (ethis.type.ty == Tpointer)
+        Expression e0;
+        ethis = Expression.extractLast(ethis, &e0);
+        if (ethis.op == TOKvar)
         {
-            Type t = ethis.type.nextOf();
-            ethis = new PtrExp(ethis.loc, ethis);
-            ethis.type = t;
+            vthis = (cast(VarExp)ethis).var.isVarDeclaration();
         }
-        auto ei = new ExpInitializer(ethis.loc, ethis);
-
-        auto vthis = new VarDeclaration(ethis.loc, ethis.type, Id.This, ei);
-        if (ethis.type.ty != Tclass)
-            vthis.storage_class = STCref;
         else
-            vthis.storage_class = STCin;
-        vthis.linkage = LINKd;
-        vthis.parent = parent;
+        {
+            //assert(ethis.type.ty != Tpointer);
+            if (ethis.type.ty == Tpointer)
+            {
+                Type t = ethis.type.nextOf();
+                ethis = new PtrExp(ethis.loc, ethis);
+                ethis.type = t;
+            }
 
-        ei.exp = new ConstructExp(vthis.loc, vthis, ethis);
-        ei.exp.type = vthis.type;
+            auto ei = new ExpInitializer(fd.loc, ethis);
+            vthis = new VarDeclaration(fd.loc, ethis.type, Id.This, ei);
+            if (ethis.type.ty != Tclass)
+                vthis.storage_class = STCref;
+            else
+                vthis.storage_class = STCin;
+            vthis.linkage = LINKd;
+            vthis.parent = parent;
+
+            ei.exp = new ConstructExp(fd.loc, vthis, ethis);
+            ei.exp.type = vthis.type;
+
+            auto de = new DeclarationExp(fd.loc, vthis);
+            de.type = Type.tvoid;
+            e0 = Expression.combine(e0, de);
+        }
+        ethis = e0;
 
         ids.vthis = vthis;
     }
 
     // Set up parameters
-    if (ethis)
-    {
-        Expression de = new DeclarationExp(Loc(), ids.vthis);
-        de.type = Type.tvoid;
-        e = Expression.combine(e, de);
-    }
-
-    if (!asStatements && fd.nrvo_var)
-    {
-        if (vret)
-        {
-            ids.from.push(fd.nrvo_var);
-            ids.to.push(vret);
-        }
-        else
-        {
-            Identifier tmp = Identifier.generateId("__nrvoretval");
-            auto vd = new VarDeclaration(fd.loc, fd.nrvo_var.type, tmp, null);
-            assert(!tf.isref);
-            vd.storage_class = STCtemp | STCrvalue;
-            vd.linkage = tf.linkage;
-            vd.parent = parent;
-
-            ids.from.push(fd.nrvo_var);
-            ids.to.push(vd);
-
-            Expression de = new DeclarationExp(Loc(), vd);
-            de.type = Type.tvoid;
-            e = Expression.combine(e, de);
-        }
-    }
+    Expression eparams;
     if (arguments && arguments.dim)
     {
         assert(fd.parameters.dim == arguments.dim);
         foreach (i; 0 .. arguments.dim)
         {
             auto vfrom = (*fd.parameters)[i];
-
             auto arg = (*arguments)[i];
-            auto ei = new ExpInitializer(arg.loc, arg);
 
+            auto ei = new ExpInitializer(vfrom.loc, arg);
             auto vto = new VarDeclaration(vfrom.loc, vfrom.type, vfrom.ident, ei);
             vto.storage_class |= vfrom.storage_class & (STCtemp | STCin | STCout | STClazy | STCref);
             vto.linkage = vfrom.linkage;
@@ -2156,9 +2194,9 @@ void expandInline(FuncDeclaration fd, FuncDeclaration parent, Expression eret,
             ids.from.push(vfrom);
             ids.to.push(vto);
 
-            auto de = new DeclarationExp(Loc(), vto);
+            auto de = new DeclarationExp(vto.loc, vto);
             de.type = Type.tvoid;
-            e = Expression.combine(e, de);
+            eparams = Expression.combine(eparams, de);
 
             /* If function pointer or delegate parameters are present,
              * inline scan again because if they are initialized to a symbol,
@@ -2187,26 +2225,62 @@ void expandInline(FuncDeclaration fd, FuncDeclaration parent, Expression eret,
 
     if (asStatements)
     {
-        if (e)
+        /* Construct:
+         *  { eret; ethis; eparams; fd.fbody; }
+         * or:
+         *  { eret; ethis; try { eparams; fd.fbody; } finally { vthis.edtor; } }
+         */
+
+        auto as = new Statements();
+        if (eret)
+            as.push(new ExpStatement(callLoc, eret));
+        if (ethis)
+            as.push(new ExpStatement(callLoc, ethis));
+
+        auto as2 = as;
+        if (vthis && !vthis.isDataseg())
         {
-            as.push(new ExpStatement(Loc(), e));
-            e = null;
+            if (vthis.needsScopeDtor())
+            {
+                // same with ExpStatement.scopeCode()
+                as2 = new Statements();
+                vthis.noscope = 1;
+            }
         }
+
+        if (eparams)
+            as2.push(new ExpStatement(callLoc, eparams));
+
         fd.inlineNest++;
-        Statement s = inlineAsStatement(fd.fbody, ids);
-        as.push(s);
-        sresult = new ScopeStatement(Loc(), new CompoundStatement(Loc(), as));
+        Statement s = doInlineAs!Statement(fd.fbody, ids);
         fd.inlineNest--;
+        as2.push(s);
+
+        if (as2 != as)
+        {
+            as.push(new TryFinallyStatement(callLoc,
+                        new CompoundStatement(callLoc, as2),
+                        new DtorExpStatement(callLoc, vthis.edtor, vthis)));
+        }
+
+        sresult = new ScopeStatement(callLoc, new CompoundStatement(callLoc, as));
+
+        static if (EXPANDINLINE_LOG)
+            printf("\n[%s] %s expandInline sresult =\n%s\n",
+                callLoc.toChars(), fd.toPrettyChars(), sresult.toChars());
     }
     else
     {
+        /* Construct:
+         *  (eret, ethis, eparams, fd.fbody)
+         */
+
         fd.inlineNest++;
-        Expression eb = doInline(fd.fbody, ids);
-        e = Expression.combine(e, eb);
+        auto e = doInlineAs!Expression(fd.fbody, ids);
         fd.inlineNest--;
-        //eb.type.print();
-        //eb.print();
-        //eb.print();
+        //e.type.print();
+        //e.print();
+        //e.print();
 
         // Bugzilla 11322:
         if (tf.isref)
@@ -2231,23 +2305,22 @@ void expandInline(FuncDeclaration fd, FuncDeclaration parent, Expression eret,
              * inlined body of the function:
              *   tret __inlineretval = e;
              */
-            auto ei = new ExpInitializer(fd.loc, e);
-
-            Identifier tmp = Identifier.generateId("__inlineretval");
-            auto vd = new VarDeclaration(fd.loc, tf.next, tmp, ei);
-            vd.storage_class = (tf.isref ? STCref : 0) | STCtemp | STCrvalue;
+            auto ei = new ExpInitializer(callLoc, e);
+            auto tmp = Identifier.generateId("__inlineretval");
+            auto vd = new VarDeclaration(callLoc, tf.next, tmp, ei);
+            vd.storage_class = STCtemp | (tf.isref ? STCref : STCrvalue);
             vd.linkage = tf.linkage;
             vd.parent = parent;
 
-            ei.exp = new ConstructExp(fd.loc, vd, e);
+            ei.exp = new ConstructExp(callLoc, vd, e);
             ei.exp.type = vd.type;
 
-            auto de = new DeclarationExp(Loc(), vd);
+            auto de = new DeclarationExp(callLoc, vd);
             de.type = Type.tvoid;
 
             // Chain the two together:
             //   ( typeof(return) __inlineretval = ( inlined body )) , __inlineretval
-            e = Expression.combine(de, new VarExp(fd.loc, vd));
+            e = Expression.combine(de, new VarExp(callLoc, vd));
 
             //fprintf(stderr, "CallExp.inlineScan: e = "); e.print();
         }
@@ -2255,21 +2328,31 @@ void expandInline(FuncDeclaration fd, FuncDeclaration parent, Expression eret,
         // Bugzilla 15210
         if (tf.next.ty == Tvoid && e && e.type.ty != Tvoid)
         {
-            e = new CastExp(e.loc, e, Type.tvoid);
+            e = new CastExp(callLoc, e, Type.tvoid);
             e.type = Type.tvoid;
         }
 
-        eresult = e;
+        eresult = Expression.combine(eresult, eret);
+        eresult = Expression.combine(eresult, ethis);
+        eresult = Expression.combine(eresult, eparams);
+        eresult = Expression.combine(eresult, e);
+
+        static if (EXPANDINLINE_LOG)
+            printf("\n[%s] %s expandInline eresult = %s\n",
+                callLoc.toChars(), fd.toPrettyChars(), eresult.toChars());
     }
-    //printf("[%s] %s expandInline = { %s }\n", fd.loc.toChars(), fd.toPrettyChars(), e.toChars());
 
     // Need to reevaluate whether parent can now be inlined
     // in expressions, as we might have inlined statements
     parent.inlineStatusExp = ILSuninitialized;
 }
 
-/****************************************************
+/***********************************************************
  * Perform the "inline copying" of a default argument for a function parameter.
+ *
+ * Todo:
+ *  The hack for bugzilla 4820 case is still questionable. Perhaps would have to
+ *  handle a delegate expression with 'null' context properly in front-end.
  */
 public Expression inlineCopy(Expression e, Scope* sc)
 {
@@ -2298,10 +2381,10 @@ public Expression inlineCopy(Expression e, Scope* sc)
         return new ErrorExp();
     }
     scope ids = new InlineDoState(sc.parent, null);
-    return doInline(e, ids);
+    return doInlineAs!Expression(e, ids);
 }
 
-/*************************************
+/***********************************************************
  * Determine if v is 'head const', meaning
  * that once it is initialized it is not changed
  * again.
@@ -2325,11 +2408,9 @@ public Expression inlineCopy(Expression e, Scope* sc)
  * Returns:
  *      true if v's initializer is the only value assigned to v
  */
-
 bool onlyOneAssign(VarDeclaration v, FuncDeclaration fd)
 {
     if (!v.type.isMutable())
         return true;            // currently the only case handled atm
     return false;
 }
-

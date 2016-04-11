@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -37,6 +37,7 @@ class Package : public ScopeDsymbol
 {
 public:
     PKG isPkgMod;
+    unsigned tag;       // auto incremented tag, used to mask package tree in scopes
     Module *mod;        // != NULL if isPkgMod == PKGmodule
 
     Package(Identifier *ident);
@@ -46,7 +47,7 @@ public:
 
     Package *isPackage() { return this; }
 
-    bool isAncestorPackageOf(Package *pkg);
+    bool isAncestorPackageOf(const Package * const pkg) const;
 
     void semantic(Scope *sc) { }
     Dsymbol *search(Loc loc, Identifier *ident, int flags = IgnoreNone);
@@ -62,6 +63,7 @@ public:
     static DsymbolTable *modules;       // symbol table of all modules
     static Modules amodules;            // array of all modules
     static Dsymbols deferred;   // deferred Dsymbol's needing semantic() run on them
+    static Dsymbols deferred2;  // deferred Dsymbol's needing semantic2() run on them
     static Dsymbols deferred3;  // deferred Dsymbol's needing semantic3() run on them
     static unsigned dprogress;  // progress resolving the deferred list
     static void init();
@@ -134,8 +136,10 @@ public:
     Dsymbol *symtabInsert(Dsymbol *s);
     void deleteObjFile();
     static void addDeferredSemantic(Dsymbol *s);
-    static void runDeferredSemantic();
+    static void addDeferredSemantic2(Dsymbol *s);
     static void addDeferredSemantic3(Dsymbol *s);
+    static void runDeferredSemantic();
+    static void runDeferredSemantic2();
     static void runDeferredSemantic3();
     static void clearCache();
     int imports(Module *m);

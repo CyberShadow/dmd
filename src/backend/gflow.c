@@ -396,7 +396,7 @@ STATIC void flowaecp()
 
                 assert(bl);     // it must have predecessors
                 bp = list_block(bl);
-                if (bp->BC == BCiftrue && list_block(bp->Bsucc) != b)
+                if (bp->BC == BCiftrue && bp->nthSucc(0) != b)
                     vec_copy(b->Bin,bp->Bout2);
                 else
                     vec_copy(b->Bin,bp->Bout);
@@ -405,7 +405,7 @@ STATIC void flowaecp()
                     if (!bl)
                         break;
                     bp = list_block(bl);
-                    if (bp->BC == BCiftrue && list_block(bp->Bsucc) != b)
+                    if (bp->BC == BCiftrue && bp->nthSucc(0) != b)
                         vec_andass(b->Bin,bp->Bout2);
                     else
                         vec_andass(b->Bin,bp->Bout);
@@ -812,12 +812,10 @@ void main()
                         vec_setbit(i,go.starkill);
                         break;
 
-#if TARGET_SEGMENTED
                     case OPvp_fp:
                     case OPcvp_fp:
                         vec_setbit(i,go.vptrkill);
                         goto Lunary;
-#endif
 
                     default:
                         if (OTunary(op))
@@ -989,13 +987,11 @@ STATIC void accumaecpx(elem *n)
             t = Elvalue(n);
             break;
 
-#if TARGET_SEGMENTED
         case OPvp_fp:
         case OPcvp_fp:                          // if vptr access
             if ((flowxx == AE) && n->Eexp)
                 vec_orass(KILL,go.vptrkill);       // kill all other vptr accesses
             break;
-#endif
 
         default:
             if (OTunary(op))
@@ -1650,13 +1646,11 @@ STATIC void accumvbe(vec_t GEN,vec_t KILL,elem *n)
                             }
                         }
                 }
-#if TARGET_SEGMENTED
                 if (op == OPvp_fp || op == OPcvp_fp)
                 {
                     vec_orass(KILL,go.vptrkill);   /* KILL all vptr accesses */
                     vec_subass(KILL,GEN);       /* except for GENed stuff */
                 }
-#endif
         }
         else if (OTdef(op))             /* if definition elem           */
         {

@@ -146,6 +146,8 @@ CXXFLAGS += \
 endif
 # Default D compiler flags for all source files
 DFLAGS=
+# Enable D warnings
+DFLAGS += -wi
 
 ifneq (,$(DEBUG))
 ENABLE_DEBUG := 1
@@ -262,7 +264,7 @@ SRC = win32.mak posix.mak osmodel.mak aggregate.h aliasthis.h arraytypes.h	\
 	version.h visitor.h libomf.d scanomf.d libmscoff.d scanmscoff.d         \
 	$(DMD_SRCS)
 
-ROOT_SRC = $(addprefix $(ROOT)/,aav.h array.h file.h filename.h		\
+ROOT_SRC = $(addprefix $(ROOT)/, array.h file.h filename.h		\
 	longdouble.h newdelete.c object.h outbuffer.h port.h rmem.h	\
 	root.h stringtable.h)
 
@@ -476,5 +478,15 @@ zip:
 	CC=$(HOST_CXX) $(HOST_DMD_RUN) -Df$@ $<
 
 #############################
+
+ifneq ($(DOCDIR),)
+html: $(DOCDIR)/.generated
+$(DOCDIR)/.generated: $(DMD_SRCS) $(ROOT_SRCS) $(HOST_DMD_PATH) project.ddoc
+	$(HOST_DMD_RUN) -of- $(MODEL_FLAG) -J. -c -Dd$(DOCDIR)\
+	  $(DFLAGS) project.ddoc $(DOCFMT) $(DMD_SRCS) $(ROOT_SRCS)
+	touch $@
+endif
+
+######################################################
 
 .DELETE_ON_ERROR: # GNU Make directive (delete output files on error)

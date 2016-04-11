@@ -110,10 +110,9 @@ void symtab_free(symbol **tab)
  * Type out symbol information.
  */
 
-#ifdef DEBUG
-
 void symbol_print(symbol *s)
 {
+#ifdef DEBUG
 #if !SPP
     if (!s) return;
     dbg_printf("symbol %p '%s'\n ",s,s->Sident);
@@ -152,9 +151,9 @@ void symbol_print(symbol *s)
     }
 #endif
 #endif
+#endif
 }
 
-#endif
 
 /*********************************
  * Terminate use of symbol table.
@@ -1081,7 +1080,11 @@ symbol * symbol_copy(symbol *s)
     scopy->Sl = scopy->Sr = scopy->Snext = NULL;
     scopy->Ssymnum = -1;
     if (scopy->Sdt)
-        dtsymsize(scopy);
+    {
+        DtBuilder dtb;
+        dtb.nzeros(type_size(scopy->Stype));
+        scopy->Sdt = dtb.finish();
+    }
     if (scopy->Sflags & (SFLvalue | SFLdtorexp))
         scopy->Svalue = el_copytree(s->Svalue);
     t = scopy->Stype;
@@ -2270,43 +2273,20 @@ void symbol_gendebuginfo()
 
 #endif
 
-/************************************
- * Add symbol to global slist, which are symbols we need to keep around
- * for next obj file to be created.
- */
-
-static Symbol **slist;
-static size_t slist_length;
-
-void slist_add(Symbol *s)
-{
-    slist = (Symbol **)realloc(slist, (slist_length + 1) * sizeof(Symbol *));
-    slist[slist_length++] = s;
-}
-
 /*************************************
- * Resets Symbols so they are now "externs" to the next obj file being created.
+ * Reset Symbol so that it's now an "extern" to the next obj file being created.
  */
-
-void slist_reset()
+void symbol_reset(Symbol *s)
 {
-    //printf("slist_reset()\n");
-    for (size_t i = 0; i < slist_length; ++i)
-    {
-        Symbol *s = slist[i];
-
-        s->Soffset = 0;
-        s->Sxtrnnum = 0;
-        s->Stypidx = 0;
-        s->Sflags &= ~(STRoutdef | SFLweak);
-        if (s->Sclass == SCglobal || s->Sclass == SCcomdat ||
-            s->Sfl == FLudata || s->Sclass == SCstatic)
-        {   s->Sclass = SCextern;
-            s->Sfl = FLextern;
-        }
+    s->Soffset = 0;
+    s->Sxtrnnum = 0;
+    s->Stypidx = 0;
+    s->Sflags &= ~(STRoutdef | SFLweak);
+    if (s->Sclass == SCglobal || s->Sclass == SCcomdat ||
+        s->Sfl == FLudata || s->Sclass == SCstatic)
+    {   s->Sclass = SCextern;
+        s->Sfl = FLextern;
     }
 }
-
-
 
 #endif /* !SPP */

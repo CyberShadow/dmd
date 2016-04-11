@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -148,9 +148,9 @@ public:
         this.type = var.type;
     }
 
-    override char* toChars()
+    override const(char)* toChars() const
     {
-        return cast(char*)"void";
+        return "void";
     }
 
     override void accept(Visitor v)
@@ -187,9 +187,9 @@ public:
         this.type = victim.type;
     }
 
-    override char* toChars()
+    override const(char)* toChars() const
     {
-        return cast(char*)"CTFE ThrownException";
+        return "CTFE ThrownException";
     }
 
     // Generate an error message when this exception is not caught
@@ -224,20 +224,20 @@ public:
         type = Type.tvoid;
     }
 
-    override char* toChars()
+    override const(char)* toChars() const
     {
         switch (op)
         {
         case TOKcantexp:
-            return cast(char*)"<cant>";
+            return "<cant>";
         case TOKvoidexp:
-            return cast(char*)"<void>";
+            return "<void>";
         case TOKbreak:
-            return cast(char*)"<break>";
+            return "<break>";
         case TOKcontinue:
-            return cast(char*)"<continue>";
+            return "<continue>";
         case TOKgoto:
-            return cast(char*)"<goto>";
+            return "<goto>";
         default:
             assert(0);
         }
@@ -368,32 +368,41 @@ extern (C++) UnionExp copyLiteral(Expression e)
          * case: block assignment is permitted inside struct literals, eg,
          * an int[4] array can be initialized with a single int.
          */
-        StructLiteralExp se = cast(StructLiteralExp)e;
-        Expressions* oldelems = se.elements;
+        auto sle = cast(StructLiteralExp)e;
+        auto oldelems = sle.elements;
         auto newelems = new Expressions();
         newelems.setDim(oldelems.dim);
-        for (size_t i = 0; i < newelems.dim; i++)
+        foreach (i, ref el; *newelems)
         {
-            Expression m = (*oldelems)[i];
             // We need the struct definition to detect block assignment
-            AggregateDeclaration sd = se.sd;
-            VarDeclaration v = sd.fields[i];
+            auto v = sle.sd.fields[i];
+            auto m = (*oldelems)[i];
+
             // If it is a void assignment, use the default initializer
             if (!m)
                 m = voidInitLiteral(v.type, v).copy();
-            if ((v.type.ty != m.type.ty) && v.type.ty == Tsarray)
+
+            if (v.type.ty == Tarray || v.type.ty == Taarray)
             {
-                // Block assignment from inside struct literals
-                TypeSArray tsa = cast(TypeSArray)v.type;
-                uinteger_t length = tsa.dim.toInteger();
-                m = createBlockDuplicatedArrayLiteral(e.loc, v.type, m, cast(size_t)length);
+                // Don't have to copy array references
             }
-            else if (v.type.ty != Tarray && v.type.ty != Taarray) // NOTE: do not copy array references
+            else
+            {
+                // Buzilla 15681: Copy the source element always.
                 m = copyLiteral(m).copy();
-            (*newelems)[i] = m;
+
+                // Block assignment from inside struct literals
+                if (v.type.ty != m.type.ty && v.type.ty == Tsarray)
+                {
+                    auto tsa = cast(TypeSArray)v.type;
+                    auto len = cast(size_t)tsa.dim.toInteger();
+                    m = createBlockDuplicatedArrayLiteral(e.loc, v.type, m, len);
+                }
+            }
+            el = m;
         }
-        emplaceExp!(StructLiteralExp)(&ue, e.loc, se.sd, newelems, se.stype);
-        StructLiteralExp r = cast(StructLiteralExp)ue.exp();
+        emplaceExp!(StructLiteralExp)(&ue, e.loc, sle.sd, newelems, sle.stype);
+        auto r = cast(StructLiteralExp)ue.exp();
         r.type = e.type;
         r.ownedByCtfe = OWNEDctfe;
         r.origin = (cast(StructLiteralExp)e).origin;
@@ -582,21 +591,33 @@ extern (C++) uinteger_t resolveArrayLength(Expression e)
 /******************************
  * Helper for NewExp
  * Create an array literal consisting of 'elem' duplicated 'dim' times.
+ * Params:
+ *      loc = source location where the interpretation occurs
+ *      type = target type of the result
+ *      elem = the source of array element, it will be owned by the result
+ *      dim = element number of the result
+ * Returns:
+ *      Constructed ArrayLiteralExp
  */
 extern (C++) ArrayLiteralExp createBlockDuplicatedArrayLiteral(Loc loc, Type type, Expression elem, size_t dim)
 {
-    auto elements = new Expressions();
-    elements.setDim(dim);
-    bool mustCopy = needToCopyLiteral(elem);
     if (type.ty == Tsarray && type.nextOf().ty == Tsarray && elem.type.ty != Tsarray)
     {
         // If it is a multidimensional array literal, do it recursively
-        elem = createBlockDuplicatedArrayLiteral(loc, type.nextOf(), elem, cast(size_t)(cast(TypeSArray)type.nextOf()).dim.toInteger());
-        mustCopy = true;
+        auto tsa = cast(TypeSArray)type.nextOf();
+        auto len = cast(size_t)tsa.dim.toInteger();
+        elem = createBlockDuplicatedArrayLiteral(loc, type.nextOf(), elem, len);
     }
-    for (size_t i = 0; i < dim; i++)
+
+    // Buzilla 15681
+    auto tb = elem.type.toBasetype();
+    const mustCopy = tb.ty == Tstruct || tb.ty == Tsarray;
+
+    auto elements = new Expressions();
+    elements.setDim(dim);
+    foreach (i, ref el; *elements)
     {
-        (*elements)[i] = mustCopy ? copyLiteral(elem).copy() : elem;
+        el = mustCopy && i ? copyLiteral(elem).copy() : elem;
     }
     auto ale = new ArrayLiteralExp(loc, elements);
     ale.type = type;
@@ -608,10 +629,10 @@ extern (C++) ArrayLiteralExp createBlockDuplicatedArrayLiteral(Loc loc, Type typ
  * Helper for NewExp
  * Create a string literal consisting of 'value' duplicated 'dim' times.
  */
-extern (C++) StringExp createBlockDuplicatedStringLiteral(Loc loc, Type type, uint value, size_t dim, ubyte sz)
+extern (C++) StringExp createBlockDuplicatedStringLiteral(Loc loc, Type type, dchar value, size_t dim, ubyte sz)
 {
-    char* s = cast(char*)mem.xcalloc(dim + 1, sz);
-    for (size_t elemi = 0; elemi < dim; ++elemi)
+    auto s = cast(char*)mem.xcalloc(dim, sz);
+    foreach (elemi; 0 .. dim)
     {
         switch (sz)
         {
@@ -619,10 +640,10 @@ extern (C++) StringExp createBlockDuplicatedStringLiteral(Loc loc, Type type, ui
             s[elemi] = cast(char)value;
             break;
         case 2:
-            (cast(ushort*)s)[elemi] = cast(ushort)value;
+            (cast(wchar*)s)[elemi] = cast(wchar)value;
             break;
         case 4:
-            (cast(uint*)s)[elemi] = value;
+            (cast(dchar*)s)[elemi] = value;
             break;
         default:
             assert(0);
@@ -960,8 +981,7 @@ extern (C++) int comparePointers(Loc loc, TOK op, Type type, Expression agg1, di
             break;
         case TOKidentity:
         case TOKequal:
-        case TOKnotidentity:
-            // 'cmp' gets inverted below
+        case TOKnotidentity: // 'cmp' gets inverted below
         case TOKnotequal:
             cmp = (null1 == null2);
             break;
@@ -975,8 +995,7 @@ extern (C++) int comparePointers(Loc loc, TOK op, Type type, Expression agg1, di
         {
         case TOKidentity:
         case TOKequal:
-        case TOKnotidentity:
-            // 'cmp' gets inverted below
+        case TOKnotidentity: // 'cmp' gets inverted below
         case TOKnotequal:
             cmp = 0;
             break;
@@ -1004,7 +1023,6 @@ extern (C++) Expression paintFloatInt(Expression fromVal, Type to)
     assert(to.size() == 4 || to.size() == 8);
     return Target.paintAsType(fromVal, to);
 }
-
 
 /******** Constant folding, with support for CTFE ***************************/
 /// Return true if non-pointer expression e can be compared
@@ -1040,23 +1058,6 @@ private bool numCmp(N)(TOK op, N n1, N n2)
         return n1 > n2;
     case TOKge:
         return n1 >= n2;
-    case TOKleg:
-        return true;
-    case TOKlg:
-        return n1 != n2;
-
-    case TOKunord:
-        return false;
-    case TOKue:
-        return n1 == n2;
-    case TOKug:
-        return n1 > n2;
-    case TOKuge:
-        return n1 >= n2;
-    case TOKul:
-        return n1 < n2;
-    case TOKule:
-        return n1 <= n2;
 
     default:
         assert(0);
@@ -1093,17 +1094,7 @@ extern (C++) int realCmp(TOK op, real_t r1, real_t r2)
         case TOKle:
         case TOKgt:
         case TOKge:
-        case TOKleg:
-        case TOKlg:
             return 0;
-
-        case TOKunord:
-        case TOKue:
-        case TOKug:
-        case TOKuge:
-        case TOKul:
-        case TOKule:
-            return 1;
 
         default:
             assert(0);
@@ -1454,7 +1445,7 @@ extern (C++) UnionExp ctfeCat(Loc loc, Type type, Expression e1, Expression e2)
                 return ue;
             }
             dinteger_t v = es2e.toInteger();
-            memcpy(cast(char*)s + i * sz, &v, sz);
+            Port.valcpy(cast(char*)s + i * sz, v, sz);
         }
         // Add terminating 0
         memset(cast(char*)s + len * sz, 0, sz);
@@ -1484,7 +1475,7 @@ extern (C++) UnionExp ctfeCat(Loc loc, Type type, Expression e1, Expression e2)
                 return ue;
             }
             dinteger_t v = es2e.toInteger();
-            memcpy(cast(char*)s + (es1.len + i) * sz, &v, sz);
+            Port.valcpy(cast(char*)s + (es1.len + i) * sz, v, sz);
         }
         // Add terminating 0
         memset(cast(char*)s + len * sz, 0, sz);
@@ -1774,10 +1765,10 @@ extern (C++) UnionExp changeArrayLiteralLength(Loc loc, TypeArray arrayType, Exp
                 (cast(char*)s)[cast(size_t)(indxlo + elemi)] = cast(char)defaultValue;
                 break;
             case 2:
-                (cast(utf16_t*)s)[cast(size_t)(indxlo + elemi)] = cast(utf16_t)defaultValue;
+                (cast(wchar*)s)[cast(size_t)(indxlo + elemi)] = cast(wchar)defaultValue;
                 break;
             case 4:
-                (cast(utf32_t*)s)[cast(size_t)(indxlo + elemi)] = cast(utf32_t)defaultValue;
+                (cast(dchar*)s)[cast(size_t)(indxlo + elemi)] = cast(dchar)defaultValue;
                 break;
             default:
                 assert(0);

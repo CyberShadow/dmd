@@ -49,8 +49,7 @@ void out_config_init(
                         // 1: D
                         // 2: fake it with C symbolic debug info
         bool alwaysframe,       // always create standard function frame
-        bool stackstomp,        // add stack stomping code
-        bool dwarfeh            // use Dwarf eh
+        bool stackstomp         // add stack stomping code
         )
 {
 #if MARS
@@ -100,7 +99,7 @@ void out_config_init(
     else
     {
         config.exe = EX_LINUX;
-        config.ehmethod = EH_DM;
+        config.ehmethod = EH_DWARF;
         if (!exe)
             config.flags |= CFGromable; // put switch tables in code segment
     }
@@ -117,11 +116,14 @@ void out_config_init(
     if (model == 64)
     {   config.exe = EX_OSX64;
         config.fpxmmregs = TRUE;
+        config.ehmethod = EH_DWARF;
     }
     else
+    {
         config.exe = EX_OSX;
+        config.ehmethod = EH_DWARF;
+    }
     config.flags |= CFGnoebp;
-    if (!exe)
     if (!exe)
     {
         config.flags3 |= CFG3pic;
@@ -129,16 +131,17 @@ void out_config_init(
     }
     config.flags |= CFGromable; // put switch tables in code segment
     config.objfmt = OBJ_MACH;
-    config.ehmethod = EH_DM;
 #endif
 #if TARGET_FREEBSD
     if (model == 64)
     {   config.exe = EX_FREEBSD64;
+        config.ehmethod = EH_DWARF;
         config.fpxmmregs = TRUE;
     }
     else
     {
         config.exe = EX_FREEBSD;
+        config.ehmethod = EH_DWARF;
         if (!exe)
             config.flags |= CFGromable; // put switch tables in code segment
     }
@@ -149,7 +152,6 @@ void out_config_init(
         config.flags |= CFGalwaysframe; // PIC needs a frame for TLS fixups
     }
     config.objfmt = OBJ_ELF;
-    config.ehmethod = EH_DM;
 #endif
 #if TARGET_OPENBSD
     if (model == 64)
@@ -296,6 +298,13 @@ void out_config_debug(
 void util_set16()
 {
     // The default is 16 bits
+    tysize[TYldouble] = 10;
+    tysize[TYildouble] = 10;
+    tysize[TYcldouble] = 20;
+
+    tyalignsize[TYldouble] = 2;
+    tyalignsize[TYildouble] = 2;
+    tyalignsize[TYcldouble] = 2;
 }
 
 /*******************************
@@ -332,13 +341,11 @@ void util_set32()
 #else
     assert(0);
 #endif
-#if TARGET_SEGMENTED
     tysize[TYsptr] = LONGSIZE;
     tysize[TYcptr] = LONGSIZE;
     tysize[TYfptr] = 6;     // NOTE: There are codgen test that check
     tysize[TYvptr] = 6;     // tysize[x] == tysize[TYfptr] so don't set
     tysize[TYfref] = 6;     // tysize[TYfptr] to tysize[TYnptr]
-#endif
 
     tyalignsize[TYenum] = LONGSIZE;
     tyalignsize[TYint ] = LONGSIZE;
@@ -361,10 +368,8 @@ void util_set32()
 #else
     assert(0);
 #endif
-#if TARGET_SEGMENTED
     tyalignsize[TYsptr] = LONGSIZE;
     tyalignsize[TYcptr] = LONGSIZE;
-#endif
 }
 
 /*******************************
@@ -397,13 +402,11 @@ void util_set64()
 #else
     assert(0);
 #endif
-#if TARGET_SEGMENTED
     tysize[TYsptr] = 8;
     tysize[TYcptr] = 8;
     tysize[TYfptr] = 10;    // NOTE: There are codgen test that check
     tysize[TYvptr] = 10;    // tysize[x] == tysize[TYfptr] so don't set
     tysize[TYfref] = 10;    // tysize[TYfptr] to tysize[TYnptr]
-#endif
 
     tyalignsize[TYenum] = LONGSIZE;
     tyalignsize[TYint ] = LONGSIZE;
@@ -426,13 +429,11 @@ void util_set64()
 #else
     assert(0);
 #endif
-#if TARGET_SEGMENTED
     tyalignsize[TYsptr] = 8;
     tyalignsize[TYcptr] = 8;
     tyalignsize[TYfptr] = 8;
     tyalignsize[TYvptr] = 8;
     tyalignsize[TYfref] = 8;
-#endif
     tytab[TYjfunc] &= ~TYFLpascal;  // set so caller cleans the stack (as in C)
 
     TYptrdiff = TYllong;

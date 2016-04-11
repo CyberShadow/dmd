@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -70,11 +70,7 @@ class VersionCondition : public DVCondition
 public:
     static void setGlobalLevel(unsigned level);
     static bool isPredefined(const char *ident);
-    static void checkPredefined(Loc loc, const char *ident)
-    {
-        if (isPredefined(ident))
-            error(loc, "version identifier '%s' is reserved and cannot be set", ident);
-    }
+    static void checkPredefined(Loc loc, const char *ident);
     static void addGlobalIdent(const char *ident);
     static void addPredefinedGlobalIdent(const char *ident);
 

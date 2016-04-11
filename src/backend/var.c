@@ -88,17 +88,10 @@ mangle_t funcmangletab[LINK_MAXDIM] =
 mangle_t varmangletab[LINK_MAXDIM] =
 {
     mTYman_c,
-#if NEWMANGLE
     mTYman_cpp,
-#else
-    mTYman_c,
-#endif
     mTYman_pas,mTYman_for,mTYman_sys,mTYman_std,mTYman_d
 };
 #endif
-
-targ_size_t     dsout = 0;      /* # of bytes actually output to data   */
-                                /* segment, used to pad for alignment   */
 
 /* File variables: */
 

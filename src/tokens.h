@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -80,14 +80,13 @@ enum TOK
         TOKequal,       TOKnotequal,
         TOKidentity,    TOKnotidentity,
         TOKindex,       TOKis,
-        TOKtobool,
 
-// 65
+// 64
         // NCEG floating point compares
         // !<>=     <>    <>=    !>     !>=   !<     !<=   !<>
         TOKunord,TOKlg,TOKleg,TOKule,TOKul,TOKuge,TOKug,TOKue,
 
-// 73
+// 72
         TOKshl,         TOKshr,
         TOKshlass,      TOKshrass,
         TOKushr,        TOKushrass,
@@ -103,7 +102,7 @@ enum TOK
         TOKquestion,    TOKandand,      TOKoror,
         TOKpreplusplus, TOKpreminusminus,
 
-// 112
+// 111
         // Numeric literals
         TOKint32v, TOKuns32v,
         TOKint64v, TOKuns64v,
@@ -132,14 +131,14 @@ enum TOK
         TOKcomplex32, TOKcomplex64, TOKcomplex80,
         TOKchar, TOKwchar, TOKdchar, TOKbool,
 
-// 159
+// 158
         // Aggregates
         TOKstruct, TOKclass, TOKinterface, TOKunion, TOKenum, TOKimport,
-        TOKtypedef, TOKalias, TOKoverride, TOKdelegate, TOKfunction,
+        TOKalias, TOKoverride, TOKdelegate, TOKfunction,
         TOKmixin,
 
         TOKalign, TOKextern, TOKprivate, TOKprotected, TOKpublic, TOKexport,
-        TOKstatic, TOKfinal, TOKconst, TOKabstract, TOKvolatile,
+        TOKstatic, TOKfinal, TOKconst, TOKabstract,
         TOKdebug, TOKdeprecated, TOKin, TOKout, TOKinout, TOKlazy,
         TOKauto, TOKpackage, TOKmanifest, TOKimmutable,
 
@@ -228,7 +227,7 @@ struct Token
 #ifdef DEBUG
     void print();
 #endif
-    const char *toChars();
+    const char *toChars() const;
     static const char *toChars(TOK);
 };
 

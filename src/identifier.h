@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -38,7 +38,6 @@ public:
     static StringTable stringtable;
     static Identifier *generateId(const char *prefix);
     static Identifier *generateId(const char *prefix, size_t i);
-    static Identifier *idPool(const char *s);
     static Identifier *idPool(const char *s, size_t len);
     static bool isValidIdentifier(const char *p);
     static Identifier *lookup(const char *s, size_t len);

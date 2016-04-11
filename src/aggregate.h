@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -38,9 +38,9 @@ class VarDeclaration;
 
 enum Sizeok
 {
-    SIZEOKnone,         // size of aggregate is not computed yet
+    SIZEOKnone,         // size of aggregate is not yet able to compute
+    SIZEOKfwd,          // size of aggregate is ready to compute
     SIZEOKdone,         // size of aggregate is set correctly
-    SIZEOKfwd,          // error in computing size of aggregate
 };
 
 enum Baseok
@@ -115,8 +115,10 @@ public:
     void setScope(Scope *sc);
     void semantic2(Scope *sc);
     void semantic3(Scope *sc);
+    bool determineFields();
+    bool determineSize(Loc loc);
+    virtual void finalizeSize() = 0;
     unsigned size(Loc loc);
-    virtual void finalizeSize(Scope *sc) = 0;
     bool checkOverlappedFields();
     bool fill(Loc loc, Expressions *elements, bool ctorinit);
     static void alignmember(structalign_t salign, unsigned size, unsigned *poffset);
@@ -185,7 +187,7 @@ public:
     void semanticTypeInfoMembers();
     Dsymbol *search(Loc, Identifier *ident, int flags = IgnoreNone);
     const char *kind();
-    void finalizeSize(Scope *sc);
+    void finalizeSize();
     bool fit(Loc loc, Scope *sc, Expressions *elements, Type *stype);
     bool isPOD();
 
@@ -207,7 +209,6 @@ public:
 struct BaseClass
 {
     Type *type;                         // (before semantic processing)
-    Prot protection;                    // protection for the base interface
 
     ClassDeclaration *sym;
     unsigned offset;                    // 'this' pointer offset
@@ -221,7 +222,7 @@ struct BaseClass
     BaseClass *baseInterfaces;
 
     BaseClass();
-    BaseClass(Type *type, Prot protection);
+    BaseClass(Type *type);
 
     bool fillVtbl(ClassDeclaration *cd, FuncDeclarations *vtbl, int newinstance);
     void copyBaseInterfaces(BaseClasses *);
@@ -251,6 +252,7 @@ public:
     static ClassDeclaration *throwable;
     static ClassDeclaration *exception;
     static ClassDeclaration *errorException;
+    static ClassDeclaration *cpp_type_info_ptr;
 
     ClassDeclaration *baseClass;        // NULL only if this is Object
     FuncDeclaration *staticCtor;
@@ -261,8 +263,7 @@ public:
     BaseClasses *baseclasses;           // Array of BaseClass's; first is super,
                                         // rest are Interface's
 
-    size_t interfaces_dim;
-    BaseClass **interfaces;             // interfaces[interfaces_dim] for this class
+    DArray<BaseClass*> interfaces;      // interfaces[interfaces_dim] for this class
                                         // (does not include baseClass)
 
     BaseClasses *vtblInterfaces;        // array of base interfaces that have
@@ -276,6 +277,7 @@ public:
     int inuse;                          // to prevent recursive attempts
     Baseok baseok;                      // set the progress of base classes resolving
     Objc_ClassDeclaration objc;
+    Symbol *cpp_type_info_ptr_sym;      // cached instance of class Id.cpp_type_info_ptr
 
     ClassDeclaration(Loc loc, Identifier *id, BaseClasses *baseclasses, bool inObject = false);
     Dsymbol *syntaxCopy(Dsymbol *s);
@@ -288,17 +290,17 @@ public:
     bool isBaseInfoComplete();
     Dsymbol *search(Loc, Identifier *ident, int flags = IgnoreNone);
     ClassDeclaration *searchBase(Loc, Identifier *ident);
-    void finalizeSize(Scope *sc);
+    void finalizeSize();
     bool isFuncHidden(FuncDeclaration *fd);
     FuncDeclaration *findFunc(Identifier *ident, TypeFunction *tf);
     void interfaceSemantic(Scope *sc);
     unsigned setBaseInterfaceOffsets(unsigned baseOffset);
-    bool isCOMclass();
-    virtual bool isCOMinterface();
-    bool isCPPclass();
-    virtual bool isCPPinterface();
+    bool isCOMclass() const;
+    virtual bool isCOMinterface() const;
+    bool isCPPclass() const;
+    virtual bool isCPPinterface() const;
     bool isAbstract();
-    virtual int vtblOffset();
+    virtual int vtblOffset() const;
     const char *kind();
 
     void addLocalClass(ClassDeclarations *);
@@ -316,13 +318,12 @@ public:
     InterfaceDeclaration(Loc loc, Identifier *id, BaseClasses *baseclasses);
     Dsymbol *syntaxCopy(Dsymbol *s);
     void semantic(Scope *sc);
-    void finalizeSize(Scope *sc);
     bool isBaseOf(ClassDeclaration *cd, int *poffset);
     bool isBaseOf(BaseClass *bc, int *poffset);
     const char *kind();
-    int vtblOffset();
-    bool isCPPinterface();
-    bool isCOMinterface();
+    int vtblOffset() const;
+    bool isCPPinterface() const;
+    bool isCOMinterface() const;
 
     InterfaceDeclaration *isInterfaceDeclaration() { return this; }
     void accept(Visitor *v) { v->visit(this); }

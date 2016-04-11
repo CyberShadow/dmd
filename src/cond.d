@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -25,9 +25,23 @@ import ddmd.root.outbuffer;
 import ddmd.tokens;
 import ddmd.visitor;
 
+private __gshared Identifier idUnitTest;
+private __gshared Identifier idAssert;
+
+static this()
+{
+    const(char)* s;
+
+    s = Token.toChars(TOKunittest);
+    idUnitTest = Identifier.idPool(s, strlen(s));
+
+    s = Token.toChars(TOKassert);
+    idAssert   = Identifier.idPool(s, strlen(s));
+}
+
 /***********************************************************
  */
-extern (C++) class Condition
+extern (C++) abstract class Condition
 {
 public:
     Loc loc;
@@ -171,6 +185,9 @@ public:
             "Win64",
             "linux",
             "OSX",
+            "iOS",
+            "TVOS",
+            "WatchOS",
             "FreeBSD",
             "OpenBSD",
             "NetBSD",
@@ -314,8 +331,11 @@ public:
             }
             else if (level <= global.params.versionlevel || level <= mod.versionlevel)
                 inc = 1;
-            if (!definedInModule && (!ident || (!isPredefined(ident.toChars()) && ident != Identifier.idPool(Token.toChars(TOKunittest)) && ident != Identifier.idPool(Token.toChars(TOKassert)))))
+            if (!definedInModule &&
+                (!ident || (!isPredefined(ident.toChars()) && ident != idUnitTest && ident != idAssert)))
+            {
                 printDepsConditional(sc, this, "depsVersion ");
+            }
         }
         return (inc == 1);
     }

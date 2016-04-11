@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -68,7 +68,7 @@ extern (C++) bool isConsoleColorSupported()
     {
         return isatty(fileno(stderr)) != 0;
     }
-    else static if (__linux__ || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun)
+    else version (Posix)
     {
         const(char)* term = getenv("TERM");
         return isatty(STDERR_FILENO) && term && term[0] && 0 != strcmp(term, "dumb");
@@ -187,12 +187,12 @@ extern (C++) void deprecationSupplemental(Loc loc, const(char)* format, ...)
 // Just print, doesn't care about gagging
 extern (C++) void verrorPrint(Loc loc, COLOR headerColor, const(char)* header, const(char)* format, va_list ap, const(char)* p1 = null, const(char)* p2 = null)
 {
-    char* p = loc.toChars();
+    const p = loc.toChars();
     if (global.params.color)
         setConsoleColorBright(true);
     if (*p)
         fprintf(stderr, "%s: ", p);
-    mem.xfree(p);
+    mem.xfree(cast(void*)p);
     if (global.params.color)
         setConsoleColor(headerColor, true);
     fputs(header, stderr);

@@ -3168,6 +3168,40 @@ struct Test110s { this(int, int, int){} }
 auto test110 = [Test110f(1, Test110s(1, 2, 3))];
 
 /************************************************/
+// 6907
+
+int test6907()
+{
+    int dtor1;
+    class C { ~this() { ++dtor1; } }
+
+    // delete on Object
+    { Object o; delete o; }
+    { scope o = new Object(); }
+    { Object o = new Object(); delete o; }
+
+    // delete on C
+    { C c; delete c; }
+    { { scope c = new C(); } assert(dtor1 == 1); }
+    { { scope Object o = new C(); } assert(dtor1 == 2); }
+    { C c = new C(); delete c; assert(dtor1 == 3); }
+    { Object o = new C(); delete o; assert(dtor1 == 4); }
+
+    int dtor2;
+    struct S1 { ~this() { ++dtor2; } }
+
+    // delete on S1
+    { S1* p; delete p; }
+    { S1* p = new S1(); delete p; assert(dtor2 == 1); }
+
+    // delete on S1[]
+    { S1[] a = [S1(), S1()]; delete a; assert(dtor2 == 3); }
+
+    return 1;
+}
+static assert(test6907());
+
+/************************************************/
 // 9023
 
 bool test9023()
@@ -3191,6 +3225,30 @@ bool test9023()
     return true;
 }
 static assert(test9023());
+
+/************************************************/
+// 15817
+
+S[] split15817(S)(S s)
+{
+    size_t istart;
+    S[] result;
+
+    foreach (i, c ; s)
+        result ~= s[istart .. i];
+    return result;
+}
+
+int test15817()
+{
+    auto targets = `a1`.split15817;
+    uint[string] counts;
+    foreach (a; targets)
+        counts[a]++;
+    assert(counts == ["":1u, "a":1]);
+    return 1;
+}
+static assert(test15817());
 
 /************************************************/
 
@@ -3395,6 +3453,35 @@ void test14862()
 }
 
 /************************************************/
+// 15681
+
+void test15681()
+{
+    static struct A { float value; }
+
+    static struct S
+    {
+        A[2] values;
+
+        this(float)
+        {
+            values[0].value = 0;
+            values[1].value = 1;
+        }
+    }
+
+    auto s1 = S(1.0f);
+    assert(s1.values[0].value == 0);        // OK
+    assert(s1.values[1].value == 1);        // OK
+
+    enum s2 = S(1.0f);
+    static assert(s2.values[0].value == 0); // OK <- NG
+    static assert(s2.values[1].value == 1); // OK
+    assert(s2.values[0].value == 0);        // OK <- NG
+    assert(s2.values[1].value == 1);        // OK
+}
+
+/************************************************/
 
 int main()
 {
@@ -3512,10 +3599,13 @@ int main()
     test6439();
     test6504();
     test8818();
+    test6907();
     test9023();
+    test15817();
     test9954();
     test14140();
     test14862();
+    test15681();
 
     printf("Success\n");
     return 0;

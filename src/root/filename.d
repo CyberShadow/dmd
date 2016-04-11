@@ -1,26 +1,39 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ *
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:    $(DMDSRC root/_filename.d)
+ */
 
 module ddmd.root.filename;
 
-import core.stdc.ctype, core.stdc.errno, core.stdc.stdlib, core.stdc.string, core.sys.posix.stdlib, core.sys.posix.sys.stat, core.sys.windows.windows;
-import ddmd.root.array, ddmd.root.file, ddmd.root.outbuffer, ddmd.root.rmem, ddmd.root.rootobject;
+import core.stdc.ctype;
+import core.stdc.errno;
+import core.stdc.stdlib;
+import core.stdc.string;
+import core.sys.posix.stdlib;
+import core.sys.posix.sys.stat;
+import core.sys.windows.windows;
+import ddmd.root.array;
+import ddmd.root.file;
+import ddmd.root.outbuffer;
+import ddmd.root.rmem;
+import ddmd.root.rootobject;
 
 version (Windows) extern (C) int mkdir(const char*);
 version (Windows) alias _mkdir = mkdir;
 version (Posix) extern (C) char* canonicalize_file_name(const char*);
 version (Windows) extern (C) int stricmp(const char*, const char*);
-version (Windows) extern (Windows) DWORD GetFullPathNameA(LPCTSTR lpFileName, DWORD nBufferLength, LPTSTR lpBuffer, LPTSTR* lpFilePart);
+version (Windows) extern (Windows) DWORD GetFullPathNameA(LPCSTR lpFileName, DWORD nBufferLength, LPSTR lpBuffer, LPSTR* lpFilePart);
 
 alias Strings = Array!(const(char)*);
 alias Files = Array!(File*);
 
 /***********************************************************
+ * Encapsulate path and file names.
  */
 struct FileName
 {
@@ -31,7 +44,7 @@ struct FileName
         this.str = mem.xstrdup(str);
     }
 
-    extern (C++) bool equals(RootObject obj)
+    extern (C++) bool equals(const RootObject obj) const
     {
         return compare(obj) == 0;
     }
@@ -41,7 +54,7 @@ struct FileName
         return compare(name1, name2) == 0;
     }
 
-    extern (C++) int compare(RootObject obj)
+    extern (C++) int compare(const RootObject obj) const
     {
         return compare(str, (cast(FileName*)obj).str);
     }
@@ -59,7 +72,11 @@ struct FileName
     }
 
     /************************************
-     * Return !=0 if absolute path name.
+     * Determine if path is absolute.
+     * Params:
+     *  name = path
+     * Returns:
+     *  true if absolute path name.
      */
     extern (C++) static bool absolute(const(char)* name)
     {
@@ -78,9 +95,13 @@ struct FileName
     }
 
     /********************************
-     * Return filename extension (read-only).
-     * Points past '.' of extension.
-     * If there isn't one, return NULL.
+     * Determine file name extension as slice of input.
+     * Params:
+     *  str = file name
+     * Returns:
+     *  filename extension (read-only).
+     *  Points past '.' of extension.
+     *  If there isn't one, return null.
      */
     extern (C++) static const(char)* ext(const(char)* str)
     {
@@ -114,13 +135,17 @@ struct FileName
         }
     }
 
-    extern (C++) const(char)* ext()
+    extern (C++) const(char)* ext() const
     {
         return ext(str);
     }
 
     /********************************
-     * Return mem.xmalloc'd filename with extension removed.
+     * Return file name without extension.
+     * Params:
+     *  str = file name
+     * Returns:
+     *  mem.xmalloc'd filename with extension removed.
      */
     extern (C++) static const(char)* removeExt(const(char)* str)
     {
@@ -165,6 +190,7 @@ struct FileName
                      */
                     if (e == str + 1 || e == str + len - 1)
                         return e + 1;
+                    goto default;
                 }
             default:
                 if (e == str)
@@ -174,9 +200,10 @@ struct FileName
             }
             return e;
         }
+        assert(0);
     }
 
-    extern (C++) const(char)* name()
+    extern (C++) const(char)* name() const
     {
         return name(str);
     }
@@ -422,7 +449,7 @@ struct FileName
     /******************************
      * Return !=0 if extensions match.
      */
-    extern (C++) bool equalsExt(const(char)* ext)
+    extern (C++) bool equalsExt(const(char)* ext) const
     {
         return equalsExt(str, ext);
     }
@@ -675,8 +702,8 @@ struct FileName
         mem.xfree(cast(void*)str);
     }
 
-    extern (C++) char* toChars()
+    extern (C++) const(char)* toChars() const
     {
-        return cast(char*)str; // toChars() should really be const
+        return str;
     }
 }

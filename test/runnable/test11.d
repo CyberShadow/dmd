@@ -909,20 +909,6 @@ void test46()
 
 /**************************************/
 
-void test47()
-{
-    assert(0 <>=  1);
-    assert(0 <>   1);
-    assert(!(0 !<>= 1));
-    assert(!(0 !<>  1));
-    assert(!(0 !<=  1));
-    assert(!(0 !<   1));
-    assert(0 !>=  1);
-    assert(0 !>   1);
-}
-
-/**************************************/
-
 struct Bar48
 {
     uint k;
@@ -1275,9 +1261,6 @@ void test8809()
         char test3Bx() { return (new class Object { char bar() { return B.foo(); } }).bar(); }
         char test3Cx() { return (new class Object { char bar() { return C.foo(); } }).bar(); }
         char test3Dx() { return (new class Object { char bar() { return   foo(); } }).bar(); }
-        char test3By() { return (new class Object { char bar() { return this.outer.B.foo(); } }).bar(); }
-        char test3Cy() { return (new class Object { char bar() { return this.outer.C.foo(); } }).bar(); }
-        char test3Dy() { return (new class Object { char bar() { return this.outer.  foo(); } }).bar(); }
 
         override char foo() { return 'C'; }
     }
@@ -1311,10 +1294,6 @@ void test8809()
     assert(c.test3Bx() == 'B'); // NG('D') -> OK
     assert(c.test3Cx() == 'C'); // NG('D') -> OK
     assert(c.test3Dx() == 'D');
-
-    assert(c.test3By() == 'B');
-    assert(c.test3Cy() == 'C');
-    assert(c.test3Dy() == 'D');
 }
 
 /**************************************/
@@ -1387,7 +1366,6 @@ int main(string[] argv)
     test44();
     test45();
     test46();
-    test47();
     test48();
     test49();
     test50();

@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2014 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -87,6 +87,7 @@ Msgtable[] msgtable =
     { "__c_long" },
     { "__c_ulong" },
     { "__c_long_double" },
+    { "cpp_type_info_ptr", "__cpp_type_info_ptr" },
 
     { "TypeInfo" },
     { "TypeInfo_Class" },

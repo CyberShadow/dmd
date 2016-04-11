@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -35,8 +35,7 @@ enum PEDATA = 0x84;
 enum PIDATA = 0x86;
 enum COMENT = 0x88;
 enum MODEND = 0x8A;
-enum M386END = 0x8B;
-/* 32 bit module end record */
+enum M386END = 0x8B; /* 32 bit module end record */
 enum EXTDEF = 0x8C;
 enum TYPDEF = 0x8E;
 enum PUBDEF = 0x90;
@@ -175,6 +174,7 @@ extern (C++) void scanOmfObjModule(void* pctx, void function(void* pctx, const(c
         case PUBDEF:
             if (easyomf)
                 recTyp = PUB386; // convert to MS format
+            goto case;
         case PUB386:
             if (!(parseIdx(&p) | parseIdx(&p)))
                 p += 2; // skip seg, grp, frame
@@ -189,6 +189,7 @@ extern (C++) void scanOmfObjModule(void* pctx, void function(void* pctx, const(c
         case COMDAT:
             if (easyomf)
                 recTyp = COMDAT + 1; // convert to MS format
+            goto case;
         case COMDAT + 1:
             {
                 int pickAny = 0;

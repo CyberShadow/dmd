@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2015 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -101,7 +101,7 @@ void obj_write_deferred(Library *library)
         char *mname;
         if (m)
         {
-            mname = m->srcfile->toChars();
+            mname = (char*)m->srcfile->toChars();
             lastmname = mname;
         }
         else
@@ -237,7 +237,6 @@ void obj_start(char *srcfile)
     //printf("obj_start()\n");
 
     rtlsym_reset();
-    slist_reset();
     clearStringTab();
 
 #if TARGET_WINDOS
@@ -321,7 +320,7 @@ void genObjFile(Module *m, bool multiobj)
         return;
     }
 
-    lastmname = m->srcfile->toChars();
+    lastmname = (char*)m->srcfile->toChars();
 
     objmod->initfile(lastmname, NULL, m->toPrettyChars());
 
@@ -355,7 +354,9 @@ void genObjFile(Module *m, bool multiobj)
 #else
                 Symbol *sref = symbol_generate(SCstatic, type_fake(TYnptr));
                 sref->Sfl = FLdata;
-                dtxoff(&sref->Sdt, s, 0, TYnptr);
+                DtBuilder dtb;
+                dtb.xoff(s, 0, TYnptr);
+                sref->Sdt = dtb.finish();
                 outdata(sref);
 #endif
             }
@@ -373,9 +374,12 @@ void genObjFile(Module *m, bool multiobj)
         m->cov->Stype->Tcount++;
         m->cov->Sclass = SCstatic;
         m->cov->Sfl = FLdata;
-        dtnzeros(&m->cov->Sdt, 4 * m->numlines);
+
+        DtBuilder dtb;
+        dtb.nzeros(4 * m->numlines);
+        m->cov->Sdt = dtb.finish();
+
         outdata(m->cov);
-        slist_add(m->cov);
 
         m->covb = (unsigned *)calloc((m->numlines + 32) / 32, sizeof(*m->covb));
     }
@@ -390,14 +394,18 @@ void genObjFile(Module *m, bool multiobj)
     if (global.params.cov)
     {
         /* Generate
-         *      bit[numlines] __bcoverage;
+         *  private bit[numlines] __bcoverage;
          */
         Symbol *bcov = symbol_calloc("__bcoverage");
         bcov->Stype = type_fake(TYuint);
         bcov->Stype->Tcount++;
         bcov->Sclass = SCstatic;
         bcov->Sfl = FLdata;
-        dtnbytes(&bcov->Sdt, (m->numlines + 32) / 32 * sizeof(*m->covb), (char *)m->covb);
+
+        DtBuilder dtb;
+        dtb.nbytes((m->numlines + 32) / 32 * sizeof(*m->covb), (char *)m->covb);
+        bcov->Sdt = dtb.finish();
+
         outdata(bcov);
 
         free(m->covb);
@@ -883,6 +891,23 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
     if (fd->isArrayOp)
         s->Sclass = SCcomdat;
 
+    if (fd->inlinedNestedCallees)
+    {
+        /* Bugzilla 15333: If fd contains inlined expressions that come from
+         * nested function bodies, the enclosing of the functions must be
+         * generated first, in order to calculate correct frame pointer offset.
+         */
+        for (size_t i = 0; i < fd->inlinedNestedCallees->dim; i++)
+        {
+            FuncDeclaration *f = (*fd->inlinedNestedCallees)[i];
+            FuncDeclaration *fp = f->toParent2()->isFuncDeclaration();;
+            if (fp && fp->semanticRun < PASSobj)
+            {
+                toObjFile(fp, multiobj);
+            }
+        }
+    }
+
     if (fd->isNested())
     {
         //if (!(config.flags3 & CFG3pic))
@@ -991,7 +1016,7 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
     IRState irs(m, fd);
     Dsymbols deferToObj;                   // write these to OBJ file later
     irs.deferToObj = &deferToObj;
-    AA *labels = NULL;
+    void *labels = NULL;
     irs.labels = &labels;
 
     symbol *shidden = NULL;
@@ -1204,6 +1229,15 @@ void FuncDeclaration_toObjFile(FuncDeclaration *fd, bool multiobj)
             else
                 stf = TryFinallyStatement::create(Loc(), sbody, sf);
             sbody = CompoundStatement::create(Loc(), sp, stf);
+        }
+
+        if (fd->interfaceVirtual)
+        {
+            // Adjust the 'this' pointer instead of using a thunk
+            assert(irs.sthis);
+            elem *ethis = el_var(irs.sthis);
+            elem *e = el_bin(OPminass, TYnptr, ethis, el_long(TYsize_t, fd->interfaceVirtual->offset));
+            block_appendexp(irs.blx->curblock, e);
         }
 
         buildClosure(fd, &irs);

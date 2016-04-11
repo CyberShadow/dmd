@@ -460,6 +460,7 @@ void cod3_align()
 
 code* cod3_stackadj(code* c, int nbytes)
 {
+    //printf("cod3_stackadj(%d)\n", nbytes);
     unsigned grex = I64 ? REX_W << 16 : 0;
     unsigned rm;
     if (nbytes > 0)
@@ -762,8 +763,8 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
     {
         case BCiftrue:
             jcond = TRUE;
-            bs1 = list_block(bl->Bsucc);
-            bs2 = list_block(list_next(bl->Bsucc));
+            bs1 = bl->nthSucc(0);
+            bs2 = bl->nthSucc(1);
             if (bs1 == bl->Bnext)
             {   // Swap bs1 and bs2
                 block *btmp;
@@ -799,10 +800,23 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             break;
 #if MARS
         case BCjcatch:
+        {
             // Mark all registers as destroyed. This will prevent
             // register assignments to variables used in catch blocks.
-            c = cat(c,getregs((I32 | I64) ? allregs : (ALLREGS | mES)));
+            c = cat(c,getregs(lpadregs()));
+
+            if (config.ehmethod == EH_DWARF)
+            {
+                /* Each block must have ESP set to the same value it was at the end
+                 * of the prolog. But the unwinder calls catch blocks with ESP set
+                 * at the value it was when the throwing function was called, which
+                 * may have arguments pushed on the stack.
+                 * This instruction will reset ESP to the correct offset from EBP.
+                 */
+                c = gen1(c, ESCAPE | ESCfixesp);
+            }
             goto case_goto;
+        }
 #endif
 #if SCPP
         case BCcatch:
@@ -818,7 +832,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             goto case_goto;
 #endif
         case BCgoto:
-            nextb = list_block(bl->Bsucc);
+            nextb = bl->nthSucc(0);
             if ((MARS ||
                  funcsym_p->Sfunc->Fflags3 & Fnteh) &&
                 config.ehmethod != EH_DWARF &&
@@ -835,7 +849,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
                 if (toindex + 1 == fromindex)
                 {   // Simply call __finally
                     if (bl->Btry &&
-                        list_block(list_next(bl->Btry->Bsucc))->BC == BCjcatch)
+                        bl->Btry->nthSucc(1)->BC == BCjcatch)
                     {
                         goto L2;        // it's a try-catch, not a try-finally
                     }
@@ -859,7 +873,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
                     {   block *bf;
 
                         //printf("\tbt->Bscope_index = %d, bt->Blast_index = %d\n", bt->Bscope_index, bt->Blast_index);
-                        bf = list_block(list_next(bt->Bsucc));
+                        bf = bt->nthSucc(1);
                         // Only look at try-finally blocks
                         if (bf->BC == BCjcatch)
                             continue;
@@ -869,7 +883,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
                         //printf("\tbf = B%d, nextb = B%d\n", bf->Bdfoidx, nextb->Bdfoidx);
                         if (nextb->BC == BCgoto &&
                             !nextb->Belem &&
-                            bf == list_block(nextb->Bsucc))
+                            bf == nextb->nthSucc(0))
                             continue;
 
                         // call __finally
@@ -902,7 +916,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
 
         L3:
             bl->Bcode = NULL;
-            nextb = list_block(bl->Bsucc);
+            nextb = bl->nthSucc(0);
             goto L2;
 
         case BC_try:
@@ -915,14 +929,12 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             goto case_goto;
 
         case BC_finally:
-            // Mark all registers as destroyed. This will prevent
-            // register assignments to variables used in finally blocks.
-            {
-                code *cy = getregs(allregs);
-                assert(!cy);
-            }
             if (config.ehmethod == EH_DWARF)
             {
+                // Mark scratch registers as destroyed.
+                code *cy = getregs(lpadregs());
+                assert(!cy);
+
                 retregs = 0;
                 bl->Bcode = gencodelem(NULL,bl->Belem,&retregs,TRUE);
 
@@ -932,6 +944,11 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             }
             else
             {
+                // Mark all registers as destroyed. This will prevent
+                // register assignments to variables used in finally blocks.
+                code *cy = getregs(lpadregs());
+                assert(!cy);
+
                 assert(!e);
                 assert(!bl->Bcode);
                 // Generate CALL to finalizer code
@@ -947,7 +964,7 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             assert(config.ehmethod == EH_DWARF);
             // Mark all registers as destroyed. This will prevent
             // register assignments to variables used in finally blocks.
-            code *cy = getregs(allregs);
+            code *cy = getregs(lpadregs());
             assert(!cy);
 
             retregs = 0;
@@ -1089,14 +1106,14 @@ void outblkexitcode(block *bl, code*& c, int& anyspill, const char* sflsave, sym
             assert(!c);
             c = cat(c,getregs(iasm_regs(bl)));
             if (bl->Bsucc)
-            {   nextb = list_block(bl->Bsucc);
+            {   nextb = bl->nthSucc(0);
                 if (!bl->Bnext)
                     goto L2;
                 if (nextb != bl->Bnext &&
                     bl->Bnext &&
                     !(bl->Bnext->BC == BCgoto &&
                      !bl->Bnext->Belem &&
-                     nextb == list_block(bl->Bnext->Bsucc)))
+                     nextb == bl->Bnext->nthSucc(0)))
                 {   code *cl;
 
                     // See if already have JMP at end of block
@@ -1312,7 +1329,7 @@ void doswitch(block *b)
             reg2 = NOREG;
         }
         list_t bl = b->Bsucc;
-        block *bdefault = list_block(bl);
+        block *bdefault = b->nthSucc(0);
         if (dword && mswsame)
         {
             c = genc2(c,0x81,modregrm(3,7,reg2),msw);   // CMP reg2,MSW
@@ -1393,19 +1410,19 @@ void doswitch(block *b)
             c = genc2(c,0x81,modregrm(3,5,reg),vmin); /* SUB reg,vmin   */
             if (dword)
             {   genc2(c,0x81,modregrm(3,3,reg2),MSREG(vmin)); // SBB reg2,vmin
-                genjmp(c,JNE,FLblock,list_block(b->Bsucc)); /* JNE default  */
+                genjmp(c,JNE,FLblock,b->nthSucc(0)); /* JNE default  */
             }
         }
         else if (dword)
         {   c = gentstreg(c,reg2);              // TEST reg2,reg2
-            genjmp(c,JNE,FLblock,list_block(b->Bsucc)); /* JNE default  */
+            genjmp(c,JNE,FLblock,b->nthSucc(0)); /* JNE default  */
         }
         if (vmax - vmin != REGMASK)     /* if there is a maximum        */
         {                               /* CMP reg,vmax-vmin            */
             c = genc2(c,0x81,modregrm(3,7,reg),vmax-vmin);
             if (I64)
                 code_orrex(c, REX_W);
-            genjmp(c,JA,FLblock,list_block(b->Bsucc));  /* JA default   */
+            genjmp(c,JA,FLblock,b->nthSucc(0));  /* JA default   */
         }
         if (I64)
         {
@@ -1455,14 +1472,14 @@ void doswitch(block *b)
                ...
              */
             code *ctable = CNIL;
-            block *bdef = list_block(b->Bsucc);
+            block *bdef = b->nthSucc(0);
             targ_llong u;
             for (u = vmin; ; u++)
             {   block *targ = bdef;
                 for (n = 0; n < ncases; n++)
                 {
                     if (p[n] == u)
-                    {   targ = list_block(list_nth(b->Bsucc, n + 1));
+                    {   targ = b->nthSucc(n + 1);
                         break;
                     }
                 }
@@ -1564,7 +1581,7 @@ void doswitch(block *b)
         if (dword && mswsame)
         {   /* CMP DX,MSW       */
             c = genc2(c,0x81,modregrm(3,7,DX),msw);
-            genjmp(c,JNE,FLblock,list_block(b->Bsucc)); /* JNE default  */
+            genjmp(c,JNE,FLblock,b->nthSucc(0)); // JNE default
         }
         ce = getregs(mCX|mDI);
 #if TARGET_LINUX || TARGET_OSX || TARGET_FREEBSD || TARGET_OPENBSD || TARGET_SOLARIS
@@ -1643,7 +1660,7 @@ void doswitch(block *b)
             ce = gen1(ce,0xF2);         /* REPNE                        */
             gen1(ce,0xAF);              /* SCASW                        */
         }
-        genjmp(ce,JNE,FLblock,list_block(b->Bsucc)); /* JNE default     */
+        genjmp(ce,JNE,FLblock,b->nthSucc(0)); // JNE default
         mod = (disp > 127) ? 2 : 1;     /* 1 or 2 byte displacement     */
         if (csseg)
             gen1(ce,SEGCS);             // table is in code segment
@@ -1711,12 +1728,12 @@ void outjmptab(block *b)
     assert(*poffset == b->Btableoffset);        // should match precomputed value
 
     symbol *gotsym = NULL;
-    targ_size_t def = list_block(b->Bsucc)->Boffset;  // default address
+    targ_size_t def = b->nthSucc(0)->Boffset;  // default address
     for (targ_llong u = vmin; ; u++)
     {   targ_size_t targ = def;                     // default
         for (size_t n = 0; n < ncases; n++)
         {       if (p[n] == u)
-                {       targ = list_block(list_nth(b->Bsucc,n + 1))->Boffset;
+                {       targ = b->nthSucc(n + 1)->Boffset;
                         break;
                 }
         }
@@ -2951,13 +2968,15 @@ code* prolog_16bit_windows_farfunc(tym_t* tyf, bool* pushds)
  * Output:
  *      *enter          set to TRUE if ENTER instruction can be used, FALSE otherwise
  *      *xlocalsize     amount to be subtracted from stack pointer
+ *      *cfa_offset     the frame pointer's offset from the CFA
  * Returns:
  *      generated code
  */
 
-code* prolog_frame(unsigned farfunc, unsigned* xlocalsize, bool* enter)
+code* prolog_frame(unsigned farfunc, unsigned* xlocalsize, bool* enter, int* cfa_offset)
 {
     code* c = NULL;
+    *cfa_offset = 0;
 
     if (0 && config.exe == EX_WIN64)
     {
@@ -3004,14 +3023,16 @@ code* prolog_frame(unsigned farfunc, unsigned* xlocalsize, bool* enter)
 #endif
         if (config.fulltypes == CVDWARF_C || config.fulltypes == CVDWARF_D ||
             config.ehmethod == EH_DWARF)
-        {   int off = 2 * REGSIZE;
+        {   int off = 2 * REGSIZE;      // 1 for the return address + 1 for the PUSH EBP
             dwarf_CFA_set_loc(1);           // address after PUSH EBP
             dwarf_CFA_set_reg_offset(SP, off); // CFA is now 8[ESP]
             dwarf_CFA_offset(BP, -off);       // EBP is at 0[ESP]
             dwarf_CFA_set_loc(I64 ? 4 : 3);   // address after MOV EBP,ESP
-            // Yes, I know the parameter is 8 when we mean 0!
-            // But this gets the cfa register set to EBP correctly
+            /* Oddly, the CFA is not the same as the frame pointer,
+             * which is why the offset of BP is set to 8
+             */
             dwarf_CFA_set_reg_offset(BP, off);        // CFA is now 0[EBP]
+            *cfa_offset = off;  // remember the difference between the CFA and the frame pointer
         }
         *enter = false;              /* do not use ENTER instruction */
     }
@@ -3130,9 +3151,15 @@ code* prolog_setupalloca()
  * Save registers that the function destroys,
  * but that the ABI says should be preserved across
  * function calls.
+ * Params:
+ *      c = append generated instructions to this
+ *      topush = mask of registers to push
+ *      cfa_offset = offset of frame pointer from CFA
+ * Returns:
+ *      c appended with generated code
  */
 
-code* prolog_saveregs(code *c, regm_t topush)
+code* prolog_saveregs(code *c, regm_t topush, int cfa_offset)
 {
     if (pushoffuse)
     {
@@ -3180,7 +3207,7 @@ code* prolog_saveregs(code *c, regm_t topush)
                 {   // Emit debug_frame data giving location of saved register
                     pinholeopt(c, NULL);
                     dwarf_CFA_set_loc(calcblksize(c));  // address after save
-                    dwarf_CFA_offset(reg, gpoffset);
+                    dwarf_CFA_offset(reg, gpoffset - cfa_offset);
                 }
                 gpoffset += REGSIZE;
             }
@@ -3212,7 +3239,7 @@ code* prolog_saveregs(code *c, regm_t topush)
                     // relative to 0[EBP]
                     pinholeopt(c, NULL);
                     dwarf_CFA_set_loc(calcblksize(c));  // address after PUSH reg
-                    dwarf_CFA_offset(reg, -EBPtoESP - REGSIZE);
+                    dwarf_CFA_offset(reg, -EBPtoESP - REGSIZE - cfa_offset);
                 }
             }
         }
@@ -3915,13 +3942,16 @@ void epilog(block *b)
                     reg_t reg = CX;
                     mfuncreg &= ~mask[reg];
                     unsigned grex = I64 ? REX_W << 16 : 0;
-                    c = genc2(c,0xC7,grex | modregrmx(3,0,reg),value);  // MOV reg,value
-                    code *c1 = gen2sib(CNIL,0x89,grex | modregrm(0,reg,4),modregrm(0,4,SP));  // MOV [ESP],reg
+                    code *c1 = genc2(CNIL,0xC7,grex | modregrmx(3,0,reg),value);// MOV reg,value
+                    gen2sib(c1,0x89,grex | modregrm(0,reg,4),modregrm(0,4,SP)); // MOV [ESP],reg
                     genc2(c1,0x81,grex | modregrm(3,0,SP),REGSIZE);     // ADD ESP,REGSIZE
                     genregs(c1,0x39,SP,BP);                             // CMP EBP,ESP
                     if (I64)
                         code_orrex(c1,REX_W);
-                    genjmp(c1,JNE,FLcode,(block *)c1);                  // JNE L1
+                    code *cjmp = genjmp(CNIL,JNE,FLcode,(block *)c1);           // JNE L1
+                    // explicitly mark as short jump, needed for correct retsize calculation (Bugzilla 15779)
+                    cjmp->Iflags &= ~CFjmp16;
+                    c1 = cat(c1, cjmp);
                     gen1(c1,0x58 + BP);                                 // POP BP
                     c = cat(c,c1);
                 }
@@ -4606,11 +4636,26 @@ void assignaddrc(code *c)
         {
             if (c->Iop == (ESCAPE | ESCadjesp))
             {
-                //printf("adjusting EBPtoESP (%d) by %ld\n",EBPtoESP,c->IEV2.Vint);
+                //printf("adjusting EBPtoESP (%d) by %ld\n",EBPtoESP,(long)c->IEV1.Vint);
                 EBPtoESP += c->IEV1.Vint;
                 c->Iop = NOP;
             }
-            if (c->Iop == (ESCAPE | ESCframeptr))
+            else if (c->Iop == (ESCAPE | ESCfixesp))
+            {
+                //printf("fix ESP\n");
+                if (hasframe)
+                {
+                    // LEA ESP,-EBPtoESP-REGSIZE[EBP]
+                    c->Iop = LEA;
+                    if (c->Irm & 8)
+                        c->Irex |= REX_R;
+                    c->Irm = modregrm(2,SP,BP);
+                    c->Iflags = CFoff;
+                    c->IFL1 = FLconst;
+                    c->IEV1.Vuns = -EBPtoESP - REGSIZE;
+                }
+            }
+            else if (c->Iop == (ESCAPE | ESCframeptr))
             {   // Convert to load of frame pointer
                 // c->Irm is the register to use
                 if (hasframe)
@@ -4801,7 +4846,7 @@ void assignaddrc(code *c)
 #if MARS
                 assert(c->IEV1.Vuns < NDP::savetop);
 #endif
-                c->IEVpointer1 = c->IEV1.Vuns * NDPSAVESIZE + NDPoff + BPoff;
+                c->IEVpointer1 = c->IEV1.Vuns * tysize[TYldouble] + NDPoff + BPoff;
                 c->Iflags |= CFunambig;
                 goto L2;
             case FLoffset:
@@ -4942,9 +4987,7 @@ targ_size_t cod3_bpoffset(symbol *s)
             break;
         default:
             WRFL((enum FL)s->Sfl);
-#ifdef DEBUG
             symbol_print(s);
-#endif
             assert(0);
     }
     assert(hasframe);
@@ -6076,6 +6119,9 @@ unsigned codout(code *c)
                         break;
 #endif
 #endif
+                    case ESCadjesp:
+                        //printf("adjust ESP %ld\n", (long)c->IEV1.Vint);
+                        break;
                 }
 #ifdef DEBUG
                 assert(calccodsize(c) == 0);
@@ -6492,9 +6538,7 @@ static void do64bit(MiniCodeBuf *pbuf, enum FL fl,union evc *uev,int flags)
 #if TARGET_SEGMENTED
         case FLcsdata:
         case FLfardata:
-#if DEBUG
-            symbol_print(uev->sp.Vsym);
-#endif
+            //symbol_print(uev->sp.Vsym);
 #endif
             // NOTE: In ELFOBJ all symbol refs have been tagged FLextern
             // strings and statics are treated like offsets from a

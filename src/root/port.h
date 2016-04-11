@@ -1,5 +1,5 @@
 
-/* Copyright (c) 1999-2014 by Digital Mars
+/* Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved, written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -75,6 +75,7 @@ struct Port
     static unsigned readlongBE(void* buffer);
     static unsigned readwordLE(void* buffer);
     static unsigned readwordBE(void* buffer);
+    static void valcpy(void *dst, uint64_t val, size_t size);
 };
 
 #endif

@@ -79,9 +79,6 @@ extern block *block_last;
 extern int errcnt;
 extern regm_t fregsaved;
 
-#if SCPP
-extern targ_size_t dsout;              /* # of bytes actually output to data */
-#endif
 extern tym_t pointertype;              /* default data pointer type */
 
 // cg.c
@@ -305,13 +302,10 @@ int os_critsecsize32();
 int os_critsecsize64();
 #endif
 
-#ifdef PSEUDO_REGS
 /* pseudo.c */
 Symbol *pseudo_declar(char *);
-
 extern unsigned char pseudoreg[];
 extern regm_t pseudomask[];
-#endif /* PSEUDO_REGS */
 
 /* Symbol.c */
 symbol **symtab_realloc(symbol **tab, size_t symmax);
@@ -323,11 +317,7 @@ void symbol_keep(Symbol *s);
 #else
 #define symbol_keep(s) ((void)(s))
 #endif
-#ifdef DEBUG
 void symbol_print(Symbol *s);
-#else
-#define symbol_print(s)
-#endif
 void symbol_term(void);
 char *symbol_ident(symbol *s);
 Symbol *symbol_calloc(const char *id);
@@ -355,9 +345,7 @@ SYMIDX symbol_add(Symbol *s);
 void freesymtab(Symbol **stab, SYMIDX n1, SYMIDX n2);
 Symbol * symbol_copy(Symbol *s);
 Symbol * symbol_searchlist(symlist_t sl, const char *vident);
-void slist_add(Symbol *s);
-void slist_reset();
-
+void symbol_reset(Symbol *s);
 
 #if TX86
 // cg87.c
@@ -509,4 +497,3 @@ int  lnx_attributes(int hinttype,const void *hint, type **ptyp, tym_t *ptym,int 
 #endif
 
 #endif /* GLOBAL_H */
-

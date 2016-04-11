@@ -204,6 +204,11 @@ void test4v()
     static assert(!__traits(compiles, { tcvarg4(0, a => a); }));
 }
 
+// A lambda in function default argument should be deduced to delegate, by the
+// preparation inferType call in TypeFunction.semantic.
+void test4_findRoot(scope bool delegate(real lo, real hi) tolerance = (real a, real b) => false)
+{}
+
 /***************************************************/
 // on CallExp::e1
 
@@ -1195,6 +1200,32 @@ void test14745()
 }
 
 /***************************************************/
+// 15794
+
+struct Foo15794
+{
+    static void fun(Holder)()
+    {
+        int i = Holder.fn();
+    }
+}
+
+struct Holder15794(alias Fn)
+{
+    alias fn = Fn;
+}
+
+void gun15794(alias fn, U...)()
+{
+    Foo15794.fun!(Holder15794!fn)();
+}
+
+void test15794()
+{
+    gun15794!(() => 0)(); // Line 26
+}
+
+/***************************************************/
 
 int main()
 {
@@ -1251,6 +1282,7 @@ int main()
     test12508();
     test13879();
     test14745();
+    test15794();
 
     printf("Success\n");
     return 0;

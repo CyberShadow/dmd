@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ *
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:    $(DMDSRC root/_rmem.d)
+ */
 
 module ddmd.root.rmem;
 
@@ -16,26 +18,26 @@ version (GC)
 
     extern (C++) struct Mem
     {
-        char* xstrdup(const char* p)
+        static char* xstrdup(const(char)* p) nothrow
         {
             return p[0 .. strlen(p) + 1].dup.ptr;
         }
 
-        void xfree(void* p)
+        static void xfree(void* p) nothrow
         {
         }
 
-        void* xmalloc(size_t n)
+        static void* xmalloc(size_t n) nothrow
         {
             return GC.malloc(n);
         }
 
-        void* xcalloc(size_t size, size_t n)
+        static void* xcalloc(size_t size, size_t n) nothrow
         {
             return GC.calloc(size * n);
         }
 
-        void* xrealloc(void* p, size_t size)
+        static void* xrealloc(void* p, size_t size) nothrow
         {
             return GC.realloc(p, size);
         }
@@ -50,7 +52,7 @@ else
 
     extern (C++) struct Mem
     {
-        char* xstrdup(const char* s)
+        static char* xstrdup(const(char)* s) nothrow
         {
             if (s)
             {
@@ -62,13 +64,13 @@ else
             return null;
         }
 
-        void xfree(void* p)
+        static void xfree(void* p) nothrow
         {
             if (p)
                 .free(p);
         }
 
-        void* xmalloc(size_t size)
+        static void* xmalloc(size_t size) nothrow
         {
             if (!size)
                 return null;
@@ -79,7 +81,7 @@ else
             return p;
         }
 
-        void* xcalloc(size_t size, size_t n)
+        static void* xcalloc(size_t size, size_t n) nothrow
         {
             if (!size || !n)
                 return null;
@@ -90,7 +92,7 @@ else
             return p;
         }
 
-        void* xrealloc(void* p, size_t size)
+        static void* xrealloc(void* p, size_t size) nothrow
         {
             if (!size)
             {
@@ -113,7 +115,7 @@ else
             return p;
         }
 
-        void error()
+        static void error() nothrow
         {
             printf("Error: out of memory\n");
             exit(EXIT_FAILURE);
@@ -127,7 +129,7 @@ else
     __gshared size_t heapleft = 0;
     __gshared void* heapp;
 
-    extern (C) void* allocmemory(size_t m_size)
+    extern (C) void* allocmemory(size_t m_size) nothrow
     {
         // 16 byte alignment is better (and sometimes needed) for doubles
         m_size = (m_size + 15) & ~15;
@@ -165,26 +167,26 @@ else
 
     version(DigitalMars)
     {
-        extern (C) void* _d_allocmemory(size_t m_size)
+        extern (C) void* _d_allocmemory(size_t m_size) nothrow
         {
             return allocmemory(m_size);
         }
 
-        extern (C) Object _d_newclass(const ClassInfo ci)
+        extern (C) Object _d_newclass(const ClassInfo ci) nothrow
         {
             auto p = allocmemory(ci.init.length);
             p[0 .. ci.init.length] = cast(void[])ci.init[];
             return cast(Object)p;
         }
 
-        extern (C) void* _d_newitemT(TypeInfo ti)
+        extern (C) void* _d_newitemT(TypeInfo ti) nothrow
         {
             auto p = allocmemory(ti.tsize);
             (cast(ubyte*)p)[0 .. ti.init.length] = 0;
             return p;
         }
 
-        extern (C) void* _d_newitemiT(TypeInfo ti)
+        extern (C) void* _d_newitemiT(TypeInfo ti) nothrow
         {
             auto p = allocmemory(ti.tsize);
             p[0 .. ti.init.length] = ti.init[];

@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -314,16 +314,6 @@ extern (C++) Expression Expression_optimize(Expression e, int result, bool keepL
             if (e.e1.isConst() == 1)
             {
                 ret = Not(e.type, e.e1).copy();
-            }
-        }
-
-        override void visit(BoolExp e)
-        {
-            if (unaOptimize(e, result))
-                return;
-            if (e.e1.isConst() == 1)
-            {
-                ret = Bool(e.type, e.e1).copy();
             }
         }
 
@@ -1040,7 +1030,10 @@ extern (C++) Expression Expression_optimize(Expression e, int result, bool keepL
                     if (e.type.toBasetype().ty == Tvoid)
                         ret = e.e2;
                     else
-                        ret = new BoolExp(e.loc, e.e2, e.type);
+                    {
+                        ret = new CastExp(e.loc, e.e2, e.type);
+                        ret.type = e.type;
+                    }
                 }
             }
         }
@@ -1078,7 +1071,10 @@ extern (C++) Expression Expression_optimize(Expression e, int result, bool keepL
                     if (e.type.toBasetype().ty == Tvoid)
                         ret = e.e2;
                     else
-                        ret = new BoolExp(e.loc, e.e2, e.type);
+                    {
+                        ret = new CastExp(e.loc, e.e2, e.type);
+                        ret.type = e.type;
+                    }
                 }
             }
         }

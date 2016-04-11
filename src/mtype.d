@@ -1,10 +1,10 @@
 /**
  * Compiler implementation of the D programming language
  *
- * Copyright: Copyright (c) 1999-2015 by Digital Mars, All Rights Reserved
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
  * Authors: Walter Bright, http://www.digitalmars.com
  * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
- * Source:    $(DMDSRC mtype.d)
+ * Source:    $(DMDSRC _mtype.d)
  */
 
 module ddmd.mtype;
@@ -20,6 +20,7 @@ import ddmd.access;
 import ddmd.aggregate;
 import ddmd.aliasthis;
 import ddmd.argtypes;
+import ddmd.arrayop;
 import ddmd.arraytypes;
 import ddmd.attrib;
 import ddmd.gluelayer;
@@ -171,21 +172,21 @@ extern (C++) void MODtoBuffer(OutBuffer* buf, MOD mod)
     case MODshared | MODconst:
         buf.writestring(Token.tochars[TOKshared]);
         buf.writeByte(' ');
-        /* fall through */
+        goto case; /+ fall through +/
     case MODconst:
         buf.writestring(Token.tochars[TOKconst]);
         break;
     case MODshared | MODwild:
         buf.writestring(Token.tochars[TOKshared]);
         buf.writeByte(' ');
-        /* fall through */
+        goto case; /+ fall through +/
     case MODwild:
         buf.writestring(Token.tochars[TOKwild]);
         break;
     case MODshared | MODwildconst:
         buf.writestring(Token.tochars[TOKshared]);
         buf.writeByte(' ');
-        /* fall through */
+        goto case; /+ fall through +/
     case MODwildconst:
         buf.writestring(Token.tochars[TOKwild]);
         buf.writeByte(' ');
@@ -467,7 +468,7 @@ alias MOD = ubyte;
 
 /***********************************************************
  */
-extern (C++) class Type : RootObject
+extern (C++) abstract class Type : RootObject
 {
 public:
     TY ty;
@@ -589,7 +590,7 @@ public:
         this.ty = ty;
     }
 
-    const(char)* kind()
+    const(char)* kind() const
     {
         assert(false); // should be overridden
     }
@@ -798,7 +799,7 @@ public:
     /********************************
      * For pretty-printing a type.
      */
-    override char* toChars()
+    final override const(char)* toChars()
     {
         OutBuffer buf;
         buf.reserve(16);
@@ -818,12 +819,12 @@ public:
         return buf.extractString();
     }
 
-    final static char needThisPrefix()
+    static char needThisPrefix()
     {
         return 'M'; // name mangling prefix for functions needing 'this'
     }
 
-    final static void _init()
+    static void _init()
     {
         stringtable._init(14000);
         // Set basic types
@@ -1009,7 +1010,7 @@ public:
         assert(t);
         if (!t.deco)
             return t.merge();
-        StringValue* sv = stringtable.lookup(cast(char*)t.deco, strlen(t.deco));
+        StringValue* sv = stringtable.lookup(t.deco, strlen(t.deco));
         if (sv && sv.ptrvalue)
         {
             t = cast(Type)sv.ptrvalue;
@@ -1138,47 +1139,47 @@ public:
             s.checkDeprecated(loc, sc);
     }
 
-    final bool isConst()
+    final bool isConst() const
     {
         return (mod & MODconst) != 0;
     }
 
-    final bool isImmutable()
+    final bool isImmutable() const
     {
         return (mod & MODimmutable) != 0;
     }
 
-    final bool isMutable()
+    final bool isMutable() const
     {
         return (mod & (MODconst | MODimmutable | MODwild)) == 0;
     }
 
-    final bool isShared()
+    final bool isShared() const
     {
         return (mod & MODshared) != 0;
     }
 
-    final bool isSharedConst()
+    final bool isSharedConst() const
     {
         return (mod & (MODshared | MODconst)) == (MODshared | MODconst);
     }
 
-    final bool isWild()
+    final bool isWild() const
     {
         return (mod & MODwild) != 0;
     }
 
-    final bool isWildConst()
+    final bool isWildConst() const
     {
         return (mod & MODwildconst) == MODwildconst;
     }
 
-    final bool isSharedWild()
+    final bool isSharedWild() const
     {
         return (mod & (MODshared | MODwild)) == (MODshared | MODwild);
     }
 
-    final bool isNaked()
+    final bool isNaked() const
     {
         return mod == 0;
     }
@@ -2421,7 +2422,7 @@ public:
             if (tb.ty == Tstruct && tb.needsNested())
             {
                 StructLiteralExp se = cast(StructLiteralExp)e;
-                se.sinit = toInitializer(se.sd);
+                se.useStaticInit = true;
             }
         }
         else if (ident == Id._mangleof)
@@ -2433,15 +2434,15 @@ public:
             }
             else
             {
-                e = new StringExp(loc, cast(char*)deco, strlen(deco));
+                e = new StringExp(loc, deco);
                 Scope sc;
                 e = e.semantic(&sc);
             }
         }
         else if (ident == Id.stringof)
         {
-            char* s = toChars();
-            e = new StringExp(loc, s, strlen(s));
+            const s = toChars();
+            e = new StringExp(loc, cast(char*)s);
             Scope sc;
             e = e.semantic(&sc);
         }
@@ -2499,6 +2500,10 @@ public:
             {
                 if (v.isField())
                 {
+                    auto ad = v.toParent().isAggregateDeclaration();
+                    ad.size(e.loc);
+                    if (ad.sizeok != SIZEOKdone)
+                        return new ErrorExp();
                     e = new IntegerExp(e.loc, v.offset, Type.tsize_t);
                     return e;
                 }
@@ -2510,7 +2515,7 @@ public:
                 if (tb.ty == Tstruct && tb.needsNested())
                 {
                     StructLiteralExp se = cast(StructLiteralExp)e;
-                    se.sinit = toInitializer(se.sd);
+                    se.useStaticInit = true;
                 }
                 goto Lreturn;
             }
@@ -2520,8 +2525,8 @@ public:
             /* Bugzilla 3796: this should demangle e->type->deco rather than
              * pretty-printing the type.
              */
-            char* s = e.toChars();
-            e = new StringExp(e.loc, s, strlen(s));
+            const s = e.toChars();
+            e = new StringExp(e.loc, cast(char*)s);
         }
         else
             e = getProperty(e.loc, ident, flag);
@@ -2590,7 +2595,7 @@ public:
                     fd.error("must be a template opDispatch(string s), not a %s", fd.kind());
                     return new ErrorExp();
                 }
-                auto se = new StringExp(e.loc, ident.toChars());
+                auto se = new StringExp(e.loc, cast(char*)ident.toChars());
                 auto tiargs = new Objects();
                 tiargs.push(se);
                 auto dti = new DotTemplateInstanceExp(e.loc, e, Id.opDispatch, tiargs);
@@ -2656,23 +2661,28 @@ public:
         OutBuffer buf;
         buf.reserve(32);
         mangleToBuffer(this, &buf, internal != 0);
+
         size_t len = buf.offset;
         buf.writeByte(0);
+
         // Allocate buffer on stack, fail over to using malloc()
         char[128] namebuf;
         size_t namelen = 19 + len.sizeof * 3 + len + 1;
-        char* name = namelen <= namebuf.sizeof ? namebuf.ptr : cast(char*)malloc(namelen);
+        auto name = namelen <= namebuf.length ? namebuf.ptr : cast(char*)malloc(namelen);
         assert(name);
+
         sprintf(name, "_D%lluTypeInfo_%s6__initZ", cast(ulong)9 + len, buf.data);
-        //printf("%p, deco = %s, name = %s\n", this, deco, name);
+        //printf("%p %s, deco = %s, name = %s\n", this, toChars(), deco, name);
         assert(strlen(name) < namelen); // don't overflow the buffer
+
         size_t off = 0;
         static if (!IN_GCC)
         {
             if (global.params.isOSX || global.params.isWindows && !global.params.is64bit)
                 ++off; // C mangling will add '_' back in
         }
-        Identifier id = Identifier.idPool(name + off);
+        auto id = Identifier.idPool(name + off, strlen(name + off));
+
         if (name != namebuf.ptr)
             free(name);
         return id;
@@ -2757,7 +2767,7 @@ public:
     /***************************************
      * Return !=0 if the type or any of its subtypes is wild.
      */
-    int hasWild()
+    int hasWild() const
     {
         return mod & MODwild;
     }
@@ -2896,7 +2906,7 @@ public:
         }
     }
 
-    final static void error(Loc loc, const(char)* format, ...)
+    static void error(Loc loc, const(char)* format, ...)
     {
         va_list ap;
         va_start(ap, format);
@@ -2904,7 +2914,7 @@ public:
         va_end(ap);
     }
 
-    final static void warning(Loc loc, const(char)* format, ...)
+    static void warning(Loc loc, const(char)* format, ...)
     {
         va_list ap;
         va_start(ap, format);
@@ -2973,7 +2983,7 @@ public:
 
 /***********************************************************
  */
-extern (C++) class TypeNext : Type
+extern (C++) abstract class TypeNext : Type
 {
 public:
     Type next;
@@ -2991,7 +3001,7 @@ public:
             next.checkDeprecated(loc, sc);
     }
 
-    override final int hasWild()
+    override final int hasWild() const
     {
         if (ty == Tfunction)
             return 0;
@@ -3383,7 +3393,7 @@ public:
         merge();
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return dstring;
     }
@@ -3394,7 +3404,7 @@ public:
         return this;
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         uint size;
         //printf("TypeBasic::size()\n");
@@ -3568,17 +3578,6 @@ public:
             case Tdchar:
                 ivalue = 0;
                 goto Livalue;
-            case Tcomplex32:
-            case Timaginary32:
-            case Tfloat32:
-            case Tcomplex64:
-            case Timaginary64:
-            case Tfloat64:
-            case Tcomplex80:
-            case Timaginary80:
-            case Tfloat80:
-                error(loc, "use .min_normal property instead of .min");
-                return new ErrorExp();
             default:
                 break;
             }
@@ -3934,32 +3933,32 @@ public:
         return (flags & TFLAGSintegral) != 0;
     }
 
-    override bool isfloating()
+    override bool isfloating() const
     {
         return (flags & TFLAGSfloating) != 0;
     }
 
-    override bool isreal()
+    override bool isreal() const
     {
         return (flags & TFLAGSreal) != 0;
     }
 
-    override bool isimaginary()
+    override bool isimaginary() const
     {
         return (flags & TFLAGSimaginary) != 0;
     }
 
-    override bool iscomplex()
+    override bool iscomplex() const
     {
         return (flags & TFLAGScomplex) != 0;
     }
 
-    override bool isscalar()
+    override bool isscalar() const
     {
         return (flags & (TFLAGSintegral | TFLAGSfloating)) != 0;
     }
 
-    override bool isunsigned()
+    override bool isunsigned() const
     {
         return (flags & TFLAGSunsigned) != 0;
     }
@@ -4010,8 +4009,8 @@ public:
                     return MATCHnomatch;
                 /* Can't change sign if same size
                  */
-                /*if (sz == tosz && (flags ^ tob->flags) & TFLAGSunsigned)
-                 return MATCHnomatch;*/
+                //if (sz == tosz && (flags ^ tob->flags) & TFLAGSunsigned)
+                //    return MATCHnomatch;
             }
         }
         else if (flags & TFLAGSfloating)
@@ -4075,7 +4074,7 @@ public:
         return new IntegerExp(loc, value, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         switch (ty)
         {
@@ -4100,7 +4099,7 @@ public:
     // For eliminating dynamic_cast
     override TypeBasic isTypeBasic()
     {
-        return cast(TypeBasic)this;
+        return this;
     }
 
     override void accept(Visitor v)
@@ -4126,7 +4125,7 @@ public:
         this.basetype = basetype;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "vector";
     }
@@ -4233,7 +4232,7 @@ public:
         return basetype.nextOf().isunsigned();
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return false;
     }
@@ -4337,7 +4336,7 @@ public:
                 params.push(new Parameter(0, arrty, null, null));
                 reverseFd[i] = FuncDeclaration.genCfunc(params, arrty, reverseName[i]);
             }
-            Expression ec = new VarExp(Loc(), reverseFd[i]);
+            Expression ec = new VarExp(Loc(), reverseFd[i], false);
             e = e.castTo(sc, n.arrayOf()); // convert to dynamic array
             auto arguments = new Expressions();
             arguments.push(e);
@@ -4358,7 +4357,7 @@ public:
                 params.push(new Parameter(0, arrty, null, null));
                 sortFd[i] = FuncDeclaration.genCfunc(params, arrty, sortName[i]);
             }
-            Expression ec = new VarExp(Loc(), sortFd[i]);
+            Expression ec = new VarExp(Loc(), sortFd[i], false);
             e = e.castTo(sc, n.arrayOf()); // convert to dynamic array
             auto arguments = new Expressions();
             arguments.push(e);
@@ -4382,7 +4381,7 @@ public:
                 adReverse_fd = FuncDeclaration.genCfunc(params, Type.tvoid.arrayOf(), Id.adReverse);
             }
             fd = adReverse_fd;
-            ec = new VarExp(Loc(), fd);
+            ec = new VarExp(Loc(), fd, false);
             e = e.castTo(sc, n.arrayOf()); // convert to dynamic array
             arguments = new Expressions();
             arguments.push(e);
@@ -4403,7 +4402,7 @@ public:
                 params.push(new Parameter(0, Type.dtypeinfo.type, null, null));
                 fd = FuncDeclaration.genCfunc(params, Type.tvoid.arrayOf(), "_adSort");
             }
-            ec = new VarExp(Loc(), fd);
+            ec = new VarExp(Loc(), fd, false);
             e = e.castTo(sc, n.arrayOf()); // convert to dynamic array
             arguments = new Expressions();
             arguments.push(e);
@@ -4446,7 +4445,7 @@ public:
         this.dim = dim;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "sarray";
     }
@@ -4612,7 +4611,7 @@ public:
         {
             // It's really an index expression
             if (Dsymbol s = getDsymbol(*pe))
-                *pe = new DsymbolExp(loc, s, 1);
+                *pe = new DsymbolExp(loc, s);
             *pe = new ArrayExp(loc, *pe, dim);
         }
         else if (*ps)
@@ -4878,7 +4877,7 @@ public:
         //printf("TypeDArray(t = %p)\n", t);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "darray";
     }
@@ -4896,13 +4895,13 @@ public:
         return t;
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         //printf("TypeDArray::size()\n");
         return Target.ptrsize * 2;
     }
 
-    override uint alignsize()
+    override uint alignsize() const
     {
         // A DArray consists of two ptr-sized values, so align it on pointer size
         // boundary
@@ -4945,7 +4944,7 @@ public:
         {
             // It's really a slice expression
             if (Dsymbol s = getDsymbol(*pe))
-                *pe = new DsymbolExp(loc, s, 1);
+                *pe = new DsymbolExp(loc, s);
             *pe = new ArrayExp(loc, *pe);
         }
         else if (*ps)
@@ -4986,6 +4985,8 @@ public:
             }
             if (e.op == TOKnull)
                 return new IntegerExp(e.loc, 0, Type.tsize_t);
+            if (checkNonAssignmentArrayOp(e))
+                return new ErrorExp();
             e = new ArrayLengthExp(e.loc, e);
             e.type = Type.tsize_t;
             return e;
@@ -5008,12 +5009,12 @@ public:
         return nty == Tchar || nty == Twchar || nty == Tdchar;
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return true;
     }
@@ -5054,7 +5055,7 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool hasPointers()
+    override bool hasPointers() const
     {
         return true;
     }
@@ -5085,7 +5086,7 @@ public:
         return new TypeAArray(t, index);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "aarray";
     }
@@ -5167,6 +5168,7 @@ public:
         case Tnone:
         case Ttuple:
             error(loc, "can't have associative array key of %s", index.toBasetype().toChars());
+            goto case Terror;
         case Terror:
             return Type.terror;
         default:
@@ -5277,6 +5279,7 @@ public:
         case Tnone:
         case Ttuple:
             error(loc, "can't have associative array of %s", next.toChars());
+            goto case Terror;
         case Terror:
             return Type.terror;
         default:
@@ -5336,7 +5339,7 @@ public:
                 tf.isnothrow = true;
                 tf.isnogc = false;
             }
-            Expression ev = new VarExp(e.loc, fd_aaLen);
+            Expression ev = new VarExp(e.loc, fd_aaLen, false);
             e = new CallExp(e.loc, ev, e);
             e.type = (cast(TypeFunction)fd_aaLen.type).next;
         }
@@ -5354,12 +5357,12 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return true;
     }
@@ -5376,7 +5379,7 @@ public:
         return null;
     }
 
-    override bool hasPointers()
+    override bool hasPointers() const
     {
         return true;
     }
@@ -5432,7 +5435,7 @@ public:
         super(Tpointer, t);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "pointer";
     }
@@ -5460,6 +5463,7 @@ public:
         {
         case Ttuple:
             error(loc, "can't have pointer to %s", n.toChars());
+            goto case Terror;
         case Terror:
             return Type.terror;
         default:
@@ -5490,7 +5494,7 @@ public:
         }
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         return Target.ptrsize;
     }
@@ -5570,7 +5574,7 @@ public:
         return TypeNext.constConv(to);
     }
 
-    override bool isscalar()
+    override bool isscalar() const
     {
         return true;
     }
@@ -5584,12 +5588,12 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
 
-    override bool hasPointers()
+    override bool hasPointers() const
     {
         return true;
     }
@@ -5611,7 +5615,7 @@ public:
         // BUG: what about references to static arrays?
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "reference";
     }
@@ -5640,7 +5644,7 @@ public:
         return merge();
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         return Target.ptrsize;
     }
@@ -5664,7 +5668,7 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
@@ -5778,7 +5782,7 @@ public:
         return new TypeFunction(parameters, treturn, varargs, linkage, stc);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "function";
     }
@@ -5978,6 +5982,7 @@ public:
                     }
                     else
                     {
+                        e = inferType(e, fparam.type);
                         Initializer iz = new ExpInitializer(e.loc, e);
                         iz = iz.semantic(argsc, fparam.type, INITnointerpret);
                         e = iz.toExpression();
@@ -5988,7 +5993,7 @@ public:
                         // Replace function literal with a function symbol,
                         // since default arg expression must be copied when used
                         // and copying the literal itself is wrong.
-                        e = new VarExp(e.loc, fe.fd, 0);
+                        e = new VarExp(e.loc, fe.fd, false);
                         e = new AddrExp(e.loc, e);
                         e = e.semantic(argsc);
                     }
@@ -6454,8 +6459,10 @@ public:
                 Expression arg = (*args)[u];
                 assert(arg);
                 //printf("arg: %s, type: %s\n", arg->toChars(), arg->type->toChars());
+
                 Type targ = arg.type;
                 Type tprm = wildmatch ? p.type.substWildTo(wildmatch) : p.type;
+
                 if (p.storageClass & STClazy && tprm.ty == Tvoid && targ.ty != Tvoid)
                     m = MATCHconvert;
                 else
@@ -6470,15 +6477,20 @@ public:
                         m = arg.implicitConvTo(tprm);
                     //printf("match %d\n", m);
                 }
+
                 // Non-lvalues do not match ref or out parameters
-                if (p.storageClass & STCref)
+                if (p.storageClass & (STCref | STCout))
                 {
                     // Bugzilla 13783: Don't use toBasetype() to handle enum types.
                     Type ta = targ;
                     Type tp = tprm;
                     //printf("fparam[%d] ta = %s, tp = %s\n", u, ta->toChars(), tp->toChars());
+
                     if (m && !arg.isLvalue())
                     {
+                        if (p.storageClass & STCout)
+                            goto Nomatch;
+
                         if (arg.op == TOKstring && tp.ty == Tsarray)
                         {
                             if (ta.ty != Tsarray)
@@ -6501,7 +6513,9 @@ public:
                         else
                             goto Nomatch;
                     }
-                    /* find most derived alias this type being matched.
+
+                    /* Find most derived alias this type being matched.
+                     * Bugzilla 15674: Allow on both ref and out parameters.
                      */
                     while (1)
                     {
@@ -6510,6 +6524,7 @@ public:
                             break;
                         ta = tat;
                     }
+
                     /* A ref variable should work like a head-const reference.
                      * e.g. disallows:
                      *  ref T      <- an lvalue of const(T) argument
@@ -6518,16 +6533,8 @@ public:
                     if (!ta.constConv(tp))
                         goto Nomatch;
                 }
-                else if (p.storageClass & STCout)
-                {
-                    if (m && !arg.isLvalue())
-                        goto Nomatch;
-                    Type targb = targ.toBasetype();
-                    Type tprmb = tprm.toBasetype();
-                    if (!targb.constConv(tprmb))
-                        goto Nomatch;
-                }
             }
+
             /* prefer matching the element type rather than the array
              * type when more arguments are present with T[]...
              */
@@ -6549,6 +6556,7 @@ public:
                         sz = tsa.dim.toInteger();
                         if (sz != nargs - u)
                             goto Nomatch;
+                        goto case Tarray;
                     case Tarray:
                         {
                             TypeArray ta = cast(TypeArray)tb;
@@ -6630,7 +6638,7 @@ public:
         return false;
     }
 
-    override Expression defaultInit(Loc loc)
+    override Expression defaultInit(Loc loc) const
     {
         error(loc, "function does not have a default initializer");
         return new ErrorExp();
@@ -6655,7 +6663,7 @@ public:
         ty = Tdelegate;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "delegate";
     }
@@ -6702,12 +6710,12 @@ public:
         }
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         return Target.ptrsize * 2;
     }
 
-    override uint alignsize()
+    override uint alignsize() const
     {
         return Target.ptrsize;
     }
@@ -6752,12 +6760,12 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return true;
     }
@@ -6785,7 +6793,7 @@ public:
         return e;
     }
 
-    override bool hasPointers()
+    override bool hasPointers() const
     {
         return true;
     }
@@ -6798,7 +6806,7 @@ public:
 
 /***********************************************************
  */
-extern (C++) class TypeQualified : Type
+extern (C++) abstract class TypeQualified : Type
 {
 public:
     Loc loc;
@@ -7021,6 +7029,11 @@ public:
                 Type t = s.getType(); // type symbol, type alias, or type tuple?
                 uint errorsave = global.errors;
                 Dsymbol sm = s.searchX(loc, sc, id);
+                if (sm && !symbolIsVisible(sc, sm))
+                {
+                    .deprecation(loc, "%s is not visible from module %s", sm.toPrettyChars(), sc._module.toChars());
+                    // sm = null;
+                }
                 if (global.errors != errorsave)
                 {
                     *pt = Type.terror;
@@ -7069,9 +7082,9 @@ public:
                         VarDeclaration v = s.isVarDeclaration();
                         FuncDeclaration f = s.isFuncDeclaration();
                         if (intypeid || !v && !f)
-                            e = DsymbolExp.resolve(loc, sc, s, false);
+                            e = DsymbolExp.resolve(loc, sc, s, true);
                         else
-                            e = new VarExp(loc, s.isDeclaration());
+                            e = new VarExp(loc, s.isDeclaration(), true);
 
                         e = toExpressionHelper(e, i);
                         e = e.semantic(sc);
@@ -7149,7 +7162,7 @@ public:
             {
                 if (FuncDeclaration fd = s.isFuncDeclaration())
                 {
-                    *pe = new DsymbolExp(loc, fd, 1);
+                    *pe = new DsymbolExp(loc, fd);
                     return;
                 }
             }
@@ -7223,7 +7236,7 @@ public:
         this.ident = ident;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "identifier";
     }
@@ -7354,7 +7367,7 @@ public:
         this.tempinst = tempinst;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "instance";
     }
@@ -7467,7 +7480,7 @@ public:
         this.exp = exp;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "typeof";
     }
@@ -7526,19 +7539,29 @@ public:
         exp = resolvePropertiesOnly(sc2, exp);
         sc2.pop();
 
-        if (exp.op == TOKtype)
+        if (exp.op == TOKtype ||
+            exp.op == TOKscope)
         {
-            error(loc, "argument %s to typeof is not an expression", exp.toChars());
-            goto Lerr;
-        }
-        if (exp.op == TOKscope)
-        {
-            ScopeDsymbol sds = (cast(ScopeExp)exp).sds;
-            if (sds.isPackage())
-            {
-                error(loc, "%s has no type", exp.toChars());
+            if (exp.checkType())
                 goto Lerr;
-            }
+
+            /* Today, 'typeof(func)' returns void if func is a
+             * function template (TemplateExp), or
+             * template lambda (FuncExp).
+             * It's actually used in Phobos as an idiom, to branch code for
+             * template functions.
+             */
+        }
+        if (auto f = exp.op == TOKvar    ? (cast(   VarExp)exp).var.isFuncDeclaration()
+                   : exp.op == TOKdotvar ? (cast(DotVarExp)exp).var.isFuncDeclaration() : null)
+        {
+            if (f.checkForwardRef(loc))
+                goto Lerr;
+        }
+        if (auto f = isFuncAddress(exp))
+        {
+            if (f.checkForwardRef(loc))
+                goto Lerr;
         }
 
         Type t = exp.type;
@@ -7612,7 +7635,7 @@ public:
         super(Treturn, loc);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "return";
     }
@@ -7734,7 +7757,7 @@ public:
         this.sym = sym;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "struct";
     }
@@ -7797,19 +7820,14 @@ public:
              */
             e = e.semantic(sc); // do this before turning on noaccesscheck
             e.type.size(); // do semantic of type
+
+            Expression e0;
+            Expression ev = e.op == TOKtype ? null : e;
+            if (ev)
+                ev = extractSideEffect(sc, "__tup", e0, ev);
+
             auto exps = new Expressions();
             exps.reserve(sym.fields.dim);
-            Expression e0 = null;
-            Expression ev = e.op == TOKtype ? null : e;
-            if (sc.func && ev && !isTrivialExp(ev))
-            {
-                Identifier id = Identifier.generateId("__tup");
-                auto ei = new ExpInitializer(e.loc, ev);
-                auto vd = new VarDeclaration(e.loc, null, id, ei);
-                vd.storage_class |= STCtemp | STCctfe | (ev.isLvalue() ? STCref | STCforeach : STCrvalue);
-                e0 = new DeclarationExp(e.loc, vd);
-                ev = new VarExp(e.loc, vd);
-            }
             for (size_t i = 0; i < sym.fields.dim; i++)
             {
                 VarDeclaration v = sym.fields[i];
@@ -7823,6 +7841,7 @@ public:
                 }
                 exps.push(ex);
             }
+
             e = new TupleExp(e.loc, e0, exps);
             Scope* sc2 = sc.push();
             sc2.flags = sc.flags | SCOPEnoaccesscheck;
@@ -7854,6 +7873,11 @@ public:
             }
             if (!s)
                 return noMember(sc, e, ident, flag);
+        }
+        if (!symbolIsVisible(sc, s))
+        {
+            .deprecation(e.loc, "%s is not visible from module %s", s.toPrettyChars(), sc._module.toPrettyChars());
+            // return noMember(sc, e, ident, flag);
         }
         if (!s.isFuncDeclaration()) // because of overloading
             s.checkDeprecated(e.loc, sc);
@@ -7902,7 +7926,7 @@ public:
         if (td)
         {
             if (e.op == TOKtype)
-                e = new ScopeExp(e.loc, td);
+                e = new TemplateExp(e.loc, td);
             else
                 e = new DotTemplateExp(e.loc, e, td);
             e = e.semantic(sc);
@@ -7972,7 +7996,7 @@ public:
             if (d.semanticRun == PASSinit && d._scope)
                 d.semantic(d._scope);
             checkAccess(e.loc, sc, e, d);
-            auto ve = new VarExp(e.loc, d, 1);
+            auto ve = new VarExp(e.loc, d);
             if (d.isVarDeclaration() && d.needThis())
                 ve.type = d.type.addMod(e.type.mod);
             return ve;
@@ -7987,14 +8011,16 @@ public:
             e = e.semantic(sc);
             return e;
         }
-        auto de = new DotVarExp(e.loc, e, d);
-        return de.semantic(sc);
+
+        e = new DotVarExp(e.loc, e, d);
+        e = e.semantic(sc);
+        return e;
     }
 
     override structalign_t alignment()
     {
         if (sym.alignment == 0)
-            sym.size(Loc());
+            sym.size(sym.loc);
         return sym.alignment;
     }
 
@@ -8053,17 +8079,17 @@ public:
                 offset = vd.offset + cast(uint)vd.type.size();
             (*structelems)[j] = e;
         }
-        auto structinit = new StructLiteralExp(loc, cast(StructDeclaration)sym, structelems);
+        auto structinit = new StructLiteralExp(loc, sym, structelems);
         /* Copy from the initializer symbol for larger symbols,
          * otherwise the literals expressed as code get excessively large.
          */
         if (size(loc) > Target.ptrsize * 4 && !needsNested())
-            structinit.sinit = toInitializer(sym);
+            structinit.useStaticInit = true;
         structinit.type = this;
         return structinit;
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return sym.zeroInit != 0;
     }
@@ -8103,12 +8129,12 @@ public:
         return assignable;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return false;
     }
 
-    override bool needsDestruction()
+    override bool needsDestruction() const
     {
         return sym.dtor !is null;
     }
@@ -8249,7 +8275,7 @@ public:
         this.sym = sym;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "enum";
     }
@@ -8346,8 +8372,8 @@ public:
         }
         else if (ident == Id.stringof)
         {
-            char* s = toChars();
-            e = new StringExp(loc, s, strlen(s));
+            const s = toChars();
+            e = new StringExp(loc, cast(char*)s);
             Scope sc;
             e = e.semantic(&sc);
         }
@@ -8500,12 +8526,12 @@ public:
         this.sym = sym;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "class";
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         return Target.ptrsize;
     }
@@ -8571,19 +8597,14 @@ public:
              */
             // Detect that error, and at least try to run semantic() on it if we can
             sym.size(e.loc);
+
+            Expression e0;
+            Expression ev = e.op == TOKtype ? null : e;
+            if (ev)
+                ev = extractSideEffect(sc, "__tup", e0, ev);
+
             auto exps = new Expressions();
             exps.reserve(sym.fields.dim);
-            Expression e0 = null;
-            Expression ev = e.op == TOKtype ? null : e;
-            if (sc.func && ev && !isTrivialExp(ev))
-            {
-                Identifier id = Identifier.generateId("__tup");
-                auto ei = new ExpInitializer(e.loc, ev);
-                auto vd = new VarDeclaration(e.loc, null, id, ei);
-                vd.storage_class |= STCtemp | STCctfe | (ev.isLvalue() ? STCref | STCforeach : STCrvalue);
-                e0 = new DeclarationExp(e.loc, vd);
-                ev = new VarExp(e.loc, vd);
-            }
             for (size_t i = 0; i < sym.fields.dim; i++)
             {
                 VarDeclaration v = sym.fields[i];
@@ -8600,6 +8621,7 @@ public:
                 }
                 exps.push(ex);
             }
+
             e = new TupleExp(e.loc, e0, exps);
             Scope* sc2 = sc.push();
             sc2.flags = sc.flags | SCOPEnoaccesscheck;
@@ -8618,7 +8640,7 @@ public:
                     return Type.getProperty(e.loc, ident, 0);
                 return new DotTypeExp(e.loc, e, sym);
             }
-            if (ClassDeclaration cbase = sym.searchBase(e.loc, ident))
+            if (ClassDeclaration cbase = sym.searchBase(ident))
             {
                 if (e.op == TOKtype)
                     return Type.getProperty(e.loc, ident, 0);
@@ -8699,15 +8721,50 @@ public:
             {
                 if (sym.vthis._scope)
                     sym.vthis.semantic(null);
-                ClassDeclaration cdp = sym.toParent2().isClassDeclaration();
-                auto de = new DotVarExp(e.loc, e, sym.vthis, 0);
-                de.type = (cdp ? cdp.type : sym.vthis.type).addMod(e.type.mod);
-                return de;
+
+                if (auto cdp = sym.toParent2().isClassDeclaration())
+                {
+                    auto dve = new DotVarExp(e.loc, e, sym.vthis);
+                    dve.type = cdp.type.addMod(e.type.mod);
+                    return dve;
+                }
+
+                /* Bugzilla 15839: Find closest parent class through nested functions.
+                 */
+                for (auto p = sym.toParent2(); p; p = p.toParent2())
+                {
+                    auto fd = p.isFuncDeclaration();
+                    if (!fd)
+                        break;
+                    if (fd.isNested())
+                        continue;
+                    auto ad = fd.isThis();
+                    if (!ad)
+                        break;
+                    if (auto cdp = ad.isClassDeclaration())
+                    {
+                        auto ve = new ThisExp(e.loc);
+                        ve.var = fd.vthis;
+                        ve.type = fd.vthis.type.addMod(e.type.mod);
+                        return ve;
+                    }
+                    break;
+                }
+
+                // Continue to show enclosing function's frame (stack or closure).
+                auto dve = new DotVarExp(e.loc, e, sym.vthis);
+                dve.type = sym.vthis.type.addMod(e.type.mod);
+                return dve;
             }
             else
             {
                 return noMember(sc, e, ident, flag);
             }
+        }
+        if (!symbolIsVisible(sc, s))
+        {
+            .deprecation(e.loc, "%s is not visible from module %s", s.toPrettyChars(), sc._module.toChars());
+            // return noMember(sc, e, ident, flag);
         }
         if (!s.isFuncDeclaration()) // because of overloading
             s.checkDeprecated(e.loc, sc);
@@ -8756,7 +8813,7 @@ public:
         if (td)
         {
             if (e.op == TOKtype)
-                e = new ScopeExp(e.loc, td);
+                e = new TemplateExp(e.loc, td);
             else
                 e = new DotTemplateExp(e.loc, e, td);
             e = e.semantic(sc);
@@ -8859,7 +8916,7 @@ public:
                             }
                             else
                             {
-                                e = new VarExp(e.loc, d, 1);
+                                e = new VarExp(e.loc, d);
                                 return e;
                             }
                         }
@@ -8880,7 +8937,7 @@ public:
             if (d.semanticRun == PASSinit && d._scope)
                 d.semantic(d._scope);
             checkAccess(e.loc, sc, e, d);
-            auto ve = new VarExp(e.loc, d, 1);
+            auto ve = new VarExp(e.loc, d);
             if (d.isVarDeclaration() && d.needThis())
                 ve.type = d.type.addMod(e.type.mod);
             return ve;
@@ -8898,13 +8955,15 @@ public:
         if (d.parent && d.toParent().isModule())
         {
             // (e, d)
-            auto ve = new VarExp(e.loc, d, 1);
+            auto ve = new VarExp(e.loc, d);
             e = new CommaExp(e.loc, e, ve);
             e.type = d.type;
             return e;
         }
-        auto de = new DotVarExp(e.loc, e, d, d.hasOverloads());
-        return de.semantic(sc);
+
+        e = new DotVarExp(e.loc, e, d);
+        e = e.semantic(sc);
+        return e;
     }
 
     override ClassDeclaration isClassHandle()
@@ -9002,22 +9061,22 @@ public:
         return new NullExp(loc, this);
     }
 
-    override bool isZeroInit(Loc loc)
+    override bool isZeroInit(Loc loc) const
     {
         return true;
     }
 
-    override bool isscope()
+    override bool isscope() const
     {
         return sym.isscope;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return true;
     }
 
-    override bool hasPointers()
+    override bool hasPointers() const
     {
         return true;
     }
@@ -9107,7 +9166,7 @@ public:
         arguments.push(new Parameter(0, t2, null, null));
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "tuple";
     }
@@ -9222,7 +9281,7 @@ public:
         this.upr = upr;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "slice";
     }
@@ -9280,7 +9339,7 @@ public:
         {
             // It's really a slice expression
             if (Dsymbol s = getDsymbol(*pe))
-                *pe = new DsymbolExp(loc, s, 1);
+                *pe = new DsymbolExp(loc, s);
             *pe = new ArrayExp(loc, *pe, new IntervalExp(loc, lwr, upr));
         }
         else if (*ps)
@@ -9353,7 +9412,7 @@ public:
         super(Tnull);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "null";
     }
@@ -9382,17 +9441,17 @@ public:
         return MATCHnomatch;
     }
 
-    override bool isBoolean()
+    override bool isBoolean() const
     {
         return true;
     }
 
-    override d_uns64 size(Loc loc)
+    override d_uns64 size(Loc loc) const
     {
         return tvoidptr.size(loc);
     }
 
-    override Expression defaultInit(Loc loc)
+    override Expression defaultInit(Loc loc) const
     {
         return new NullExp(Loc(), Type.tnull);
     }
@@ -9576,5 +9635,10 @@ public:
         if (pn)
             *pn = n; // update index
         return result;
+    }
+
+    override const(char)* toChars() const
+    {
+        return ident ? ident.toChars() : "__anonymous_param";
     }
 }

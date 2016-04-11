@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -1004,11 +1004,6 @@ public:
     }
 
     void visit(NotExp e)
-    {
-        visit(cast(UnaExp)e);
-    }
-
-    void visit(BoolExp e)
     {
         visit(cast(UnaExp)e);
     }

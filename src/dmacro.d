@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -209,7 +209,7 @@ public:
                     if (!m)
                     {
                         static __gshared const(char)* undef = "DDOC_UNDEFINED_MACRO";
-                        m = search(cast(const(char)*)undef, strlen(undef));
+                        m = search(undef, strlen(undef));
                         if (m)
                         {
                             // Macro was not defined, so this is an expansion of

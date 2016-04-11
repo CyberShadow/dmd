@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ *
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:    $(DMDSRC root/_port.d)
+ */
 
 module ddmd.root.port;
 
@@ -53,20 +55,6 @@ extern (C++) struct Port
         static __gshared bool yl2xp1_supported = false;
     }
     static __gshared real snan;
-    static this()
-    {
-        /*
-         * Use a payload which is different from the machine NaN,
-         * so that uninitialised variables can be
-         * detected even if exceptions are disabled.
-         */
-        ushort* us = cast(ushort*)&snan;
-        us[0] = 0;
-        us[1] = 0;
-        us[2] = 0;
-        us[3] = 0xA000;
-        us[4] = 0x7FFF;
-    }
 
     static bool isNan(double r)
     {
@@ -83,9 +71,11 @@ extern (C++) struct Port
         return a % b;
     }
 
-    static real fequal(real a, real b)
+    static bool fequal(real a, real b)
     {
-        return memcmp(&a, &b, 10) == 0;
+        // don't compare pad bytes in extended precision
+        enum sz = (real.mant_dig == 64) ? 10 : real.sizeof;
+        return memcmp(&a, &b, sz) == 0;
     }
 
     static int memicmp(const char* s1, const char* s2, size_t n)
@@ -302,5 +292,17 @@ extern (C++) struct Port
     {
         auto p = cast(ubyte*)buffer;
         return (p[0] << 8) | p[1];
+    }
+
+    static void valcpy(void *dst, ulong val, size_t size)
+    {
+        switch (size)
+        {
+            case 1: *cast(ubyte *)dst = cast(ubyte)val; break;
+            case 2: *cast(ushort *)dst = cast(ushort)val; break;
+            case 4: *cast(uint *)dst = cast(uint)val; break;
+            case 8: *cast(ulong *)dst = cast(ulong)val; break;
+            default: assert(0);
+        }
     }
 }

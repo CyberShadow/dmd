@@ -1,6 +1,6 @@
 /*
  * Some portions copyright (c) 1994-1995 by Symantec
- * Copyright (c) 1999-2015 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * http://www.digitalmars.com
  * Written by Walter Bright
@@ -72,7 +72,7 @@ const(char)* findConfFile(const(char)* argv0, const(char)* inifile)
     filename = FileName.replaceName(argv0, inifile);
     if (FileName.exists(filename))
         return filename;
-    static if (__linux__ || __APPLE__ || __FreeBSD__ || __OpenBSD__ || __sun)
+    version (Posix)
     {
         // Search PATH for argv0
         auto p = getenv("PATH");
@@ -219,7 +219,7 @@ void parseConfFile(StringTable* environment, const(char)* filename, const(char)*
         buf.reset();
         // First, expand the macros.
         // Macros are bracketed by % characters.
-      Kloop:
+    Kloop:
         for (size_t k = 0; k < i - linestart; ++k)
         {
             // The line is buffer[linestart..i]
@@ -359,4 +359,3 @@ void parseConfFile(StringTable* environment, const(char)* filename, const(char)*
         }
     }
 }
-

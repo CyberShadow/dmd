@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -26,12 +26,6 @@ private string stripRight(string s)
         s = s[0 .. $ - 1];
     return s;
 }
-
-enum __linux__      = xversion!`linux`;
-enum __APPLE__      = xversion!`OSX`;
-enum __FreeBSD__    = xversion!`FreeBSD`;
-enum __OpenBSD__    = xversion!`OpenBSD`;
-enum __sun          = xversion!`Solaris`;
 
 enum IN_GCC     = xversion!`IN_GCC`;
 
@@ -114,7 +108,8 @@ struct Param
     bool betterC;           // be a "better C" compiler; no dependency on D runtime
     bool addMain;           // add a default main() function
     bool allInst;           // generate code for all template instantiations
-    bool dwarfeh;           // generate dwarf eh exception handling
+    bool check10378;        // check for issues transitioning to 10738
+    bool bug10378;          // use pre-bugzilla 10378 search strategy
 
     BOUNDSCHECK useArrayBounds;
 
@@ -309,7 +304,7 @@ struct Global
         {
             static assert(0, "fix this");
         }
-        copyright = "Copyright (c) 1999-2015 by Digital Mars";
+        copyright = "Copyright (c) 1999-2016 by Digital Mars";
         written = "written by Walter Bright";
         _version = ('v' ~ stripRight(import("verstr.h"))[1 .. $ - 1] ~ '\0').ptr;
         compiler.vendor = "Digital Mars D";
@@ -358,7 +353,7 @@ struct Loc
         this.filename = filename;
     }
 
-    extern (C++) char* toChars()
+    extern (C++) const(char)* toChars() const
     {
         OutBuffer buf;
         if (filename)
@@ -383,65 +378,65 @@ struct Loc
 
 enum LINK : int
 {
-    LINKdefault,
-    LINKd,
-    LINKc,
-    LINKcpp,
-    LINKwindows,
-    LINKpascal,
-    LINKobjc,
+    def,        // default
+    d,
+    c,
+    cpp,
+    windows,
+    pascal,
+    objc,
 }
 
-alias LINKdefault = LINK.LINKdefault;
-alias LINKd = LINK.LINKd;
-alias LINKc = LINK.LINKc;
-alias LINKcpp = LINK.LINKcpp;
-alias LINKwindows = LINK.LINKwindows;
-alias LINKpascal = LINK.LINKpascal;
-alias LINKobjc = LINK.LINKobjc;
+alias LINKdefault = LINK.def;
+alias LINKd = LINK.d;
+alias LINKc = LINK.c;
+alias LINKcpp = LINK.cpp;
+alias LINKwindows = LINK.windows;
+alias LINKpascal = LINK.pascal;
+alias LINKobjc = LINK.objc;
 
 enum DYNCAST : int
 {
-    DYNCAST_OBJECT,
-    DYNCAST_EXPRESSION,
-    DYNCAST_DSYMBOL,
-    DYNCAST_TYPE,
-    DYNCAST_IDENTIFIER,
-    DYNCAST_TUPLE,
-    DYNCAST_PARAMETER,
+    object,
+    expression,
+    dsymbol,
+    type,
+    identifier,
+    tuple,
+    parameter,
 }
 
-alias DYNCAST_OBJECT = DYNCAST.DYNCAST_OBJECT;
-alias DYNCAST_EXPRESSION = DYNCAST.DYNCAST_EXPRESSION;
-alias DYNCAST_DSYMBOL = DYNCAST.DYNCAST_DSYMBOL;
-alias DYNCAST_TYPE = DYNCAST.DYNCAST_TYPE;
-alias DYNCAST_IDENTIFIER = DYNCAST.DYNCAST_IDENTIFIER;
-alias DYNCAST_TUPLE = DYNCAST.DYNCAST_TUPLE;
-alias DYNCAST_PARAMETER = DYNCAST.DYNCAST_PARAMETER;
+alias DYNCAST_OBJECT = DYNCAST.object;
+alias DYNCAST_EXPRESSION = DYNCAST.expression;
+alias DYNCAST_DSYMBOL = DYNCAST.dsymbol;
+alias DYNCAST_TYPE = DYNCAST.type;
+alias DYNCAST_IDENTIFIER = DYNCAST.identifier;
+alias DYNCAST_TUPLE = DYNCAST.tuple;
+alias DYNCAST_PARAMETER = DYNCAST.parameter;
 
 enum MATCH : int
 {
-    MATCHnomatch,   // no match
-    MATCHconvert,   // match with conversions
-    MATCHconst,     // match with conversion to const
-    MATCHexact,     // exact match
+    nomatch,   // no match
+    convert,   // match with conversions
+    constant,  // match with conversion to const
+    exact,     // exact match
 }
 
-alias MATCHnomatch = MATCH.MATCHnomatch;
-alias MATCHconvert = MATCH.MATCHconvert;
-alias MATCHconst = MATCH.MATCHconst;
-alias MATCHexact = MATCH.MATCHexact;
+alias MATCHnomatch = MATCH.nomatch;
+alias MATCHconvert = MATCH.convert;
+alias MATCHconst = MATCH.constant;
+alias MATCHexact = MATCH.exact;
 
 enum PINLINE : int
 {
-    PINLINEdefault, // as specified on the command line
-    PINLINEnever,   // never inline
-    PINLINEalways,  // always inline
+    def,     // as specified on the command line
+    never,   // never inline
+    always,  // always inline
 }
 
-alias PINLINEdefault = PINLINE.PINLINEdefault;
-alias PINLINEnever = PINLINE.PINLINEnever;
-alias PINLINEalways = PINLINE.PINLINEalways;
+alias PINLINEdefault = PINLINE.def;
+alias PINLINEnever = PINLINE.never;
+alias PINLINEalways = PINLINE.always;
 
 alias StorageClass = uinteger_t;
 

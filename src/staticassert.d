@@ -1,5 +1,5 @@
 // Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
+// Copyright (c) 1999-2016 by Digital Mars
 // All Rights Reserved
 // written by Walter Bright
 // http://www.digitalmars.com
@@ -92,7 +92,7 @@ public:
                 {
                     // same with pragma(msg)
                     se = se.toUTF8(sc);
-                    error("\"%.*s\"", cast(int)se.len, cast(char*)se.string);
+                    error("\"%.*s\"", cast(int)se.len, se.string);
                 }
                 else
                     error("%s", msg.toChars());
@@ -117,7 +117,7 @@ public:
         return true;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "static assert";
     }

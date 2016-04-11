@@ -1,14 +1,17 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ *
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:    $(DMDSRC root/_aav.d)
+ */
 
 module ddmd.root.aav;
 
-import core.stdc.stdlib, core.stdc.string;
+import core.stdc.stdlib;
+import core.stdc.string;
 import ddmd.root.rmem;
 
 extern (C++) size_t hash(size_t a)
@@ -39,7 +42,7 @@ struct AA
 /****************************************************
  * Determine number of entries in associative array.
  */
-extern (C++) size_t dmd_aaLen(AA* aa)
+extern (C++) size_t dmd_aaLen(const AA* aa) pure
 {
     return aa ? aa.nodes : 0;
 }

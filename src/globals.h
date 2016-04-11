@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (c) 1999-2015 by Digital Mars
+ * Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
@@ -92,7 +92,8 @@ struct Param
     bool betterC;       // be a "better C" compiler; no dependency on D runtime
     bool addMain;       // add a default main() function
     bool allInst;       // generate code for all template instantiations
-    bool dwarfeh;       // generate dwarf eh exception handling
+    bool check10378;    // check for issues transitioning to 10738
+    bool bug10378;      // use pre-bugzilla 10378 search strategy
 
     BOUNDSCHECK useArrayBounds;
 
@@ -243,6 +244,14 @@ typedef longdouble              d_float80;
 
 typedef longdouble real_t;
 
+// Represents a D [ ] array
+template<typename T>
+struct DArray
+{
+    size_t length;
+    T *ptr;
+};
+
 // file location
 struct Loc
 {
@@ -259,7 +268,7 @@ struct Loc
 
     Loc(const char *filename, unsigned linnum, unsigned charnum);
 
-    char *toChars();
+    const char *toChars() const;
     bool equals(const Loc& loc);
 };
 

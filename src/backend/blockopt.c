@@ -108,16 +108,11 @@ void block_init()
 
 void block_term()
 {
-#if TERMCODE
-    block *b;
-
     while (block_freelist)
-    {   b = block_freelist->Bnext;
+    {   block *b = block_freelist->Bnext;
         mem_ffree(block_freelist);
         block_freelist = b;
     }
-
-#endif
 }
 
 /**************************
@@ -133,9 +128,7 @@ void block_next(Blockx *bctx,enum BC bc,block *bn)
         bn = block_calloc_i();
     bctx->curblock->Bnext = bn;                 // next block
     bctx->curblock = bctx->curblock->Bnext;     // new current block
-#if NTEXCEPTIONS
     bctx->curblock->Btry = bctx->tryblock;
-#endif
     bctx->curblock->Bflags |= bctx->flags;
 }
 #else
@@ -169,7 +162,7 @@ block *block_goto(Blockx *bx,enum BC bc,block *bn)
 
     b = bx->curblock;
     block_next(bx,bc,bn);
-    list_append(&b->Bsucc,bx->curblock);
+    b->appendSucc(bx->curblock);
     return bx->curblock;
 }
 
@@ -197,7 +190,7 @@ void block_goto(block *bgoto,block *bnew)
     enum BC bc;
 
     assert(bgoto);
-    list_append(&(curblock->Bsucc),bgoto);
+    curblock->appendSucc(bgoto);
     if (curblock->Bcode)        // If there is already code in the block
                                 // then this is an ASM block
             bc = BCasm;
@@ -214,16 +207,13 @@ void block_goto(block *bgoto,block *bnew)
  */
 
 void block_ptr()
-{   block *b;
-
-/*    dbg_printf("block_ptr()\n");*/
+{
+    //printf("block_ptr()\n");
 
     numblks = 0;
-    for (b = startblock; b; b = b->Bnext)       /* for each block        */
+    for (block *b = startblock; b; b = b->Bnext)       /* for each block        */
     {
-#if SCPP
         b->Bblknum = numblks;
-#endif
         numblks++;
     }
     maxblks = 3 * numblks;              /* allow for increase in # of blocks */
@@ -356,11 +346,11 @@ void block_free(block *b)
             type_free(b->Bcatchtype);
             break;
 #endif
-        case BCjcatch:
 #if MARS
+        case BCjcatch:
             free(b->BS.BIJCATCH.actionTable);
-#endif
             break;
+#endif
         case BCasm:
             code_free(b->Bcode);
             break;
@@ -386,20 +376,16 @@ void blocklist_hydrate(block **pb)
         list_hydrate(&b->Bsucc,FPNULL);
         list_hydrate(&b->Bpred,FPNULL);
         (void) ph_hydrate(&b->Btry);
-#if SCPP
         (void) ph_hydrate(&b->Bendscope);
         symbol_hydrate(&b->Binitvar);
-#endif
         switch (b->BC)
         {
-#if SCPP
             case BCtry:
                 symbol_hydrate(&b->catchvar);
                 break;
             case BCcatch:
                 type_hydrate(&b->Bcatchtype);
                 break;
-#endif
             case BCswitch:
                 (void) ph_hydrate(&b->BS.Bswitch);
                 break;
@@ -416,10 +402,8 @@ void blocklist_hydrate(block **pb)
                 code_hydrate(&b->Bcode);
                 break;
         }
-#if TX86
         filename_translate(&b->Bsrcpos);
         srcpos_hydrate(&b->Bsrcpos);
-#endif
         pb = &b->Bnext;
     }
 }
@@ -442,20 +426,16 @@ void blocklist_dehydrate(block **pb)
         list_dehydrate(&b->Bsucc,FPNULL);
         list_dehydrate(&b->Bpred,FPNULL);
         ph_dehydrate(&b->Btry);
-#if SCPP
         ph_dehydrate(&b->Bendscope);
         symbol_dehydrate(&b->Binitvar);
-#endif
         switch (b->BC)
         {
-#if SCPP
             case BCtry:
                 symbol_dehydrate(&b->catchvar);
                 break;
             case BCcatch:
                 type_dehydrate(&b->Bcatchtype);
                 break;
-#endif
             case BCswitch:
                 ph_dehydrate(&b->BS.Bswitch);
                 break;
@@ -472,9 +452,7 @@ void blocklist_dehydrate(block **pb)
                 code_dehydrate(&b->Bcode);
                 break;
         }
-#if TX86
         srcpos_dehydrate(&b->Bsrcpos);
-#endif
         pb = &b->Bnext;
     }
 }
@@ -546,9 +524,6 @@ void block_appendexp(block *b,elem *e)
 
 void block_initvar(symbol *s)
 {
-#ifdef DEBUG
-    assert(curblock);
-#endif
     symbol_debug(s);
     curblock->Binitvar = s;
 }
@@ -564,10 +539,8 @@ void block_initvar(symbol *s)
 
 void block_endfunc(int flag)
 {
-#if SCPP
     curblock->Bsymend = globsym.top;
     curblock->Bendscope = curblock;
-#endif
     if (flag)
     {   elem *e;
 
@@ -598,12 +571,6 @@ void blockopt(int iter)
         do
         {
             //printf("changes = %d, count = %d, dfotop = %d\n",go.changes,count,dfotop);
-#if MARS
-            util_progress();
-#else
-            if (controlc_saw)
-                util_exit(EXIT_BREAK);
-#endif
             go.changes = 0;
             bropt();                    // branch optimization
             brrear();                   // branch rearrangement
@@ -702,8 +669,8 @@ void brcombine()
             if (bc == BCiftrue)
             {   unsigned char bc2;
 
-                b2 = list_block(b->Bsucc);
-                b3 = list_block(list_next(b->Bsucc));
+                b2 = b->nthSucc(0);
+                b3 = b->nthSucc(1);
 
                 if (list_next(b2->Bpred))       // if more than one predecessor
                     continue;
@@ -716,7 +683,7 @@ void brcombine()
 
                 bc2 = b2->BC;
                 if (bc2 == BCgoto &&
-                    b3 == list_block(b2->Bsucc))
+                    b3 == b2->nthSucc(0))
                 {
                     b->BC = BCgoto;
                     if (b2->Belem)
@@ -764,11 +731,11 @@ void brcombine()
                 }
                 else if (bc2 == BCgoto &&
                          b3->BC == BCgoto &&
-                         list_block(b2->Bsucc) == list_block(b3->Bsucc))
+                         b2->nthSucc(0) == b3->nthSucc(0))
                 {   elem *e;
                     block *bsucc;
 
-                    bsucc = list_block(b2->Bsucc);
+                    bsucc = b2->nthSucc(0);
                     if (b2->Belem)
                     {
                         if (PARSER)
@@ -815,7 +782,7 @@ void brcombine()
                     b3->Belem = NULL;
                     list_free(&b->Bsucc,FPNULL);
 
-                    list_append(&b->Bsucc,bsucc);
+                    b->appendSucc(bsucc);
                     list_append(&bsucc->Bpred,b);
 
                     list_free(&(b2->Bpred),FPNULL);
@@ -832,12 +799,10 @@ void brcombine()
             }
             else if (bc == BCgoto && PARSER)
             {
-                b2 = list_block(b->Bsucc);
+                b2 = b->nthSucc(0);
                 if (!list_next(b2->Bpred) && b2->BC != BCasm    // if b is only parent
                     && b2 != startblock
-#if SCPP
                     && b2->BC != BCtry
-#endif
                     && b2->BC != BC_try
                     && b->Btry == b2->Btry
                    )
@@ -927,13 +892,13 @@ STATIC void bropt()
                         if (iftrue(n))          /* if elem is TRUE      */
                         {
                             // select first succ
-                            db = list_block(list_next(b->Bsucc));
+                            db = b->nthSucc(1);
                             goto L1;
                         }
                         else if (iffalse(n))
                         {
                             // select second succ
-                            db = list_block(b->Bsucc);
+                            db = b->nthSucc(0);
 
                             L1: list_subtract(&(b->Bsucc),db);
                                 list_subtract(&(db->Bpred),b);
@@ -945,10 +910,10 @@ STATIC void bropt()
                         }
 
                         /* Look for both destinations being the same    */
-                        else if (list_block(b->Bsucc) ==
-                                 list_block(list_next(b->Bsucc)))
+                        else if (b->nthSucc(0) ==
+                                 b->nthSucc(1))
                         {       b->BC = BCgoto;
-                                db = list_block(b->Bsucc);
+                                db = b->nthSucc(0);
                                 list_subtract(&(b->Bsucc),db);
                                 list_subtract(&(db->Bpred),b);
                                 cmes("CHANGE: if (e) goto L1; else goto L1;\n");
@@ -982,7 +947,7 @@ STATIC void bropt()
                                 i++;            /* next case            */
                         }
                         /* the ith entry in Bsucc is the one we want    */
-                        db = list_block(list_nth(b->Bsucc,i));
+                        db = b->nthSucc(i);
                         /* delete predecessors of successors (!)        */
                         for (bl = b->Bsucc; bl; bl = list_next(bl))
                             if (i--)            // if not ith successor
@@ -994,7 +959,7 @@ STATIC void bropt()
 
                         /* dump old successor list and create a new one */
                         list_free(&b->Bsucc,FPNULL);
-                        list_append(&b->Bsucc,db);
+                        b->appendSucc(db);
                         b->BC = BCgoto;
                         b->Belem = doptelem(b->Belem,GOALnone | GOALagain);
                         cmes("CHANGE: switch (const)\n");
@@ -1034,7 +999,7 @@ STATIC void brrear()
                                 b->Btry == bt->Btry &&
 #endif
 #if NTEXCEPTIONS
-                                bt->Btry == list_block(bt->Bsucc)->Btry &&
+                                bt->Btry == bt->nthSucc(0)->Btry &&
 #endif
                                 (OPTIMIZER || !(bt->Bsrcpos.Slinnum && configv.addlinenumbers)) &&
                                ++iter < 10)
@@ -1067,13 +1032,13 @@ STATIC void brrear()
                 if (b->BC == BCiftrue || b->BC == BCiffalse)
                 {       block *bif,*belse;
 
-                        bif = list_block(b->Bsucc);
-                        belse = list_block(list_next(b->Bsucc));
+                        bif = b->nthSucc(0);
+                        belse = b->nthSucc(1);
 
                         if (bif == b->Bnext)
                         {       b->BC ^= BCiffalse ^ BCiftrue;  /* toggle */
-                                list_ptr(b->Bsucc) = belse;
-                                list_ptr(list_next(b->Bsucc)) = bif;
+                                b->setNthSucc(0, belse);
+                                b->setNthSucc(1, bif);
                                 b->Bflags |= bif->Bflags & BFLvisited;
                                 cmes("if (e) L1 else L2\n");
                         }
@@ -1244,9 +1209,7 @@ STATIC int mergeblks()
                             continue;
 
                         if (
-#if SCPP
                             bL2->BC == BCtry ||
-#endif
                             bL2->BC == BC_try ||
                             b->Btry != bL2->Btry)
                             continue;
@@ -1369,13 +1332,9 @@ STATIC void blident()
                             continue;
                         break;
 
-#if SCPP
                     case BCtry:
                     case BCcatch:
-#endif
-#if MARS
                     case BCjcatch:
-#endif
                     case BC_try:
                     case BC_finally:
                     case BC_lpad:
@@ -1644,13 +1603,9 @@ STATIC void bltailmerge()
                                 continue;
                             break;
 
-#if SCPP
                         case BCtry:
                         case BCcatch:
-#endif
-#if MARS
                         case BCjcatch:
-#endif
                         case BC_try:
                         case BC_finally:
                         case BC_lpad:
@@ -1789,17 +1744,11 @@ STATIC void brmin()
                 if (bn->Bnext == bs)
                     break;
             }
-#if 1
             bn->Bnext = NULL;
             b->Bnext = bs;
             for (bn = bs; bn->Bnext; bn = bn->Bnext)
                 ;
             bn->Bnext = bnext;
-#else
-            bn->Bnext = bs->Bnext;
-            bs->Bnext = bnext;
-            b->Bnext = bs;
-#endif
             cmes3("Moving block %p to appear after %p\n",bs,b);
             go.changes++;
             break;
@@ -2039,7 +1988,6 @@ STATIC void emptyloops()
                 einit->E1->Eoper != OPvar)
                 continue;
 
-#if 1
             // Look for ((i += 1) < limit)
             erel = b->Belem;
             if (erel->Eoper != OPlt ||
@@ -2074,44 +2022,6 @@ STATIC void emptyloops()
 #endif
                 go.changes++;
              }
-#else
-            // Find einc and erel
-            if (b->Belem->Eoper != OPcomma)
-                continue;
-            einc = b->Belem->E1;
-            erel = b->Belem->E2;
-            if (einc->Eoper != OPaddass ||
-                einc->E1->Eoper != OPvar ||
-                einc->E2->Eoper != OPconst ||
-                erel->Eoper != OPlt ||
-                erel->E1->Eoper != OPvar ||
-                erel->E2->Eoper != OPconst ||
-                !el_match(einit->E1,einc->E1) ||
-                !el_match(einit->E1,erel->E1)
-               )
-                continue;
-
-            if (!tyintegral(einit->E1->Ety) ||
-                el_tolong(einc->E2) != 1 ||
-                el_tolong(einit->E2) >= el_tolong(erel->E2)
-               )
-                continue;
-
-             {
-                erel->Eoper = OPeq;
-                erel->Ety = erel->E1->Ety;
-                b->BC = BCgoto;
-                list_subtract(&b->Bsucc,b);
-                list_subtract(&b->Bpred,b);
-#ifdef DEBUG
-                if (debugc)
-                {   WReqn(erel);
-                    dbg_printf(" eliminated loop\n");
-                }
-#endif
-                go.changes++;
-             }
-#endif
         }
     }
 }
@@ -2124,7 +2034,7 @@ STATIC void emptyloops()
  * statics or indirect references.
  */
 
-STATIC int funcsideeffect_walk(elem *e);
+static int funcsideeffect_walk(elem *e);
 
 void funcsideeffects()
 {

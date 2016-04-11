@@ -1,19 +1,24 @@
-/*
- * Some portions copyright (c) 1994-1995 by Symantec
- * Copyright (c) 1999-2015 by Digital Mars
- * All Rights Reserved
- * http://www.digitalmars.com
- * Written by Walter Bright
+/**
+ * Compiler implementation of the D programming language
+ * http://dlang.org
+ * This file is not shared with other compilers which use the DMD front-end.
  *
- * This source file is made available for personal use
- * only. The license is in backendlicense.txt
- * For any other uses, please contact Digital Mars.
+ * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ *            Some portions copyright (c) 1994-1995 by Symantec
+ * Authors:   Walter Bright, http://www.digitalmars.com
+ * License:   This source file is made available for personal use
+ *            only. The license is in backendlicense.txt
+ *            For any other uses, please contact Digital Mars.
+ * Source:    $(DMDSRC root/_response.d)
  */
 
 module ddmd.root.response;
 
-import core.stdc.stdio, core.stdc.stdlib, core.stdc.string;
-import ddmd.root.file, ddmd.root.filename;
+import core.stdc.stdio;
+import core.stdc.stdlib;
+import core.stdc.string;
+import ddmd.root.file;
+import ddmd.root.filename;
 
 /*********************************
  * #include <stdlib.h>
@@ -42,7 +47,7 @@ import ddmd.root.file, ddmd.root.filename;
  *   0   success
  *   !=0   failure (argc, argv unchanged)
  */
-extern (C++) bool response_expand(Strings* args)
+bool response_expand(Strings* args)
 {
     const(char)* cp;
     int recurse = 0;
@@ -58,8 +63,7 @@ extern (C++) bool response_expand(Strings* args)
         char* buffer;
         char* bufend;
         cp++;
-        char* p = getenv(cp);
-        if (p)
+        if (auto p = getenv(cp))
         {
             buffer = strdup(p);
             if (!buffer)
@@ -77,7 +81,7 @@ extern (C++) bool response_expand(Strings* args)
         }
         // The logic of this should match that in setargv()
         int comment = 0;
-        for (p = buffer; p < bufend; p++)
+        for (auto p = buffer; p < bufend; p++)
         {
             char* d;
             char c, lastc;
@@ -94,6 +98,7 @@ extern (C++) bool response_expand(Strings* args)
                 {
                     comment = 0;
                 }
+                goto case;
             case 0:
             case ' ':
             case '\t':
@@ -108,6 +113,7 @@ extern (C++) bool response_expand(Strings* args)
                     continue;
                 }
                 recurse = 1;
+                goto default;
             default:
                 /* start of new argument   */
                 if (comment)
@@ -175,6 +181,7 @@ extern (C++) bool response_expand(Strings* args)
                             *d = 0; // terminate argument
                             goto Lnextarg;
                         }
+                        goto default;
                     default:
                     Ladd:
                         if (c == '\\')

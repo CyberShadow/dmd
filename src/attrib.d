@@ -1,10 +1,12 @@
-// Compiler implementation of the D programming language
-// Copyright (c) 1999-2015 by Digital Mars
-// All Rights Reserved
-// written by Walter Bright
-// http://www.digitalmars.com
-// Distributed under the Boost Software License, Version 1.0.
-// http://www.boost.org/LICENSE_1_0.txt
+/**
+ * Compiler implementation of the
+ * $(LINK2 http://www.dlang.org, D programming language).
+ *
+ * Copyright:   Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
+ * Authors:     $(LINK2 http://www.digitalmars.com, Walter Bright)
+ * License:     $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
+ * Source:      $(DMDSRC _attrib.d)
+ */
 
 module ddmd.attrib;
 
@@ -39,7 +41,7 @@ import ddmd.visitor;
 
 /***********************************************************
  */
-extern (C++) class AttribDeclaration : Dsymbol
+extern (C++) abstract class AttribDeclaration : Dsymbol
 {
 public:
     Dsymbols* decl;     // array of Dsymbol's
@@ -78,7 +80,7 @@ public:
      * If the returned scope != sc, the caller should pop
      * the scope after it used.
      */
-    final static Scope* createNewScope(Scope* sc, StorageClass stc, LINK linkage, Prot protection, int explicitProtection, structalign_t structalign, PINLINE inlining)
+    static Scope* createNewScope(Scope* sc, StorageClass stc, LINK linkage, Prot protection, int explicitProtection, structalign_t structalign, PINLINE inlining)
     {
         Scope* sc2 = sc;
         if (stc != sc.stc || linkage != sc.linkage || !protection.isSubsetOf(sc.protection) || explicitProtection != sc.explicitProtection || structalign != sc.structalign || inlining != sc.inlining)
@@ -222,7 +224,7 @@ public:
         }
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "attribute";
     }
@@ -304,7 +306,7 @@ public:
         }
     }
 
-    override final AttribDeclaration isAttribDeclaration()
+    override final inout(AttribDeclaration) isAttribDeclaration() inout
     {
         return this;
     }
@@ -334,7 +336,7 @@ public:
         return new StorageClassDeclaration(stc, Dsymbol.arraySyntaxCopy(decl));
     }
 
-    override final Scope* newScope(Scope* sc)
+    override Scope* newScope(Scope* sc)
     {
         StorageClass scstc = sc.stc;
         /* These sets of storage classes are mutually exclusive,
@@ -394,6 +396,7 @@ extern (C++) final class DeprecatedDeclaration : StorageClassDeclaration
 {
 public:
     Expression msg;
+    const(char)* msgstr;
 
     extern (D) this(Expression msg, Dsymbols* decl)
     {
@@ -407,19 +410,67 @@ public:
         return new DeprecatedDeclaration(msg.syntaxCopy(), Dsymbol.arraySyntaxCopy(decl));
     }
 
+    /**
+     * Provides a new scope with `STCdeprecated` and `Scope.depdecl` set
+     *
+     * Calls `StorageClassDeclaration.newScope` (as it must be called or copied
+     * in any function overriding `newScope`), then set the `Scope`'s depdecl.
+     *
+     * Returns:
+     *   Always a new scope, to use for this `DeprecatedDeclaration`'s members.
+     */
+    override Scope* newScope(Scope* sc)
+    {
+        auto scx = super.newScope(sc);
+        // The enclosing scope is deprecated as well
+        if (scx == sc)
+            scx = sc.push();
+        scx.depdecl = this;
+        return scx;
+    }
+
     override void setScope(Scope* sc)
     {
-        assert(msg);
-        char* depmsg = null;
-        StringExp se = msg.toStringExp();
-        if (se)
-            depmsg = se.toStringz();
-        else
-            msg.error("string expected, not '%s'", msg.toChars());
-        Scope* scx = sc.push();
-        scx.depmsg = depmsg;
-        StorageClassDeclaration.setScope(scx);
-        scx.pop();
+        //printf("DeprecatedDeclaration::setScope() %p\n", this);
+        if (decl)
+            Dsymbol.setScope(sc); // for forward reference
+        return AttribDeclaration.setScope(sc);
+    }
+
+    /**
+     * Run the DeprecatedDeclaration's semantic2 phase then its members.
+     *
+     * The message set via a `DeprecatedDeclaration` can be either of:
+     * - a string literal
+     * - an enum
+     * - a static immutable
+     * So we need to call ctfe to resolve it.
+     * Afterward forwards to the members' semantic2.
+     */
+    override void semantic2(Scope* sc)
+    {
+        getMessage();
+        super.semantic2(sc);
+    }
+
+    const(char)* getMessage()
+    {
+        if (auto sc = _scope)
+        {
+            _scope = null;
+
+            sc = sc.startCTFE();
+            msg = msg.semantic(sc);
+            msg = resolveProperties(sc, msg);
+            sc = sc.endCTFE();
+            msg = msg.ctfeInterpret();
+
+            if (auto se = msg.toStringExp())
+                msgstr = se.toStringz();
+            else
+                msg.error("compile time constant expected, not '%s'", msg.toChars());
+        }
+        return msgstr;
     }
 
     override void accept(Visitor v)
@@ -453,9 +504,9 @@ public:
         return createNewScope(sc, sc.stc, this.linkage, sc.protection, sc.explicitProtection, sc.structalign, sc.inlining);
     }
 
-    override char* toChars()
+    override const(char)* toChars() const
     {
-        return cast(char*)"extern ()";
+        return "extern ()";
     }
 
     override void accept(Visitor v)
@@ -536,7 +587,7 @@ public:
         return AttribDeclaration.addMember(sc, sds);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "protection attribute";
     }
@@ -684,27 +735,33 @@ public:
                 anonstructsize = 1;
                 anonalignsize = 1;
             }
+
             /* Given the anon 'member's size and alignment,
              * go ahead and place it.
              */
-            anonoffset = AggregateDeclaration.placeField(poffset, anonstructsize, anonalignsize, alignment, &ad.structsize, &ad.alignsize, isunion);
+            anonoffset = AggregateDeclaration.placeField(
+                poffset,
+                anonstructsize, anonalignsize, alignment,
+                &ad.structsize, &ad.alignsize,
+                isunion);
+
             // Add to the anon fields the base offset of this anonymous aggregate
             //printf("anon fields, anonoffset = %d\n", anonoffset);
             for (size_t i = fieldstart; i < ad.fields.dim; i++)
             {
                 VarDeclaration v = ad.fields[i];
-                //printf("\t[%d] %s %d\n", i, v->toChars(), v->offset);
+                //printf("\t[%d] %s %d\n", i, v.toChars(), v.offset);
                 v.offset += anonoffset;
             }
         }
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return (isunion ? "anonymous union" : "anonymous struct");
     }
 
-    override final AnonDeclaration isAnonDeclaration()
+    override final inout(AnonDeclaration) isAnonDeclaration() inout
     {
         return this;
     }
@@ -763,7 +820,7 @@ public:
                     if (se)
                     {
                         se = se.toUTF8(sc);
-                        fprintf(stderr, "%.*s", cast(int)se.len, cast(char*)se.string);
+                        fprintf(stderr, "%.*s", cast(int)se.len, se.string);
                     }
                     else
                         fprintf(stderr, "%s", e.toChars());
@@ -806,7 +863,7 @@ public:
                         ob.writestring(" (");
                         escapePath(ob, imod.srcfile.toChars());
                         ob.writestring(") : ");
-                        ob.writestring(cast(char*)name);
+                        ob.writestring(name);
                         ob.writenl();
                     }
                     mem.xfree(name);
@@ -880,8 +937,8 @@ public:
                  */
                 for (size_t i = 0; i < se.len;)
                 {
-                    char* p = cast(char*)se.string;
-                    dchar_t c = p[i];
+                    char* p = se.string;
+                    dchar c = p[i];
                     if (c < 0x80)
                     {
                         if (c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c != 0 && strchr("$%().:?@[]_", c))
@@ -895,7 +952,7 @@ public:
                             break;
                         }
                     }
-                    if (const(char)* msg = utf_decodeChar(cast(char*)se.string, se.len, &i, &c))
+                    if (const msg = utf_decodeChar(se.string, se.len, i, c))
                     {
                         error("%s", msg);
                         break;
@@ -1009,7 +1066,7 @@ public:
         return sc;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "pragma";
     }
@@ -1202,7 +1259,7 @@ public:
         Dsymbol.setScope(sc);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "static if";
     }
@@ -1301,7 +1358,7 @@ public:
         AttribDeclaration.semantic(sc);
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "mixin";
     }
@@ -1397,9 +1454,8 @@ public:
 
     Expressions* getAttributes()
     {
-        if (_scope)
+        if (auto sc = _scope)
         {
-            Scope* sc = _scope;
             _scope = null;
             arrayExpressionSemantic(atts, sc);
         }
@@ -1411,7 +1467,7 @@ public:
         return exps;
     }
 
-    override const(char)* kind()
+    override const(char)* kind() const
     {
         return "UserAttribute";
     }

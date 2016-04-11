@@ -1,5 +1,5 @@
 
-/* Copyright (c) 1999-2014 by Digital Mars
+/* Copyright (c) 1999-2016 by Digital Mars
  * All Rights Reserved, written by Rainer Schuetze
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -50,7 +50,9 @@ bool initFPU()
     int old_cw = _control87(_MCW_EM | _PC_64  | _RC_NEAR,
                             _MCW_EM | _MCW_PC | _MCW_RC);
 #endif
+#if _MSC_VER < 1900
     _set_output_format(_TWO_DIGIT_EXPONENT);
+#endif
     return true;
 }
 static bool doInitFPU = initFPU();
@@ -536,10 +538,10 @@ size_t ld_sprint(char* str, int fmt, longdouble x)
         {   // ((1.5 -> 1 -> 1.0) == 1.5) is false
             // ((1.0 -> 1 -> 1.0) == 1.0) is true
             // see http://en.cppreference.com/w/cpp/io/c/fprintf
-            char format[] = {'%', '#', 'L', fmt, 0};
+            char format[] = {'%', '#', 'L', (char)fmt, 0};
             return sprintf(str, format, ld_read(&x));
         }
-        char format[] = { '%', fmt, 0 };
+        char format[] = { '%', (char)fmt, 0 };
         return sprintf(str, format, ld_read(&x));
     }
 

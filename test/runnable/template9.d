@@ -3571,6 +3571,18 @@ void test12746()
 }
 
 /******************************************/
+// 12748
+
+void foo12748(S, C : typeof(S.init[0]))(S s, C c)
+{
+}
+
+void test12748()
+{
+    foo12748("abc", 'd');
+}
+
+/******************************************/
 // 9708
 
 struct S9708
@@ -4597,6 +4609,30 @@ template SubOps14568(Args...)
 struct Nat14568 { mixin SubOps14568!(null); }
 
 /******************************************/
+// 14603, 14604
+
+struct S14603
+{
+    template opDispatch(string name)
+    {
+        void opDispatch()() {}
+    }
+}
+alias a14603 = S14603.opDispatch!"go";  // OK
+alias b14603 = S14603.go;               // OK <- NG
+
+struct S14604
+{
+    template opDispatch(string name)
+    {
+        void opDispatch()() {}
+    }
+}
+alias Id14604(alias thing) = thing;
+alias c14604 = Id14604!(S14604.opDispatch!"go");     // ok
+alias d14604 = Id14604!(S14604.go);                  // issue 14604, 'Error: template instance opDispatch!"go" cannot resolve forward reference'
+
+/******************************************/
 // 14735
 
 enum CS14735 { yes, no }
@@ -4755,6 +4791,60 @@ void test15352()
     auto s3 = make15352b!(uint, dg)();
     assert(is(typeof(s1) == typeof(s2)));
     assert(is(typeof(s1) == typeof(s3)));
+}
+
+/******************************************/
+// 15623
+
+struct WithFoo15623a { void foo() {} }
+struct WithFoo15623b { void foo() {} }
+struct WithFoo15623c { void foo() {} }
+struct WithFoo15623d { void foo() {} }
+
+struct WithoutFoo15623a {}
+struct WithoutFoo15623b {}
+struct WithoutFoo15623c {}
+struct WithoutFoo15623d {}
+
+struct CallsFoo15623(T)
+{
+    T t;
+    void bar() { t.foo(); }     // error occurs during TemplateInstance.semantic3
+}
+
+// Instantiations outside of function bodies
+static assert( is(CallsFoo15623!WithFoo15623a));
+static assert(!is(CallsFoo15623!WithoutFoo15623a));                     // OK <- NG
+static assert( __traits(compiles, CallsFoo15623!WithFoo15623b));
+static assert(!__traits(compiles, CallsFoo15623!WithoutFoo15623b));     // OK <- NG
+
+// Instantiations inside function bodies (OK)
+static assert( is(typeof({ alias Baz = CallsFoo15623!WithFoo15623c; return Baz.init; }())));
+static assert(!is(typeof({ alias Baz = CallsFoo15623!WithoutFoo15623c; return Baz.init; }())));
+static assert( __traits(compiles, { alias Baz = CallsFoo15623!WithFoo15623d; return Baz.init; }()));
+static assert(!__traits(compiles, { alias Baz = CallsFoo15623!WithoutFoo15623d; return Baz.init; }()));
+
+/******************************************/
+// 15781
+
+void test15781()
+{
+    static struct S
+    {
+        int value;
+    }
+
+    T foo(T)(T a, T b)
+    {
+        return T();
+    }
+
+    const S cs;
+          S ms;
+    static assert(is(typeof(foo(ms, ms)) ==       S));
+    static assert(is(typeof(foo(ms, cs)) == const S));
+    static assert(is(typeof(foo(cs, ms)) == const S));
+    static assert(is(typeof(foo(cs, cs)) == const S));
 }
 
 /******************************************/

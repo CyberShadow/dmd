@@ -4,7 +4,7 @@
  * Copyright: Copyright (c) 1999-2016 by Digital Mars, All Rights Reserved
  * Authors: Walter Bright, http://www.digitalmars.com
  * License:   $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
- * Source:    $(DMDSRC dmangle.d)
+ * Source:    $(DMDSRC _dmangle.d)
  */
 
 module ddmd.dmangle;
@@ -593,7 +593,7 @@ public:
             printf("\n");
         }
         mangleParent(s);
-        char* id = s.ident ? s.ident.toChars() : s.toChars();
+        auto id = s.ident ? s.ident.toChars() : s.toChars();
         toBuffer(id, s);
         //printf("Dsymbol.mangle() %s = %s\n", s.toChars(), id);
     }
@@ -654,8 +654,8 @@ public:
                     break;
                 case '0':
                     if (i < 2)
-                        break;
-                    // skip leading 0X
+                        break; // skip leading 0X
+                    goto default;
                 default:
                     buf.writeByte(c);
                     break;
@@ -689,15 +689,15 @@ public:
         {
         case 1:
             m = 'a';
-            q = cast(char*)e.string;
+            q = e.string;
             qlen = e.len;
             break;
         case 2:
             m = 'w';
             for (size_t u = 0; u < e.len;)
             {
-                uint c;
-                const(char)* p = utf_decodeWchar(cast(ushort*)e.string, e.len, &u, &c);
+                dchar c;
+                const p = utf_decodeWchar(e.wstring, e.len, u, c);
                 if (p)
                     e.error("%s", p);
                 else
