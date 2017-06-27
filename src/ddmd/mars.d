@@ -79,7 +79,10 @@ private  void usage()
     {
         error      (*new Loc("test.d", 1, 1), "Test: `%s`", `int i = 42;`.ptr);
         warning    (*new Loc("test.d", 2, 1), "Test: `%s`", `string s = "foo";`.ptr);
-        deprecation(*new Loc("test.d", 3, 1), "Test: `%s`", `void fun(int i); /* comment */`.ptr);
+        deprecation(*new Loc("test.d", 3, 1), "Test: `%s`", `void fun(int i);`.ptr);
+        global.gag++;
+        error      (*new Loc("test.d", 4, 1), "Gagged test: `%s`", `/* comment */`.ptr);
+        global.gag--;
         return;
     }
 
