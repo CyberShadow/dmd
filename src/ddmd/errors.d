@@ -296,7 +296,7 @@ enum HIGHLIGHT : ubyte
     Escape     = '\xFF',                // highlight Color follows
     Identifier = Color.magenta,
     Keyword    = Color.brightMagenta,
-    String     = Color.yellow,
+    String     = Color.cyan,
     Comment    = Color.darkGray,
     Other      = Color.red,             // other tokens
 }
