@@ -27,7 +27,7 @@ enum Classification
     error = Color.brightRed,          /// for errors
     gagged = Color.brightBlue,        /// for gagged errors
     warning = Color.brightYellow,     /// for warnings
-    deprecation = Color.brightMagenta,/// for deprecations
+    deprecation = Color.brightCyan,   /// for deprecations
 }
 
 /**************************************
@@ -294,11 +294,11 @@ enum HIGHLIGHT : ubyte
 {
     Default    = Color.black,           // back to whatever the console is set at
     Escape     = '\xFF',                // highlight Color follows
-    Identifier = Color.cyan,
-    Keyword    = Color.brightCyan,
+    Identifier = Color.magenta,
+    Keyword    = Color.brightMagenta,
     String     = Color.yellow,
     Comment    = Color.darkGray,
-    Other      = Color.green,     // other tokens
+    Other      = Color.red,             // other tokens
 }
 
 /**************************************************
