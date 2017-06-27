@@ -75,6 +75,14 @@ private void logo()
  */
 private  void usage()
 {
+    if (!entrypoint)
+    {
+        error      (*new Loc("test.d", 1, 1), "Test error: `%s`", `int i = 42;`.ptr);
+        warning    (*new Loc("test.d", 2, 1), "Test warning: `%s`", `string s = "foo";`.ptr);
+        deprecation(*new Loc("test.d", 3, 1), "Test deprecation: `%s`", `void fun(int i); /* comment */`.ptr);
+        return;
+    }
+
     static if (TARGET_LINUX)
     {
         const(char)* fpic = "\n  -fPIC            generate position independent code";
