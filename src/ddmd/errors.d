@@ -294,11 +294,11 @@ enum HIGHLIGHT : ubyte
 {
     Default    = Color.black,           // back to whatever the console is set at
     Escape     = '\xFF',                // highlight Color follows
-    Identifier = Color.yellow,
-    Keyword    = Color.brightYellow,
-    String     = Color.green,
+    Identifier = Color.white,
+    Keyword    = Color.white,
+    String     = Color.white,
     Comment    = Color.darkGray,
-    Other      = Color.cyan,     // other tokens
+    Other      = Color.cyan,           // other tokens
 }
 
 /**************************************************
@@ -343,6 +343,9 @@ private void colorHighlightCode(OutBuffer* buf)
         case TOKcomment:
             highlight = HIGHLIGHT.Comment;
             break;
+        case TOKint32v:
+            ..
+        case TOKdcharv:
         case TOKstring:
             highlight = HIGHLIGHT.String;
             break;
@@ -400,6 +403,13 @@ private void writeHighlights(Console* con, const OutBuffer *buf)
             {
                 con.resetColor();
                 colors = false;
+            }
+            else
+            if (color == Color.white)
+            {
+                con.resetColor();
+                con.setColorBright(true);
+                colors = true;
             }
             else
             {
