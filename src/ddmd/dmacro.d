@@ -139,6 +139,13 @@ public:
                     end += mend - (u + marglen);
                     u = mend;
                 }
+                else if (u == start+4 && !memcmp(p+u-4, "\xFF{$(".ptr, 4))
+                {
+                    // Replace '$1' with 'arg'
+                    //printf("Replacing '$%c' with '%.*s'\n", p[u + 1], marglen, marg);
+                    buf.insert(u, marg, marglen);
+                    end += -2 + marglen;
+                }
                 else
                 {
                     // Replace '$1' with '\xFF{arg\xFF}'
