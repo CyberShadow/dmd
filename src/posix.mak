@@ -1,3 +1,46 @@
+################################################################################
+# Important variables:
+# --------------------
+#
+# HOST_CXX:             Host C++ compiler to use (g++,clang++)
+# HOST_DMD:             Host D compiler to use for bootstrapping
+# AUTO_BOOTSTRAP:       Enable auto-boostrapping by download a stable DMD binary
+# INSTALL_DIR:          Installation folder to use
+#
+################################################################################
+# Build modes:
+# ------------
+# BUILD: release (default) | debug (enabled a build with debug symbols)
+#
+# Opt-in build features:
+#
+# ENABLE_RELEASE:       Optimized release built (set by BUILD=release)
+# ENABLE_DEBUG:         Add debug instructions and symbols (set by BUILD=debug)
+# ENABLE_WARNINGS:      Enable C++ build warnings
+# ENABLE_PROFILING:     Build dmd with a profiling recorder (C++)
+# ENABLE_PGO_USE:       Build dmd with existing profiling information (C++)
+#   PGO_DIR:            Directory for profile-guided optimization (PGO) logs
+# ENABLE_LTO:           Enable link-time optimizations
+# ENABLE_UNITTEST:      Build dmd with unittests (sets ENABLE_COVERAGE=1)
+# ENABLE_PROFILE:       Build dmd with a profiling recorder (D)
+# ENABLE_COVERAGE       Build dmd with coverage counting
+# ENABLE_SANITIZERS     Build dmd with sanitizer (e.g. ENABLE_SANITIZERS=address,undefined)
+#
+# Targets
+# -------
+#
+# all					Build dmd
+# unittest              Run all unittest blocks
+# cxx-unittest          Check conformance of the C++ headers
+# build-examples        Build DMD as library examples
+# clean                 Remove all generated files
+# man                   Generate the man pages
+# checkwhitespace       Checks for trailing whitespace and tabs
+# zip                   Packs all sources into a ZIP archive
+# gitzip                Packs all sources into a ZIP archive
+# install               Installs dmd into $(INSTALL_DIR)
+################################################################################
+
 # get OS and MODEL
 include osmodel.mak
 
@@ -6,28 +49,54 @@ ifeq (,$(TARGET_CPU))
     TARGET_CPU=X86
 endif
 
-ifeq (X86,$(TARGET_CPU))
-    TARGET_CH = $C/code_x86.h
-    TARGET_OBJS = cg87.o cgxmm.o cgsched.o cod1.o cod2.o cod3.o cod4.o ptrntab.o
-else
-    ifeq (stub,$(TARGET_CPU))
-        TARGET_CH = $C/code_stub.h
-        TARGET_OBJS = platform_stub.o
+# Default to a release built, override with BUILD=debug
+ifeq (,$(BUILD))
+BUILD=release
+endif
+
+ifneq ($(BUILD),release)
+    ifneq ($(BUILD),debug)
+        $(error Unrecognized BUILD=$(BUILD), must be 'debug' or 'release')
+    endif
+    ENABLE_DEBUG := 1
+endif
+
+# default to PIC on x86_64, use PIC=1/0 to en-/disable PIC.
+# Note that shared libraries and C files are always compiled with PIC.
+ifeq ($(PIC),)
+    ifeq ($(MODEL),64) # x86_64
+        PIC:=1
     else
-        $(error unknown TARGET_CPU: '$(TARGET_CPU)')
+        PIC:=0
     endif
 endif
+ifeq ($(PIC),1)
+    override PIC:=-fPIC
+else
+    override PIC:=
+endif
+
+GIT_HOME=https://github.com/dlang
+TOOLS_DIR=../../tools
 
 INSTALL_DIR=../../install
 SYSCONFDIR=/etc
+TMP?=/tmp
 PGO_DIR=$(abspath pgo)
 
-C=backend
-TK=tk
-ROOT=root
+D = dmd
+
+C=$D/backend
+TK=$D/tk
+ROOT=$D/root
+EX=examples
+
+GENERATED = ../generated
+G = $(GENERATED)/$(OS)/$(BUILD)/$(MODEL)
+$(shell mkdir -p $G)
 
 ifeq (osx,$(OS))
-    export MACOSX_DEPLOYMENT_TARGET=10.3
+    export MACOSX_DEPLOYMENT_TARGET=10.9
 endif
 
 HOST_CXX=c++
@@ -42,7 +111,7 @@ GIT=git
 
 # determine whether CXX is gcc or clang based
 CXX_VERSION:=$(shell $(CXX) --version)
-ifneq (,$(findstring g++,$(CXX_VERSION))$(findstring gcc,$(CXX_VERSION))$(findstring GCC,$(CXX_VERSION)))
+ifneq (,$(findstring g++,$(CXX_VERSION))$(findstring gcc,$(CXX_VERSION))$(findstring Free Software,$(CXX_VERSION)))
 	CXX_KIND=g++
 endif
 ifneq (,$(findstring clang,$(CXX_VERSION)))
@@ -66,20 +135,32 @@ ifeq (,$(AUTO_BOOTSTRAP))
   HOST_DMD_RUN:=$(HOST_DMD)
 else
   # Auto-bootstrapping, will download dmd automatically
-  HOST_DMD_VER=2.068.2
-  HOST_DMD_ROOT=/tmp/.host_dmd-$(HOST_DMD_VER)
-  # dmd.2.068.2.osx.zip or dmd.2.068.2.linux.tar.xz
+  # Keep var below in sync with other occurrences of that variable, e.g. in circleci.sh
+  HOST_DMD_VER=2.072.2
+  HOST_DMD_ROOT=$(TMP)/.host_dmd-$(HOST_DMD_VER)
+  # dmd.2.072.2.osx.zip or dmd.2.072.2.linux.tar.xz
   HOST_DMD_BASENAME=dmd.$(HOST_DMD_VER).$(OS)$(if $(filter $(OS),freebsd),-$(MODEL),)
-  # http://downloads.dlang.org/releases/2.x/2.068.2/dmd.2.068.2.linux.tar.xz
+  # http://downloads.dlang.org/releases/2.x/2.072.2/dmd.2.072.2.linux.tar.xz
   HOST_DMD_URL=http://downloads.dlang.org/releases/2.x/$(HOST_DMD_VER)/$(HOST_DMD_BASENAME)
   HOST_DMD=$(HOST_DMD_ROOT)/dmd2/$(OS)/$(if $(filter $(OS),osx),bin,bin$(MODEL))/dmd
   HOST_DMD_PATH=$(HOST_DMD)
   HOST_DMD_RUN=$(HOST_DMD) -conf=$(dir $(HOST_DMD))dmd.conf
 endif
 
+HOST_DMD_VERSION:=$(shell $(HOST_DMD_RUN) --version)
+ifneq (,$(findstring dmd,$(HOST_DMD_VERSION))$(findstring DMD,$(HOST_DMD_VERSION)))
+	HOST_DMD_KIND=dmd
+endif
+ifneq (,$(findstring gdc,$(HOST_DMD_VERSION))$(findstring GDC,$(HOST_DMD_VERSION)))
+	HOST_DMD_KIND=gdc
+endif
+ifneq (,$(findstring ldc,$(HOST_DMD_VERSION))$(findstring LDC,$(HOST_DMD_VERSION)))
+	HOST_DMD_KIND=ldc
+endif
+
 # Compiler Warnings
 ifdef ENABLE_WARNINGS
-WARNINGS := -Wall -Wextra \
+WARNINGS := -Wall -Wextra -Werror \
 	-Wno-attributes \
 	-Wno-char-subscripts \
 	-Wno-deprecated \
@@ -107,26 +188,17 @@ WARNINGS += \
 	-Wno-logical-op \
 	-Wno-narrowing \
 	-Wno-unused-but-set-variable \
-	-Wno-uninitialized
-endif
-# Clang Specific
-ifeq ($(HOST_CXX_KIND), clang++)
-WARNINGS += \
-	-Wno-tautological-constant-out-of-range-compare \
-	-Wno-tautological-compare \
-	-Wno-constant-logical-operand \
-	-Wno-self-assign -Wno-self-assign
-# -Wno-sometimes-uninitialized
+	-Wno-uninitialized \
+	-Wno-class-memaccess \
+	-Wno-implicit-fallthrough
 endif
 else
 # Default Warnings
-WARNINGS := -Wno-deprecated -Wstrict-aliasing
+WARNINGS := -Wno-deprecated -Wstrict-aliasing -Werror
 # Clang Specific
 ifeq ($(CXX_KIND), clang++)
 WARNINGS += \
-    -Wno-logical-op-parentheses \
-    -Wno-dynamic-class-memaccess \
-    -Wno-switch
+    -Wno-logical-op-parentheses
 endif
 endif
 
@@ -138,16 +210,20 @@ MMD=-MMD -MF $(basename $@).deps
 CXXFLAGS := $(WARNINGS) \
 	-fno-exceptions -fno-rtti \
 	-D__pascal= -DMARS=1 -DTARGET_$(OS_UPCASE)=1 -DDM_TARGET_CPU_$(TARGET_CPU)=1 \
-	$(MODEL_FLAG)
+	$(MODEL_FLAG) $(PIC)
 # GCC Specific
 ifeq ($(CXX_KIND), g++)
 CXXFLAGS += \
     -std=gnu++98
 endif
-# Default D compiler flags for all source files
-DFLAGS=
+# Clang Specific
+ifeq ($(CXX_KIND), clang++)
+CXXFLAGS += \
+    -xc++
+endif
+DFLAGS := -version=MARS $(PIC)
 # Enable D warnings
-DFLAGS += -wi
+DFLAGS += -w -de
 
 ifneq (,$(DEBUG))
 ENABLE_DEBUG := 1
@@ -159,7 +235,7 @@ endif
 # Append different flags for debugging, profiling and release.
 ifdef ENABLE_DEBUG
 CXXFLAGS += -g -g3 -DDEBUG=1 -DUNITTEST
-DFLAGS += -g -debug -unittest
+DFLAGS += -g -debug
 endif
 ifdef ENABLE_RELEASE
 CXXFLAGS += -O2
@@ -183,11 +259,26 @@ endif
 ifdef ENABLE_PROFILE
 DFLAGS  += -profile
 endif
+ifdef ENABLE_COVERAGE
+DFLAGS  += -cov -L-lgcov
+CXXFLAGS += --coverage
+endif
+ifdef ENABLE_SANITIZERS
+CXXFLAGS += -fsanitize=${ENABLE_SANITIZERS}
 
-# Uniqe extra flags if necessary
-DMD_FLAGS  := -I$(ROOT) -Wuninitialized
-GLUE_FLAGS := -I$(ROOT) -I$(TK) -I$(C)
-BACK_FLAGS := -I$(ROOT) -I$(TK) -I$(C) -I. -DDMDV2=1
+ifeq ($(HOST_DMD_KIND), dmd)
+HOST_CXX += -fsanitize=${ENABLE_SANITIZERS}
+endif
+ifneq (,$(findstring gdc,$(HOST_DMD_KIND))$(findstring ldc,$(HOST_DMD_KIND)))
+DFLAGS += -fsanitize=${ENABLE_SANITIZERS}
+endif
+
+endif
+
+# Unique extra flags if necessary
+DMD_FLAGS  := -I$D -I$(ROOT) -Wuninitialized
+GLUE_FLAGS := -I$D -I$(ROOT) -I$(TK) -I$C
+BACK_FLAGS := -I$(ROOT) -I$(TK) -I$C -I$G -I$D -DDMDV2=1
 ROOT_FLAGS := -I$(ROOT)
 
 ifeq ($(OS), osx)
@@ -197,57 +288,64 @@ endif
 endif
 
 
-FRONT_SRCS=$(addsuffix .d,access aggregate aliasthis apply argtypes arrayop	\
-	arraytypes attrib builtin canthrow clone complex cond constfold		\
-	cppmangle ctfeexpr dcast dclass declaration delegatize denum dimport	\
-	dinifile dinterpret dmacro dmangle dmodule doc dscope dstruct dsymbol	\
-	dtemplate dversion entity errors escape expression func			\
-	globals hdrgen id identifier impcnvtab imphint init inline intrange	\
-	json lexer lib link mars mtype nogc nspace opover optimize parse sapply	\
-	sideeffect statement staticassert target tokens traits utf visitor	\
-	typinf)
+######## DMD frontend source files
 
-ifeq ($(D_OBJC),1)
-	FRONT_SRCS += objc.d
+FRONT_SRCS=$(addsuffix .d, $(addprefix $D/,access aggregate aliasthis apply argtypes arrayop	\
+	arraytypes astcodegen attrib builtin canthrow cli clone compiler complex cond constfold	\
+	cppmangle cppmanglewin ctfeexpr dcast dclass declaration delegatize denum dimport	\
+	dinifile dinterpret dmacro dmangle dmodule doc dscope dstruct dsymbol dsymbolsem	\
+	dtemplate dversion escape expression expressionsem func			\
+	hdrgen id impcnvtab imphint init initsem inline inlinecost intrange	\
+	json lib libelf libmach link mars mtype nogc nspace objc opover optimize parse permissivevisitor sapply templateparamsem	\
+	sideeffect statement staticassert target typesem traits transitivevisitor parsetimevisitor visitor	\
+	typinf utils scanelf scanmach statement_rewrite_walker statementsem staticcond safe blockexit printast \
+	semantic2 semantic3))
+
+LEXER_SRCS=$(addsuffix .d, $(addprefix $D/, console entity errors globals id identifier lexer tokens utf))
+
+LEXER_ROOT=$(addsuffix .d, $(addprefix $(ROOT)/, array ctfloat file filename outbuffer port rmem \
+	rootobject stringtable hash))
+
+ROOT_SRCS = $(addsuffix .d,$(addprefix $(ROOT)/,aav array ctfloat file \
+	filename man outbuffer port response rmem rootobject speller \
+	stringtable hash))
+
+GLUE_OBJS =
+G_GLUE_OBJS = $(addprefix $G/, $(GLUE_OBJS))
+
+GLUE_SRCS=$(addsuffix .d, $(addprefix $D/,irstate toctype glue gluelayer todt tocsym toir dmsc \
+	tocvdebug s2ir toobj e2ir eh iasm objc_glue))
+
+DMD_SRCS=$(FRONT_SRCS) $(GLUE_SRCS) $(BACK_HDRS) $(TK_HDRS)
+
+######## DMD backend source files
+
+ifeq (X86,$(TARGET_CPU))
+    TARGET_CH = $C/code_x86.h
+    TARGET_OBJS = cg87.o cgxmm.o cgsched.o cod1.o cod2.o cod3.o cod4.o ptrntab.o
 else
-	FRONT_SRCS += objc_stubs.d
+    ifeq (stub,$(TARGET_CPU))
+        TARGET_CH = $C/code_stub.h
+        TARGET_OBJS = platform_stub.o
+    else
+        $(error unknown TARGET_CPU: '$(TARGET_CPU)')
+    endif
 endif
 
-ROOT_SRCS = $(addsuffix .d,$(addprefix $(ROOT)/,aav array file filename	\
-	longdouble man outbuffer port response rmem rootobject speller	\
-	stringtable))
-
-GLUE_OBJS = glue.o msc.o s2ir.o todt.o e2ir.o tocsym.o toobj.o \
-	toir.o iasm.o
-
-
-ifeq ($(D_OBJC),1)
-	GLUE_OBJS += objc_glue.o
-else
-	GLUE_OBJS += objc_glue_stubs.o
-endif
-
-ifeq (osx,$(OS))
-    FRONT_SRCS += libmach.d scanmach.d
-else
-    FRONT_SRCS += libelf.d scanelf.d
-endif
-
-GLUE_SRCS=$(addsuffix .d,backend irstate toelfdebug toctype gluelayer)
-
-DMD_SRCS=$(FRONT_SRCS) $(GLUE_SRCS)
-
-BACK_OBJS = go.o gdag.o gother.o gflow.o gloop.o var.o el.o \
+BACK_OBJS = go.o gdag.o gother.o gflow.o gloop.o gsroa.o var.o el.o \
 	glocal.o os.o nteh.o evalu8.o cgcs.o \
 	rtlsym.o cgelem.o cgen.o cgreg.o out.o \
 	blockopt.o cg.o type.o dt.o \
 	debug.o code.o ee.o symbol.o \
-	cgcod.o cod5.o outbuf.o \
+	cgcod.o cod5.o outbuf.o compress.o \
 	bcomplex.o aa.o ti_achar.o \
 	ti_pvoid.o pdata.o cv8.o backconfig.o \
-	divcoeff.o dwarf.o dwarfeh.o \
-	ph2.o util2.o eh.o tk.o strtold.o \
+	divcoeff.o dwarf.o dwarfeh.o varstats.o \
+	ph2.o util2.o tk.o strtold.o md5.o \
 	$(TARGET_OBJS)
+
+G_OBJS = $(addprefix $G/, $(BACK_OBJS))
+#$(info $$G_OBJS is [${G_OBJS}])
 
 ifeq (osx,$(OS))
 	BACK_OBJS += machobj.o
@@ -255,24 +353,18 @@ else
 	BACK_OBJS += elfobj.o
 endif
 
-SRC = win32.mak posix.mak osmodel.mak aggregate.h aliasthis.h arraytypes.h	\
-	attrib.h complex_t.h cond.h ctfe.h ctfe.h declaration.h dsymbol.h	\
-	enum.h errors.h expression.h globals.h hdrgen.h identifier.h idgen.d	\
-	import.h init.h intrange.h json.h lexer.h lib.h macro.h	\
-	mars.h module.h mtype.h nspace.h objc.h parse.h                         \
-	scope.h statement.h staticassert.h target.h template.h tokens.h	\
-	version.h visitor.h libomf.d scanomf.d libmscoff.d scanmscoff.d         \
-	$(DMD_SRCS)
+######## DMD glue layer and backend
 
-ROOT_SRC = $(addprefix $(ROOT)/, array.h file.h filename.h		\
-	longdouble.h newdelete.c object.h outbuffer.h port.h rmem.h	\
-	root.h stringtable.h)
+GLUE_SRC = \
+	$(addprefix $D/, \
+	libelf.d scanelf.d libmach.d scanmach.d \
+	objc_glue.d)
 
-GLUE_SRC = glue.c msc.c s2ir.c todt.c e2ir.c tocsym.c \
-	toobj.c tocvdebug.c toir.h toir.c \
-	irstate.h iasm.c \
-	toelfdebug.d libelf.d scanelf.d libmach.d scanmach.d \
-	tk.c eh.c gluestub.d objc_glue.c objc_glue_stubs.c
+BACK_HDRS=$C/bcomplex.d $C/cc.d $C/cdef.d $C/cgcv.d $C/code.d $C/cv4.d $C/dt.d $C/el.d $C/global.d \
+	$C/obj.d $C/oper.d $C/outbuf.d $C/rtlsym.d $C/code_x86.d $C/iasm.d \
+	$C/ty.d $C/type.d $C/exh.d $C/mach.d $C/md5.d $C/mscoff.d $C/dwarf.d $C/dwarf2.d $C/xmm.d
+
+TK_HDRS= $(TK)/dlist.d
 
 BACK_SRC = \
 	$C/cdef.h $C/cc.h $C/oper.h $C/ty.h $C/optabgen.c \
@@ -280,11 +372,11 @@ BACK_SRC = \
 	$C/el.h $C/iasm.h $C/rtlsym.h \
 	$C/bcomplex.c $C/blockopt.c $C/cg.c $C/cg87.c $C/cgxmm.c \
 	$C/cgcod.c $C/cgcs.c $C/cgcv.c $C/cgelem.c $C/cgen.c $C/cgobj.c \
-	$C/cgreg.c $C/var.c $C/strtold.c \
+	$C/compress.c $C/cgreg.c $C/var.c $C/strtold.c \
 	$C/cgsched.c $C/cod1.c $C/cod2.c $C/cod3.c $C/cod4.c $C/cod5.c \
 	$C/code.c $C/symbol.c $C/debug.c $C/dt.c $C/ee.c $C/el.c \
 	$C/evalu8.c $C/go.c $C/gflow.c $C/gdag.c \
-	$C/gother.c $C/glocal.c $C/gloop.c $C/newman.c \
+	$C/gother.c $C/glocal.c $C/gloop.c $C/gsroa.c $C/newman.c \
 	$C/nteh.c $C/os.c $C/out.c $C/outbuf.c $C/ptrntab.c $C/rtlsym.c \
 	$C/type.c $C/melf.h $C/mach.h $C/mscoff.h $C/bcomplex.h \
 	$C/outbuf.h $C/token.h $C/tassert.h \
@@ -293,6 +385,7 @@ BACK_SRC = \
 	$C/ti_pvoid.c $C/platform_stub.c $C/code_x86.h $C/code_stub.h \
 	$C/machobj.c $C/mscoffobj.c \
 	$C/xmm.h $C/obj.h $C/pdata.c $C/cv8.c $C/backconfig.c $C/divcoeff.c \
+	$C/varstats.c $C/varstats.h \
 	$C/md5.c $C/md5.h \
 	$C/ph2.c $C/util2.c $C/dwarfeh.c \
 	$(TARGET_CH)
@@ -301,36 +394,93 @@ TK_SRC = \
 	$(TK)/filespec.h $(TK)/mem.h $(TK)/list.h $(TK)/vec.h \
 	$(TK)/filespec.c $(TK)/mem.c $(TK)/vec.c $(TK)/list.c
 
-STRING_IMPORT_FILES = verstr.h SYSCONFDIR.imp
+######## CXX header files (only needed for cxx-unittest)
+
+SRC = $(addprefix $D/, aggregate.h aliasthis.h arraytypes.h	\
+	attrib.h compiler.h complex_t.h cond.h ctfe.h ctfe.h declaration.h dsymbol.h	\
+	enum.h errors.h expression.h globals.h hdrgen.h identifier.h \
+	id.h import.h init.h intrange.h json.h \
+	mars.h module.h mtype.h nspace.h objc.h                         \
+	scope.h statement.h staticassert.h target.h template.h tokens.h	\
+	version.h visitor.h libomf.d scanomf.d libmscoff.d scanmscoff.d)         \
+	$(DMD_SRCS)
+
+ROOT_SRC = $(addprefix $(ROOT)/, array.h ctfloat.h file.h filename.h \
+	longdouble.h newdelete.c object.h outbuffer.h port.h \
+	rmem.h root.h stringtable.h)
+
+######## Additional files
+
+SRC_MAKE = posix.mak osmodel.mak
+
+STRING_IMPORT_FILES = $G/VERSION $G/SYSCONFDIR.imp ../res/default_ddoc_theme.ddoc
 
 DEPS = $(patsubst %.o,%.deps,$(DMD_OBJS) $(GLUE_OBJS) $(BACK_OBJS))
 
-all: dmd
+######## Begin build targets
 
-auto-tester-build: dmd checkwhitespace dmd_frontend
+all: $G/dmd
+
+auto-tester-build: $G/dmd checkwhitespace cxx-unittest $G/dmd_frontend
 .PHONY: auto-tester-build
 
-glue.a: $(GLUE_OBJS)
-	$(AR) rcs glue.a $(GLUE_OBJS)
+toolchain-info:
+	@echo '==== Toolchain Information ===='
+	@echo 'uname -a:' $$(uname -a)
+	@echo 'MAKE(${MAKE}):' $$(${MAKE} --version)
+	@echo 'SHELL(${SHELL}):' $$(${SHELL} --version || true)
+	@echo 'HOST_DMD(${HOST_DMD}):' $$(${HOST_DMD} --version)
+	@echo 'HOST_CXX(${HOST_CXX}):' $$(${HOST_CXX} --version)
+# Not currently possible to choose what linker HOST_CXX uses via `make LD=ld.gold`.
+	@echo ld: $$(ld -v)
+	@echo gdb: $$(! command -v gdb &>/dev/null || gdb --version)
+	@echo '==== Toolchain Information ===='
+	@echo
 
-backend.a: $(BACK_OBJS)
-	$(AR) rcs backend.a $(BACK_OBJS)
+$G/glue.a: $(G_GLUE_OBJS) $(SRC_MAKE)
+	$(AR) rcs $@ $(G_GLUE_OBJS)
 
-dmd_frontend: $(FRONT_SRCS) gluelayer.d $(ROOT_SRCS) newdelete.o $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J. -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^) -version=NoBackend
+$G/backend.a: $(G_OBJS) $(SRC_MAKE)
+	$(AR) rcs $@ $(G_OBJS)
+
+$G/lexer.a: $(LEXER_SRCS) $(LEXER_ROOT) $(HOST_DMD_PATH) $(SRC_MAKE)
+	CC="$(HOST_CXX)" $(HOST_DMD_RUN) -lib -of$@ $(MODEL_FLAG) -J$G -L-lstdc++ $(DFLAGS) $(LEXER_SRCS) $(LEXER_ROOT)
+
+$G/dmd_frontend: $(FRONT_SRCS) $D/gluelayer.d $(ROOT_SRCS) $G/newdelete.o $G/lexer.a $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
+	CC="$(HOST_CXX)" $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J$G -J../res -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^) -version=NoBackend
 
 ifdef ENABLE_LTO
-dmd: $(DMD_SRCS) $(ROOT_SRCS) newdelete.o $(GLUE_OBJS) $(BACK_OBJS) $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J. -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^)
+$G/dmd: $(DMD_SRCS) $(ROOT_SRCS) $G/newdelete.o $G/lexer.a $(G_GLUE_OBJS) $(G_OBJS) $(STRING_IMPORT_FILES) $(HOST_DMD_PATH) $G/dmd.conf
+	CC="$(HOST_CXX)" $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J$G -J../res -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH) $G/dmd.conf,$^)
 else
-dmd: $(DMD_SRCS) $(ROOT_SRCS) newdelete.o glue.a backend.a $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J. -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^)
+$G/dmd: $(DMD_SRCS) $(ROOT_SRCS) $G/newdelete.o $G/backend.a $G/lexer.a $(STRING_IMPORT_FILES) $(HOST_DMD_PATH) $G/dmd.conf
+	CC="$(HOST_CXX)" $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J$G -J../res -L-lstdc++ $(DFLAGS) $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH) $(LEXER_ROOT) $G/dmd.conf,$^)
 endif
 
+$G/dmd-unittest: $(DMD_SRCS) $(ROOT_SRCS) $G/newdelete.o $G/lexer.a $(G_GLUE_OBJS) $(G_OBJS) $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
+	CC=$(HOST_CXX) $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J$G -J../res -L-lstdc++ $(DFLAGS) -g -unittest -main -version=NoMain $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^)
+
+unittest: $G/dmd-unittest
+	$<
+
+######## DMD as a library examples
+
+EXAMPLES=$(addprefix $G/examples/, avg impvisitor)
+PARSER_SRCS=$(addsuffix .d, $(addprefix $D/,parse astbase parsetimevisitor transitivevisitor permissivevisitor strictvisitor))
+
+$G/parser.a: $(PARSER_SRCS) $(LEXER_SRCS) $(ROOT_SRCS) $G/dmd $G/dmd.conf $(SRC_MAKE)
+	CC="$(HOST_CXX)" $G/dmd -lib -of$@ $(MODEL_FLAG) -L-lstdc++ -J$G $(DFLAGS) $(PARSER_SRCS) $(LEXER_SRCS) $(ROOT_SRCS)
+
+$G/examples/%: $(EX)/%.d $G/parser.a $G/dmd
+	CC="$(HOST_CXX)" $G/dmd -of$@ $(MODEL_FLAG) $(DFLAGS) $G/parser.a $<
+
+build-examples: $(EXAMPLES)
+
+######## Manual cleanup
+
 clean:
-	rm -f newdelete.o $(GLUE_OBJS) $(BACK_OBJS) dmd optab.o id.o	\
-		idgen $(idgen_output) optabgen $(optabgen_output)	\
-		verstr.h SYSCONFDIR.imp core *.cov *.deps *.gcda *.gcno *.a *.lst
+	rm -R $(GENERATED)
+	rm -f $(addprefix $D/backend/, $(optabgen_output))
 	@[ ! -d ${PGO_DIR} ] || echo You should issue manually: rm -rf ${PGO_DIR}
 
 ######## Download and install the last dmd buildable without dmd
@@ -350,121 +500,92 @@ endif
 
 define DEFAULT_DMD_CONF
 [Environment32]
-DFLAGS=-I%@P%/../../druntime/import -I%@P%/../../phobos -L-L%@P%/../../phobos/generated/$(OS)/release/32$(if $(filter $(OS),osx),, -L--export-dynamic)
+DFLAGS=-I%@P%/../../../../../druntime/import -I%@P%/../../../../../phobos -L-L%@P%/../../../../../phobos/generated/$(OS)/$(BUILD)/32$(if $(filter $(OS),osx),, -L--export-dynamic)
 
 [Environment64]
-DFLAGS=-I%@P%/../../druntime/import -I%@P%/../../phobos -L-L%@P%/../../phobos/generated/$(OS)/release/64$(if $(filter $(OS),osx),, -L--export-dynamic)
+DFLAGS=-I%@P%/../../../../../druntime/import -I%@P%/../../../../../phobos -L-L%@P%/../../../../../phobos/generated/$(OS)/$(BUILD)/64$(if $(filter $(OS),osx),, -L--export-dynamic) -fPIC
 endef
 
 export DEFAULT_DMD_CONF
 
-dmd.conf:
-	[ -f $@ ] || echo "$$DEFAULT_DMD_CONF" > $@
+$G/dmd.conf: $(SRC_MAKE)
+	echo "$$DEFAULT_DMD_CONF" > $@
 
 ######## optabgen generates some source
-
-optabgen: $C/optabgen.c $C/cc.h $C/oper.h
-	$(HOST_CXX) $(CXXFLAGS) -I$(TK) $< -o optabgen
-	./optabgen
-
 optabgen_output = debtab.c optab.c cdxxx.c elxxx.c fltables.c tytab.c
-$(optabgen_output) : optabgen
 
-######## idgen generates some source
+$G/optabgen: $C/optabgen.c $C/cc.h $C/oper.h
+	$(HOST_CXX) $(CXXFLAGS) -I$(TK) $< -o $G/optabgen
+	$G/optabgen
+	mv $(optabgen_output) $G
 
-idgen_output = id.h id.d
-$(idgen_output) : idgen
+optabgen_files = $(addprefix $G/, $(optabgen_output))
+$(optabgen_files): optabgen.out
+.INTERMEDIATE: optabgen.out
+optabgen.out : $G/optabgen
 
-idgen: idgen.d $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) $<
-	./idgen
+######## VERSION
 
-#########
-# STRING_IMPORT_FILES
-#
-# Create (or update) the verstr.h file.
-# The file is only updated if the VERSION file changes, or, only when RELEASE=1
-# is not used, when the full version string changes (i.e. when the git hash or
-# the working tree dirty states changes).
-# The full version string have the form VERSION-devel-HASH(-dirty).
-# The "-dirty" part is only present when the repository had uncommitted changes
-# at the moment it was compiled (only files already tracked by git are taken
-# into account, untracked files don't affect the dirty state).
-VERSION := $(shell cat ../VERSION)
-ifneq (1,$(RELEASE))
-VERSION_GIT := $(shell printf "`$(GIT) rev-parse --short HEAD`"; \
-       test -n "`$(GIT) status --porcelain -uno`" && printf -- -dirty)
-VERSION := $(addsuffix -devel$(if $(VERSION_GIT),-$(VERSION_GIT)),$(VERSION))
-endif
-$(shell test \"$(VERSION)\" != "`cat verstr.h 2> /dev/null`" \
-		&& printf \"$(VERSION)\" > verstr.h )
-$(shell test $(SYSCONFDIR) != "`cat SYSCONFDIR.imp 2> /dev/null`" \
-		&& printf '$(SYSCONFDIR)' > SYSCONFDIR.imp )
-
-#########
-
-$(GLUE_OBJS) : $(idgen_output)
-$(BACK_OBJS) : $(optabgen_output)
-
-
-# Specific dependencies other than the source file for all objects
-########################################################################
-# If additional flags are needed for a specific file add a _CXXFLAGS as a
-# dependency to the object file and assign the appropriate content.
-
-cg.o: fltables.c
-
-cgcod.o: cdxxx.c
-
-cgelem.o: elxxx.c
-
-debug.o: debtab.c
-
-iasm.o: CXXFLAGS += -fexceptions
-
-var.o: optab.c tytab.c
-
+$(shell ../config.sh "$G" ../VERSION $(SYSCONFDIR))
 
 # Generic rules for all source files
 ########################################################################
-# Search the directory $(C) for .c-files when using implicit pattern
+# Search the directory $C for .c-files when using implicit pattern
 # matching below.
-vpath %.c $(C)
-
-$(BACK_OBJS): %.o: %.c posix.mak
-	@echo "  (CC)  BACK_OBJS  $<"
-	$(CXX) -c $(CXXFLAGS) $(BACK_FLAGS) $(MMD) $<
-
-$(GLUE_OBJS): %.o: %.c posix.mak
-	@echo "  (CC)  GLUE_OBJS  $<"
-	$(CXX) -c $(CXXFLAGS) $(GLUE_FLAGS) $(MMD) $<
-
-newdelete.o: %.o: $(ROOT)/%.c posix.mak
-	@echo "  (CC)  ROOT_OBJS  $<"
-	$(CXX) -c $(CXXFLAGS) $(ROOT_FLAGS) $(MMD) $<
-
+#vpath %.c $C
 
 -include $(DEPS)
 
+$(G_OBJS): $G/%.o: $C/%.c $(optabgen_files) $(SRC_MAKE)
+	@echo "  (CC)  BACK_OBJS  $<"
+	$(CXX) -c -o$@ $(CXXFLAGS) $(BACK_FLAGS) $(MMD) $<
+
+$(G_GLUE_OBJS): $G/%.o: $D/%.c $(optabgen_files) $(SRC_MAKE)
+	@echo "  (CC)  GLUE_OBJS  $<"
+	$(CXX) -c -o$@ $(CXXFLAGS) $(GLUE_FLAGS) $(MMD) $<
+
+$G/newdelete.o: $G/%.o: $(ROOT)/%.c $(SRC_MAKE)
+	@echo "  (CC)  ROOT_OBJS  $<"
+	$(CXX) -c -o$@ $(CXXFLAGS) $(ROOT_FLAGS) $(MMD) $<
+
+################################################################################
+# Generate the man pages
+################################################################################
+
+DMD_MAN_PAGE = $(GENERATED)/docs/man1/dmd.1
+
+$(DMD_MAN_PAGE): dmd/cli.d
+	${MAKE} -C ../docs DMD=$(HOST_DMD_PATH) build
+
+man: $(DMD_MAN_PAGE)
+
 ######################################################
 
-install: all
+install: all $(DMD_MAN_PAGE)
 	$(eval bin_dir=$(if $(filter $(OS),osx), bin, bin$(MODEL)))
 	mkdir -p $(INSTALL_DIR)/$(OS)/$(bin_dir)
-	cp dmd $(INSTALL_DIR)/$(OS)/$(bin_dir)/dmd
+	cp $G/dmd $(INSTALL_DIR)/$(OS)/$(bin_dir)/dmd
 	cp ../ini/$(OS)/$(bin_dir)/dmd.conf $(INSTALL_DIR)/$(OS)/$(bin_dir)/dmd.conf
-	cp backendlicense.txt $(INSTALL_DIR)/dmd-backendlicense.txt
-	cp boostlicense.txt $(INSTALL_DIR)/dmd-boostlicense.txt
+	cp $D/boostlicense.txt $(INSTALL_DIR)/dmd-boostlicense.txt
 
 ######################################################
 
-checkwhitespace: $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) -run checkwhitespace $(SRC) $(GLUE_SRC) $(ROOT_SRCS)
+checkwhitespace: $(HOST_DMD_PATH) $(TOOLS_DIR)/checkwhitespace.d
+	CC="$(HOST_CXX)" $(HOST_DMD_RUN) -run $(TOOLS_DIR)/checkwhitespace.d $(SRC) $(GLUE_SRC) $(ROOT_SRCS)
+
+$(TOOLS_DIR)/checkwhitespace.d:
+	git clone --depth=1 ${GIT_HOME}/tools $(TOOLS_DIR)
 
 ######################################################
 
-gcov:
-	gcov $(filter %.c,$(SRC) $(GLUE_SRC))
+$G/cxxfrontend.o: $G/%.o: tests/%.c $(SRC) $(ROOT_SRC)
+	$(CXX) -c -o$@ $(CXXFLAGS) $(DMD_FLAGS) $(MMD) $<
+
+$G/cxx-unittest: $G/cxxfrontend.o $(DMD_SRCS) $(ROOT_SRCS) $G/newdelete.o $G/lexer.a $(G_GLUE_OBJS) $(G_OBJS) $(STRING_IMPORT_FILES) $(HOST_DMD_PATH)
+	CC=$(HOST_CXX) $(HOST_DMD_RUN) -of$@ $(MODEL_FLAG) -vtls -J$G -J../res -L-lstdc++ $(DFLAGS) -version=NoMain $(filter-out $(STRING_IMPORT_FILES) $(HOST_DMD_PATH),$^)
+
+cxx-unittest: $G/cxx-unittest
+	$<
 
 ######################################################
 
@@ -474,17 +595,43 @@ zip:
 
 ######################################################
 
-../changelog.html: ../changelog.dd $(HOST_DMD_PATH)
-	CC=$(HOST_CXX) $(HOST_DMD_RUN) -Df$@ $<
+gitzip:
+	git archive --format=zip HEAD > $(ZIPFILE)
 
-#############################
+################################################################################
+# DDoc documentation generation
+################################################################################
 
-ifneq ($(DOCDIR),)
-html: $(DOCDIR)/.generated
-$(DOCDIR)/.generated: $(DMD_SRCS) $(ROOT_SRCS) $(HOST_DMD_PATH) project.ddoc
-	$(HOST_DMD_RUN) -of- $(MODEL_FLAG) -J. -c -Dd$(DOCDIR)\
-	  $(DFLAGS) project.ddoc $(DOCFMT) $(DMD_SRCS) $(ROOT_SRCS)
-	touch $@
+# BEGIN fallbacks for old variable names
+# should be removed after https://github.com/dlang/dlang.org/pull/1581
+# has been pulled
+DOCSRC=../dlang.org
+STDDOC=$(DOCFMT)
+DOC_OUTPUT_DIR=$(DOCDIR)
+# END fallbacks
+
+# DDoc html generation - this is very similar to the way the documentation for
+# Phobos is built
+ifneq ($(DOCSRC),)
+
+# list all files for which documentation should be generated, use sort to remove duplicates
+SRC_DOCUMENTABLES = $(sort $(ROOT_SRCS) $(DMD_SRCS) $(LEXER_SRCS) $(LEXER_ROOT) $(PARSER_SRCS))
+
+D2HTML=$(foreach p,$1,$(if $(subst package.d,,$(notdir $p)),$(subst /,_,$(subst .d,.html,$p)),$(subst /,_,$(subst /package.d,.html,$p))))
+HTMLS=$(addprefix $(DOC_OUTPUT_DIR)/, \
+	$(call D2HTML, $(SRC_DOCUMENTABLES)))
+
+# For each module, define a rule e.g.:
+# ../web/phobos/dmd_mars.html : dmd/mars.d $(STDDOC) ; ...
+$(foreach p,$(SRC_DOCUMENTABLES),$(eval \
+$(DOC_OUTPUT_DIR)/$(call D2HTML,$p) : $p $(STDDOC) $(DMD) ;\
+  $(DMD) -o- $(MODEL_FLAG) -J$G -J../res -c -w -Dd$(DOCSRC) -Idmd\
+  $(DFLAGS) project.ddoc $(STDDOC) -Df$$@ $$<))
+
+$(DOC_OUTPUT_DIR) :
+	mkdir -p $@
+
+html: $(HTMLS) project.ddoc | $(DOC_OUTPUT_DIR)
 endif
 
 ######################################################

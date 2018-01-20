@@ -1,9 +1,9 @@
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/ice10624.d(38): Error: need member function opCmp() for struct Tuple!(Msg) to compare
+fail_compilation/ice10624.d(38): Error: need member function `opCmp()` for struct `Tuple!(Msg)` to compare
 fail_compilation/ice10624.d(48): Error: template instance ice10624.Variant.handler!(Tuple!(Msg)) error instantiating
-fail_compilation/ice10624.d(21):        instantiated from here: opAssign!(Tuple!(Msg))
+fail_compilation/ice10624.d(21):        instantiated from here: `opAssign!(Tuple!(Msg))`
 ---
 */
 
@@ -36,8 +36,8 @@ struct Variant
         A* rhsPA;
         {
             return *zis < *rhsPA ? -1 : 1;
-            // Tupple!(Msg) < Tupple!(Msg)
-            // Tupple!(Msg).expand < Tupple!(Msg).expand
+            // Tuple!(Msg) < Tuple!(Msg)
+            // Tuple!(Msg).expand < Tuple!(Msg).expand
             // -> should be error
         }
         return 0;

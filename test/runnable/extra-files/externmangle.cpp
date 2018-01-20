@@ -194,17 +194,10 @@ int Module::dim(Array<Module*>* arr)
     return arr->dim;
 }
 
-#if _LP64
-unsigned long testlongmangle(int32_t a, uint32_t b, long c, unsigned long d)
+uint64_t testlongmangle(int a, unsigned int b, int64_t c, uint64_t d)
 {
     return a + b + c + d;
 }
-#else
-unsigned long long testlongmangle(int a, unsigned int b, long long c, unsigned long long d)
-{
-    return a + b + c + d;
-}
-#endif
 
 int test31[2][2][2] = {1, 1, 1, 1, 1, 1, 1, 1};
 int *test32 = 0;
@@ -303,4 +296,102 @@ void Test38::dispose(Test38 *&t)
     if (t)
         delete t;
     t = 0;
+}
+
+class S1
+{
+    int val;
+public:
+    static S1* init(int);
+    S1(int v) : val(v) {}
+    int value();
+};
+
+S1* S1::init(int x)
+{
+    return new S1(x);
+}
+
+int S1::value()
+{
+    return val;
+}
+
+template<class T>
+class S2
+{
+    T val;
+public:
+    static S2<T>* init(T);
+    S2(T v) : val(v) {}
+    T value();
+};
+
+template<>
+S2<int>* S2<int>::init(int x)
+{
+    return new S2<int>(x);
+}
+
+template<>
+int S2<int>::value()
+{
+    return val;
+}
+
+struct C1
+{
+    const char *data;
+
+    static C1* init(const char *p);
+
+    C1(const char* p) : data(p) { }
+
+    virtual const char* getDataCPP();
+    virtual const char* getDataD();
+};
+
+C1* C1::init(const char *p)
+{
+    return new C1(p);
+}
+
+const char* C1::getDataCPP()
+{
+    return data;
+}
+
+template<class T>
+struct C2
+{
+    const T *data;
+
+    static C2* init(const T *p);
+
+    C2(const T* p) : data(p) { }
+
+    virtual const T* getData();
+};
+
+template<>
+C2<char>* C2<char>::init(const char *p)
+{
+    return new C2<char>(p);
+}
+
+template<>
+const char* C2<char>::getData()
+{
+    return data;
+}
+
+int test39cpp(C2<char>* c2, S2<int>* s2)
+{
+    C2<char>* otherC2 = C2<char>::init(c2->getData());
+    if (c2->getData() != otherC2->getData())
+        return 1;
+    S2<int>* otherS2 = S2<int>::init(s2->value());
+    if (s2->value() != otherS2->value())
+        return 2;
+    return 0;
 }

@@ -1,11 +1,11 @@
 ;; Compiler implementation of the D programming language
-;; Copyright (c) 1999-2016 by Digital Mars
+;; Copyright (c) 1999-2016 by The D Language Foundation
 ;; All Rights Reserved
 ;; written by Rainer Schuetze
 ;; http://www.digitalmars.com
 ;; Distributed under the Boost Software License, Version 1.0.
 ;; http://www.boost.org/LICENSE_1_0.txt
-;; https://github.com/D-Programming-Language/dmd/blob/master/src/vcbuild/ldfpu.asm
+;; https://github.com/dlang/dmd/blob/master/src/vcbuild/ldfpu.asm
 
 ;; 80 bit floating point value implementation for Microsoft compiler
 
@@ -182,7 +182,7 @@ FM1:    ; We don't use fprem1 because for some inexplicable
         sahf                            ; transfer to flags
         jp      FM1                     ; continue till ST < ST1
         fstp    ST(1)                   ; leave remainder on stack
-        fstp    tbyte ptr [ecx]
+        fstp    tbyte ptr [rcx]
 	pop rax
 	mov rax,rcx
 	ret
@@ -356,5 +356,20 @@ ld_initfpu PROC
 	pop     rcx
 	ret
 ld_initfpu ENDP
+
+; int ld_statusfpu()
+ld_statusfpu PROC
+	push    rcx
+	fstsw   word ptr [rsp]
+	movzx   EAX,word ptr [rsp]
+	pop     rcx
+	ret
+ld_statusfpu ENDP
+
+; void ld_clearfpu()
+ld_clearfpu PROC
+	fclex
+	ret
+ld_clearfpu ENDP
 
 end

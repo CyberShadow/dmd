@@ -1,3 +1,7 @@
+/*
+REQUIRED_ARGS: -mcpu=native -transition=16997 -transition=intpromote
+PERMUTE_ARGS: -O -inline
+*/
 
 import core.stdc.stdio;
 
@@ -207,7 +211,7 @@ void test11565()
 
 ///////////////////////
 
-int array1[3] = [1:1,2,0:3];
+int[3] array1 = [1:1,2,0:3];
 
 void testarrayinit()
 {
@@ -1422,6 +1426,303 @@ void test15272()
     *buckets = calloc15272(count)[0 .. count];
 }
 
+/*****************************************
+ * https://issues.dlang.org/show_bug.cgi?id=15861
+ */
+
+void test15861()
+{
+    double val = 4286853117.;
+
+    (){
+        assert(val == 4286853117.);
+    }();
+}
+
+////////////////////////////////////////////////////////////////////////
+
+// https://issues.dlang.org/show_bug.cgi?id=15629 comment 3
+// -O
+
+void test15629()
+{
+    int[] a = [3];
+    int value = a[0] >= 0 ? a[0] : -a[0];
+    assert(a[0] == 3);
+    writeln(value, a);
+}
+
+void writeln(int v, int[] a)
+{
+}
+
+////////////////////////////////////////////////////////////////////////
+
+real binPosPow2() { return 1.0L; }
+
+real binPow2()
+{
+    return 1.0L/binPosPow2();
+}
+
+void test4()
+{
+    assert(binPow2() == 1.0L);
+}
+
+////////////////////////////////////////////////////////////////////////
+// https://issues.dlang.org/show_bug.cgi?id=13474
+
+
+double sumKBN(double s = 0.0)
+{
+    import std.math : fabs;
+    double c = 0.0;
+        foreach(double x; [1, 1e100, 1, -1e100])
+        {
+            x = multiply(x);
+            double t = s + x;
+            if(s.fabs >= x.fabs)
+            {
+                double y = s-t;
+                c += y+x;
+            }
+            else
+            {
+                double y = x-t;
+                c += y+s;
+            }
+            s = t;
+        }
+    return s + c;
+}
+
+double multiply(double a) { return a * 10000; }
+
+void test13474()
+{
+    double r = 20000;
+    assert(r == sumKBN());
+}
+
+////////////////////////////////////////////////////////////////////////
+// https://issues.dlang.org/show_bug.cgi?id=16699
+
+ulong[1] parseDateRange()
+{
+    try
+    {
+        ulong[1] result;
+        result[0] = 6;
+        return result;
+    }
+    finally
+    {
+    }
+}
+
+void test16699()
+{
+    ulong[1] range = parseDateRange();
+    assert(range[0] == 6);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+// https://issues.dlang.org/show_bug.cgi?id=16102
+
+struct S16102 { ~this() { } }
+
+long[1] f16102()
+{
+    S16102 a;
+    return [1];
+}
+
+void test16102()
+{
+    assert( f16102() == [1] );
+}
+
+////////////////////////////////////////////////////////////////////////
+
+
+/* Test the pattern:
+ *   replace ((i / C1) / C2) with (i / (C1 * C2))
+ * when e1 is 0 or 1 and (i2-i1) is a power of 2.
+ */
+
+void divdiv(T, T C1, T C2)(T i)
+{
+    auto a = (i / C1) / C2;
+    auto b = i / (C1 * C2);
+    if (a != b) assert(0);
+}
+
+void testdivdiv()
+{
+    divdiv!(int,10,20)(30);
+    divdiv!(uint,10,20)(30);
+    divdiv!(long,10,20)(30);
+    divdiv!(ulong,10,20)(30);
+
+    divdiv!(int,-10,20)(30);
+    divdiv!(long,-10,20)(30);
+
+    divdiv!(int,-10,-20)(-30);
+    divdiv!(long,-10,-20)(-30);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void test5a(ulong x, ulong y)
+{
+    int a;
+    if (x >> 32)
+        a = 1;
+    else
+        a = 2;
+    assert(a == 1);
+
+    if (y >> 32)
+        a = 1;
+    else
+        a = 2;
+    assert(a == 2);
+}
+
+void test5()
+{
+    test5a(uint.max + 1L, uint.max);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+/* Test the pattern:
+ *   replace (e ? i1 : i2) with (i1 + e * (i2 - i1))
+ * when e1 is 0 or 1 and (i2-i1) is a power of 2.
+ */
+
+int foo61(int i)
+{
+    return (i % 2 != 0) ? 4 : 2;
+}
+
+int foo62(int i)
+{
+    return (i % 2 != 0) ? 2 : 4;
+}
+
+bool bar6(bool b) { return b; }
+
+int foo63(bool b)
+{
+    return bar6(b) ? 16 : 8;
+}
+
+int foo64(bool b)
+{
+    return bar6(b) ? 8 : 16;
+}
+
+void test6()
+{
+    if (foo61(0) != 2) assert(0);
+    if (foo61(1) != 4) assert(0);
+    if (foo62(0) != 4) assert(0);
+    if (foo62(1) != 2) assert(0);
+    if (foo63(0) != 8) assert(0);
+    if (foo63(1) != 16) assert(0);
+    if (foo64(0) != 16) assert(0);
+    if (foo64(1) != 8) assert(0);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+int dataflow(int b) {
+  int ret;
+
+  if (b==4)
+    ret = 3;
+  else
+    ret = 5;
+
+  if (ret == 4)
+    return 0;
+  else
+    return 1;
+}
+
+void testeqeqranges()
+{
+    int i = dataflow(4);
+    if (i != 1)
+        assert(0);
+}
+
+////////////////////////////////////////////////////////////////////////
+
+void testdivcmp()
+{
+    // https://github.com/dlang/dmd/pull/7128
+    static bool foo(uint a, uint b)
+    {
+        return cast(bool)(a / b); // convert / to >=
+    }
+
+    assert(!foo(3, 4));
+    assert(foo(4, 4));
+    assert(foo(5, 4));
+}
+
+////////////////////////////////////////////////////////////////////////
+
+// https://issues.dlang.org/show_bug.cgi?id=16997
+
+void test16997()
+{
+    /* Exhaustively test all signed and unsigned byte promotions for
+     * - + and ~
+     */
+    for (int i = 0; i < 256; ++i)
+    {
+        ubyte c = cast(ubyte)i;
+
+        int i1 = cast(int)(~c);
+        int i2 = cast(int)(~cast(int)c);
+
+        //printf("%d, %d\n", i1, i2);
+        assert(i1 == i2);
+
+        i1 = cast(int)(+c);
+        i2 = cast(int)(+cast(int)c);
+        assert(i1 == i2);
+
+        i1 = cast(int)(-c);
+        i2 = cast(int)(-cast(int)c);
+        assert(i1 == i2);
+    }
+
+    for (int i = 0; i < 256; ++i)
+    {
+        byte c = cast(byte)i;
+
+        int i1 = cast(int)(~c);
+        int i2 = cast(int)(~cast(int)c);
+
+        //printf("%d, %d\n", i1, i2);
+        assert(i1 == i2);
+
+        i1 = cast(int)(+c);
+        i2 = cast(int)(+cast(int)c);
+        assert(i1 == i2);
+
+        i1 = cast(int)(-c);
+        i2 = cast(int)(-cast(int)c);
+        assert(i1 == i2);
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////
 
 int main()
@@ -1472,7 +1773,18 @@ int main()
     test14782();
     test14987();
     test15272();
-
+    test15861();
+    test15629();
+    test4();
+    test13474();
+    test16699();
+    test16102();
+    testdivdiv();
+    test5();
+    test6();
+    testeqeqranges();
+    testdivcmp();
+    test16997();
     printf("Success\n");
     return 0;
 }

@@ -1,7 +1,8 @@
+// PERMUTE_ARGS: -unittest -O -release -inline -fPIC -g
 
 import core.vararg;
 
-extern (C) int printf(const(char*) fmt, ...);
+extern (C) int printf(const(char*) fmt, ...) nothrow;
 
 template TypeTuple(T...) { alias TypeTuple = T; }
 
@@ -1294,9 +1295,9 @@ void test51()
   A51_a = 0; { if (0) while(1) A51 a;               } assert(A51_a == 0);
   A51_a = 0; { try A51 a; catch(Error e) {}         } assert(A51_a == 1);
   A51_a = 0; { if (0) final switch(1) A51 a;        } assert(A51_a == 0); // should fail to build
-  A51_a = 0; { if (0) switch(1) { A51 a; default: } } assert(A51_a == 0);
+//  A51_a = 0; { if (0) switch(1) { A51 a; default: } } assert(A51_a == 0);
   A51_a = 0; { if (0) switch(1) { default: A51 a; } } assert(A51_a == 0);
-  A51_a = 0; { if (1) switch(1) { A51 a; default: } } assert(A51_a == 1); // should be 0, right?
+//  A51_a = 0; { if (1) switch(1) { A51 a; default: } } assert(A51_a == 1); // should be 0, right?
   A51_a = 0; { if (1) switch(1) { default: A51 a; } } assert(A51_a == 1);
 //  A51_a = 0; { final switch(0) A51 a;               } assert(A51_a == 0);
   A51_a = 0; { A51 a; with(a) A51 b;                } assert(A51_a == 2);
@@ -2777,12 +2778,12 @@ void test9907()
 struct S9985
 {
     ubyte* b;
-    ubyte buf[128];
+    ubyte[128] buf;
     this(this) { assert(0); }
 
     static void* ptr;
 }
-auto ref makeS9985()
+auto ref makeS9985() @system
 {
     S9985 s;
     s.b = s.buf.ptr;
@@ -2812,6 +2813,33 @@ void test9985()
     static assert(!__traits(compiles, { auto q = &(retX()); }));
     alias pure nothrow @nogc @safe const(int) F2();
     static assert(is(typeof(retX) == F2));
+}
+
+/**********************************/
+
+// https://issues.dlang.org/show_bug.cgi?id=17457
+
+void delegate() dg17457;
+
+struct S17457 {
+    ulong[10] data;
+
+    this(int seconds) {
+        dg17457 = &mfunc;
+    }
+    void mfunc() {}
+}
+
+auto foo17457() {
+    pragma(inline, false);
+    return S17457(18);
+}
+
+void test17457()
+{
+    auto x = foo17457();
+    //printf("%p vs %p\n", &x, dg17457.ptr);
+    assert(&x == dg17457.ptr);
 }
 
 /**********************************/
@@ -3483,6 +3511,7 @@ void test12686()
 struct S13089
 {
     @disable this(this);    // non nothrow
+    int val;
 }
 
 void* p13089;
@@ -4153,6 +4182,25 @@ int test14815()
 static assert(test14815());
 
 /**********************************/
+// https://issues.dlang.org/show_bug.cgi?id=16197
+
+struct Elem {
+    static string r;
+    int x = -1;
+    this(this) { r ~= 'p'; printf("POSTBLIT %d\n", x++); }
+    ~this()    { r ~= 'd'; printf("DTOR %d\n"    , x++); }
+}
+
+struct Ctr {
+    Elem[3] arr;
+}
+
+void test16197() {
+    { auto p = Ctr(); }
+    assert(Elem.r == "ddd");
+}
+
+/**********************************/
 // 14860
 
 int test14860()
@@ -4393,6 +4441,44 @@ void test64()
 }
 
 /**********************************/
+
+struct S65
+{
+    static string t;
+
+    void bar(int a, int b)
+    {
+        t ~= "d";
+    }
+}
+
+S65 foo65a()
+{
+    S65.t ~= "a";
+    return S65();
+}
+
+int foo65b()
+{
+    S65.t ~= "b";
+    return 1;
+}
+
+int foo65c()
+{
+    S65.t ~= "c";
+    return 2;
+}
+
+void test65()
+{
+    import core.stdc.stdio;
+    foo65a().bar(foo65b(), foo65c());
+    printf("'%.*s'\n", cast(int)S65.t.length, S65.t.ptr);
+    assert(S65.t == "abcd");
+}
+
+/**********************************/
 // 15661
 
 struct X15661
@@ -4430,6 +4516,42 @@ void test15661()
         assert(Y15661.dtor == 0);
     }
     assert(Y15661.dtor == 1);
+}
+
+/**********************************/
+
+// https://issues.dlang.org/show_bug.cgi?id=18045
+
+struct A18045
+{
+  nothrow:
+    __gshared int r;
+    int state;
+    this(this) { printf("postblit: A(%d)\n", state); r += 1; }
+    ~this() { printf("dtor: A(%d)\n", state); r *= 3; }
+}
+
+A18045 fun18045() nothrow
+{
+    __gshared a = A18045(42);
+    return a;
+}
+
+void test18045() nothrow
+{
+    alias A = A18045;
+
+    __gshared a = A(-42);
+    if (fun18045() == a)
+        assert(0);
+    else
+        assert(A.r == 3);
+
+    A.r = 0;
+    if (a == fun18045())
+        assert(0);
+    else
+        assert(A.r == 3);
 }
 
 /**********************************/
@@ -4526,6 +4648,7 @@ int main()
     test9899();
     test9907();
     test9985();
+    test17457();
     test9994();
     test10094();
     test10244();
@@ -4555,12 +4678,15 @@ int main()
     test14264();
     test14686();
     test14815();
+    test16197();
     test14860();
     test14696();
     test14838();
     test63();
     test64();
+    test65();
     test15661();
+    test18045();
 
     printf("Success\n");
     return 0;

@@ -1,7 +1,7 @@
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(24): Error: cannot implicitly convert expression (this.a) of type inout(A8998) to immutable(A8998)
+fail_compilation/testInference.d(24): Error: cannot implicitly convert expression `this.a` of type `inout(A8998)` to `immutable(A8998)`
 ---
 */
 
@@ -28,10 +28,10 @@ class C8998
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(39): Error: cannot implicitly convert expression (s) of type const(char[]) to string
-fail_compilation/testInference.d(44): Error: cannot implicitly convert expression (a) of type int[] to immutable(int[])
-fail_compilation/testInference.d(49): Error: cannot implicitly convert expression (a) of type int[] to immutable(int[])
-fail_compilation/testInference.d(54): Error: cannot implicitly convert expression (a) of type int[] to immutable(int[])
+fail_compilation/testInference.d(39): Error: cannot implicitly convert expression `s` of type `const(char[])` to `string`
+fail_compilation/testInference.d(44): Error: cannot implicitly convert expression `a` of type `int[]` to `immutable(int[])`
+fail_compilation/testInference.d(49): Error: cannot implicitly convert expression `a` of type `int[]` to `immutable(int[])`
+fail_compilation/testInference.d(54): Error: cannot implicitly convert expression `a` of type `int[]` to `immutable(int[])`
 ---
 */
 string foo(in char[] s) pure
@@ -58,18 +58,18 @@ immutable(int[]) x3(immutable(int[]) org) /*pure*/
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(94): Error: cannot implicitly convert expression (c) of type testInference.C1 to immutable(C1)
-fail_compilation/testInference.d(95): Error: cannot implicitly convert expression (c) of type testInference.C1 to immutable(C1)
-fail_compilation/testInference.d(96): Error: cannot implicitly convert expression (c) of type testInference.C3 to immutable(C3)
-fail_compilation/testInference.d(97): Error: cannot implicitly convert expression (c) of type testInference.C3 to immutable(C3)
-fail_compilation/testInference.d(100): Error: undefined identifier 'X1', did you mean function 'x1'?
-fail_compilation/testInference.d(106): Error: cannot implicitly convert expression (s) of type S1 to immutable(S1)
-fail_compilation/testInference.d(109): Error: cannot implicitly convert expression (a) of type int*[] to immutable(int*[])
-fail_compilation/testInference.d(110): Error: cannot implicitly convert expression (a) of type const(int)*[] to immutable(int*[])
-fail_compilation/testInference.d(114): Error: cannot implicitly convert expression (s) of type S2 to immutable(S2)
-fail_compilation/testInference.d(115): Error: cannot implicitly convert expression (s) of type S2 to immutable(S2)
-fail_compilation/testInference.d(116): Error: cannot implicitly convert expression (s) of type S2 to immutable(S2)
-fail_compilation/testInference.d(118): Error: cannot implicitly convert expression (a) of type const(int)*[] to immutable(int*[])
+fail_compilation/testInference.d(94): Error: cannot implicitly convert expression `c` of type `testInference.C1` to `immutable(C1)`
+fail_compilation/testInference.d(95): Error: cannot implicitly convert expression `c` of type `testInference.C1` to `immutable(C1)`
+fail_compilation/testInference.d(96): Error: cannot implicitly convert expression `c` of type `testInference.C3` to `immutable(C3)`
+fail_compilation/testInference.d(97): Error: cannot implicitly convert expression `c` of type `testInference.C3` to `immutable(C3)`
+fail_compilation/testInference.d(100): Error: undefined identifier `X1`, did you mean function `x1`?
+fail_compilation/testInference.d(106): Error: cannot implicitly convert expression `s` of type `S1` to `immutable(S1)`
+fail_compilation/testInference.d(109): Error: cannot implicitly convert expression `a` of type `int*[]` to `immutable(int*[])`
+fail_compilation/testInference.d(110): Error: cannot implicitly convert expression `a` of type `const(int)*[]` to `immutable(int*[])`
+fail_compilation/testInference.d(114): Error: cannot implicitly convert expression `s` of type `S2` to `immutable(S2)`
+fail_compilation/testInference.d(115): Error: cannot implicitly convert expression `s` of type `S2` to `immutable(S2)`
+fail_compilation/testInference.d(116): Error: cannot implicitly convert expression `s` of type `S2` to `immutable(S2)`
+fail_compilation/testInference.d(118): Error: cannot implicitly convert expression `a` of type `const(int)*[]` to `immutable(int*[])`
 ---
 */
 immutable(Object) get(inout int*) pure
@@ -122,7 +122,7 @@ immutable(int*[]) bar2c(              S2 prm) pure { immutable(int)*[] a; return
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(134): Error: cannot implicitly convert expression (f10063(cast(inout(void*))p)) of type inout(void)* to immutable(void)*
+fail_compilation/testInference.d(134): Error: cannot implicitly convert expression `f10063(cast(inout(void*))p)` of type `inout(void)*` to `immutable(void)*`
 ---
 */
 inout(void)* f10063(inout void* p) pure
@@ -137,7 +137,7 @@ immutable(void)* g10063(inout int* p) pure
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(154): Error: pure function 'testInference.bar14049' cannot call impure function 'testInference.foo14049!int.foo14049'
+fail_compilation/testInference.d(154): Error: `pure` function `testInference.bar14049` cannot call impure function `testInference.foo14049!int.foo14049`
 ---
 */
 auto impure14049() { static int i = 1; return i; }
@@ -157,7 +157,7 @@ void bar14049() pure
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(166): Error: pure function 'testInference.f14160' cannot access mutable static data 'g14160'
+fail_compilation/testInference.d(166): Error: `pure` function `testInference.f14160` cannot access mutable static data `g14160`
 ---
 */
 int g14160;
@@ -169,7 +169,7 @@ int* f14160() pure
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(180): Error: pure function 'testInference.test12422' cannot call impure function 'testInference.test12422.bar12422!().bar12422'
+fail_compilation/testInference.d(180): Error: `pure` function `testInference.test12422` cannot call impure function `testInference.test12422.bar12422!().bar12422`
 ---
 */
 int g12422;
@@ -183,8 +183,8 @@ void test12422() pure
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/testInference.d(196): Error: pure function 'testInference.test13729a' cannot access mutable static data 'g13729'
-fail_compilation/testInference.d(206): Error: pure function 'testInference.test13729b' cannot call impure function 'testInference.test13729b.foo!().foo'
+fail_compilation/testInference.d(196): Error: `pure` function `testInference.test13729a` cannot access mutable static data `g13729`
+fail_compilation/testInference.d(206): Error: `pure` function `testInference.test13729b` cannot call impure function `testInference.test13729b.foo!().foo`
 ---
 */
 int g13729;
@@ -204,4 +204,23 @@ void test13729b() pure
         g13729++;
     }
     foo();              // cannot call impure function
+}
+
+/*
+TEST_OUTPUT:
+---
+fail_compilation/testInference.d(225): Error: `testInference.test17086` called with argument types `(bool)` matches both:
+fail_compilation/testInference.d(219):     `testInference.test17086!(bool, false).test17086(bool x)`
+and:
+fail_compilation/testInference.d(220):     `testInference.test17086!(bool, false).test17086(bool y)`
+---
+*/
+
+void test17086 (T, T V = T.init) (T x) { assert(x.foo); }
+void test17086 (T, T V = T.init) (T y) { assert(y.bar); }
+
+void test17086_call ()
+{
+    bool f;
+    test17086(f);
 }

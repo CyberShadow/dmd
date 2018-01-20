@@ -270,7 +270,7 @@ void test3()
 
      // should print "11111"
      writeln(signbit(n), signbit(m),
-	signbit(c.re), signbit(d.re), signbit(e.re));
+        signbit(c.re), signbit(d.re), signbit(e.re));
 
      assert(signbit(n) == 1);
      assert(signbit(m) == 1);
@@ -318,6 +318,7 @@ const double d7 = 4;
 
 static assert(!is(typeof(bug7(cast(long)e7))));
 static assert(!is(typeof(bug7(cast(long)s7))));
+version (LDC) {} else // cast in LDC undefined result w/ x > long.max
 static assert(!is(typeof(bug7(cast(long)3.256679e30))));
 
 static assert(is(typeof(bug7(cast(long)d7))));
@@ -635,6 +636,14 @@ void test14459()
     const char* s16 = "hi16";
     assert(p0 == s0);           // ok <- fails
 }
+
+/************************************/
+// https://issues.dlang.org/show_bug.cgi?id=15607
+
+static immutable char[2][4] code_base = [ "??", 12 ];
+static assert(code_base[0] == "??");
+static assert(code_base[1] == [12, 12]);
+static assert(code_base[2] == typeof(code_base[2]).init);
 
 /************************************/
 

@@ -1,4 +1,6 @@
-import std.stdio;
+// PERMUTE_ARGS: -unittest -O -release -inline -fPIC -g
+
+//import std.stdio;
 import core.stdc.stdio;
 
 /******************************************/
@@ -708,7 +710,7 @@ void test36()
 
 void test6685()
 {
-    struct S { int x; };
+    struct S { int x; }
     with({ return S(); }())
     {
         x++;
@@ -1163,7 +1165,8 @@ pure immutable(T)[] fooPT(T)(immutable(T)[] x, immutable(T)[] y){
 
 void test61()
 {
-  writeln(fooPT("p", "c"));
+    auto s = fooPT("p", "c");
+    printf("%.*s\n", cast(int)s.length, s.ptr);
 }
 
 /***************************************************/
@@ -2018,8 +2021,8 @@ void test96()
 {
     S96!([12, 3]) s1;
     S96!([1, 23]) s2;
-    writeln(s1.content);
-    writeln(s2.content);
+    //writeln(s1.content);
+    //writeln(s2.content);
     assert(!is(typeof(s1) == typeof(s2)));
 }
 
@@ -2211,8 +2214,8 @@ pure int genFactorials(int n) {
 void test107()
 {
     int[6] a;
-    writeln(a);
-    writeln(a.init);
+    //writeln(a);
+    //writeln(a.init);
     assert(a.init == [0,0,0,0,0,0]);
 }
 
@@ -2715,15 +2718,15 @@ void test129()
     assert(foo.value == 5);
 
     foo.add(2);
-    writeln(foo.value);
+    printf("%d\n", foo.value);
     assert(foo.value == 7);
 
     foo.add(3);
-    writeln(foo.value);
+    printf("%d\n", foo.value);
     assert(foo.value == 10);
 
     foo.add(3);
-    writeln(foo.value);
+    printf("%d\n", foo.value);
     assert(foo.value == 13);
 
     void delegate (int) nothrow dg = &foo.add!(int);
@@ -2734,7 +2737,7 @@ void test129()
 /***************************************************/
 // 6169
 
-auto ctfefunc6169() { return ";"; }
+auto ctfefunc6169() { return "{}"; }
 enum ctfefptr6169 = &ctfefunc6169;
 int ctfefunc6169a() { return 1; }
 template x6169(string c) { alias int x6169; }
@@ -3017,7 +3020,7 @@ struct Perm {
         foreach(elem; input) {
             enforce136(i < 3);
             perm[i++] = elem;
-            std.stdio.stderr.writeln(i);  // Never gets incremented.  Stays at 0.
+            printf("%d\n", i);  // Never gets incremented.  Stays at 0.
         }
     }
 }
@@ -3025,7 +3028,7 @@ struct Perm {
 void test136() {
     byte[] stuff = [0, 1, 2];
     auto perm2 = Perm(stuff);
-    writeln(perm2.perm);  // Prints [2, 0, 0]
+    //writeln(perm2.perm);  // Prints [2, 0, 0]
     assert(perm2.perm[] == [0, 1, 2]);
 }
 
@@ -3318,14 +3321,14 @@ void test146()
 
 struct X147
 {
-    void f()       { writeln("X.f mutable"); }
-    void f() const { writeln("X.f const"); }
+    void f()       { printf("X.f mutable\n"); }
+    void f() const { printf("X.f const\n"); }
 
-    void g()()       { writeln("X.g mutable"); }
-    void g()() const { writeln("X.g const"); }
+    void g()()       { printf("X.g mutable\n"); }
+    void g()() const { printf("X.g const\n"); }
 
-    void opOpAssign(string op)(int n)       { writeln("X+= mutable"); }
-    void opOpAssign(string op)(int n) const { writeln("X+= const"); }
+    void opOpAssign(string op)(int n)       { printf("X+= mutable\n"); }
+    void opOpAssign(string op)(int n) const { printf("X+= const\n"); }
 }
 
 void test147()
@@ -4124,7 +4127,7 @@ void test4963()
 {
     struct Value {
         byte a;
-    };
+    }
     Value single()
     {
         return Value();
@@ -4428,7 +4431,7 @@ void test4392()
 // 6220
 
 void test6220() {
-    struct Foobar { real x; real y; real z;};
+    struct Foobar { real x; real y; real z;}
     switch("x") {
         foreach(i,member; __traits(allMembers, Foobar)) {
             case member : break;
@@ -4915,7 +4918,7 @@ static assert(is(typeof(S5933d.x) == FuncType5933));
 
 
 class C5933a { auto x() { return 0; } }
-static assert(is(typeof(&(new C5933b()).x) == int delegate() pure nothrow @nogc @safe));
+static assert(is(typeof(&(new C5933b()).x) == int delegate()));
 
 class C5933b { auto x() { return 0; } }
 //static assert(is(typeof((new C5933b()).x) == FuncType5933));
@@ -5052,8 +5055,11 @@ version(none)
     ucent issue785;
 }
 
-static assert(!is(cent) && !is(ucent));
-static assert(!__traits(compiles, { cent x; }));
+static assert(is(cent) && is(ucent) || !is(cent) && !is(ucent));
+static if (is(cent))
+  static assert(__traits(compiles, { cent x; }));
+else
+  static assert(!__traits(compiles, { cent x; }));
 
 /***************************************************/
 // 6847
@@ -5358,7 +5364,7 @@ void test6902()
     })));
 
     int f() pure nothrow { assert(0); }
-    alias int T() pure nothrow;
+    alias int T() pure nothrow @safe @nogc;
     static if(is(typeof(&f) DT == delegate))
     {
         static assert(is(DT* == T*));  // ok
@@ -6799,7 +6805,9 @@ void test9477()
             assert(order == 2);
         }
 
-    ubyte[64] a1, a2;
+    // need largest natural alignment to avoid unaligned access on
+    // some architectures, double in this case.
+    align(8) ubyte[64] a1, a2;
     foreach (T; Tuple9477!(void, ubyte, ushort, uint, ulong, char, wchar, dchar, float, double))
     {
         auto s1 = cast(T[])(a1[]);
@@ -7273,6 +7281,21 @@ void test12900()
     A12900 c;
     if (*c.b.ptr)
         return;
+}
+
+/***************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=12929
+
+struct Foo12929
+{
+    union { }
+    int var;
+}
+
+struct Bar12929
+{
+    struct { }
+    int var;
 }
 
 /***************************************************/
@@ -7816,6 +7839,173 @@ void test15638()
 }
 
 /***************************************************/
+// 15961
+
+struct SliceOverIndexed15961(T)
+{
+    enum assignableIndex = T.init;
+}
+
+struct Grapheme15961
+{
+    SliceOverIndexed15961!Grapheme15961 opSlice()
+    {
+        assert(0);
+    }
+
+    struct
+    {
+        ubyte* ptr_;
+    }
+}
+
+/***************************************************/
+// 16022
+
+bool test16022()
+{
+    enum Type { Colon, Comma }
+    Type type;
+    return type == Type.Colon, type == Type.Comma;
+}
+
+bool test16022_structs()
+{
+    struct A
+    {
+        int i;
+        string s;
+    }
+
+    enum Type { Colon = A(0, "zero"), Comma = A(1, "one") }
+    Type type;
+    return type == Type.Colon, type == Type.Comma;
+}
+
+/***************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=16233
+
+enum valueConvertible(T1, T2) = blah;
+
+struct Checked(T, Hook)
+{
+    bool opEquals(U)(Checked!(U, Hook) rhs)
+    {
+        alias R = typeof(payload + rhs.payload);
+        static if (valueConvertible!(T, R))
+        {
+        }
+        return false;
+    }
+}
+
+void test16233()
+{
+    Checked!(Checked!(int, void), void) x1;
+}
+
+/***************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=16466
+
+void test16466()
+{
+    static struct S
+    {
+        real r;
+    }
+    real r;
+    printf("S.alignof: %x, r.alignof: %x\n", S.alignof, r.alignof);
+    assert(S.alignof == r.alignof);
+}
+
+/***************************************************/
+
+// https://issues.dlang.org/show_bug.cgi?id=16408
+
+char[1] SDL_GetKeyName_buffer;
+
+const(char)[] SDL_GetKeyName(char k)
+{
+    pragma(inline, false);
+    SDL_GetKeyName_buffer[0] = k;
+    return SDL_GetKeyName_buffer[];
+}
+
+void formattedWrite(const(char)[] strW, const(char)[] strA, const(char)[] strC)
+{
+    pragma(inline, false);
+
+    assert(strW == "W");
+    assert(strA == "A");
+    assert(strC == "C");
+}
+
+void test16408()
+{
+    pragma(inline, false);
+    formattedWrite(
+        SDL_GetKeyName('W').idup,
+        SDL_GetKeyName('A').idup,
+        SDL_GetKeyName('C').idup
+    );
+}
+
+/***************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=17349
+
+void test17349()
+{
+    static struct S
+    {
+        int bar(void delegate(ref int*)) { return 1; }
+        int bar(void delegate(ref const int*)) const { return 2; }
+    }
+
+    void dg1(ref int*) { }
+    void dg2(ref const int*) { }
+    S s;
+    int i;
+    i = s.bar(&dg1);
+    assert(i == 1);
+    i = s.bar(&dg2);
+    assert(i == 2);
+}
+
+/***************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=17915
+
+void test17915()
+{
+    static class MyClass
+    {
+        S17915!MyClass m_member;
+    }
+}
+
+struct S17915(T)
+{
+    T owner;
+}
+
+void test18232()
+{
+    static struct Canary
+    {
+        int x = 0x900D_900D;
+    }
+    union U
+    {
+        Canary method()
+        {
+            Canary c;
+            return c;
+        }
+    }
+    U u;
+    assert(u.method() == Canary.init);
+}
+
+/***************************************************/
 
 int main()
 {
@@ -8131,6 +8321,12 @@ int main()
     test15141();
     test15369();
     test15638();
+    test16233();
+    test16466();
+    test16408();
+    test17349();
+    test17915();
+    test18232();
 
     printf("Success\n");
     return 0;
