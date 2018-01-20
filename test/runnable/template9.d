@@ -772,7 +772,7 @@ int getRefNonref(T)(    T s){ return 2; }
 
 int getAutoRef(T)(auto ref T s){ return __traits(isRef, s) ? 1 : 2; }
 
-void getOut(T)(out T s){ ; }
+void getOut(T)(out T s){ {} }
 
 void getLazy1(T=int)(lazy void s){ s(), s(); }
 void getLazy2(T)(lazy T s){  s(), s(); }
@@ -1161,7 +1161,7 @@ static assert(pow10_2550!(0) == 1);
 void foo10a(T   )(T)            { static assert(is(T    == const(int)[])); }
 void foo10b(T...)(T)            { static assert(is(T[0] == const(int)[])); }
 
-// ref paramter doesn't remove top const
+// ref parameter doesn't remove top const
 void boo10a(T   )(ref T)        { static assert(is(T    == const(int[]))); }
 void boo10b(T...)(ref T)        { static assert(is(T[0] == const(int[]))); }
 
@@ -1507,7 +1507,7 @@ void test7684()
 
 void match7694(alias m)()
 {
-    m.foo();    //removing this line supresses ice in both cases
+    m.foo();    //removing this line suppresses ice in both cases
 }
 
 struct T7694
@@ -1545,7 +1545,7 @@ struct Bar7755
 {
     void qux()
     {
-        if (is(typeof(to7755!string(Foo7755!int)))){};
+        if (is(typeof(to7755!string(Foo7755!int)))){}
     }
 }
 
@@ -2599,8 +2599,8 @@ void test9885()
     }
     W!(int,int[]).woo(1,2,3);
     W!(int,int[2]).woo(1,2,3);
-    static assert(!__traits(compiles, W!(int,int,int).woo(1,2,3)));	// int... <- 2
-    static assert(!__traits(compiles, W!(int,int).woo(1,2)));		// int... <- 2
+    static assert(!__traits(compiles, W!(int,int,int).woo(1,2,3)));     // int... <- 2
+    static assert(!__traits(compiles, W!(int,int).woo(1,2)));           // int... <- 2
     static assert(!__traits(compiles, W!(int,int[2]).woo(1,2)));    // int[2]... <- 2
 
     R!().roo(1, "", []);
@@ -3571,6 +3571,18 @@ void test12746()
 }
 
 /******************************************/
+// 12748
+
+void foo12748(S, C : typeof(S.init[0]))(S s, C c)
+{
+}
+
+void test12748()
+{
+    foo12748("abc", 'd');
+}
+
+/******************************************/
 // 9708
 
 struct S9708
@@ -4452,6 +4464,7 @@ void test13807()
 
 /******************************************/
 // 14174
+import imports.testmangle;
 
 struct Config14174(a, b) {}
 
@@ -4461,22 +4474,22 @@ alias defConfig14174 = Config14174!(N14174, N14174);
 
 void accepter14174a(Config : Config14174!(T) = defConfig14174, T...)()
 {
-    static assert(accepter14174a.mangleof
-        == "_D7breaker131__T14"~
+    static assert(equalDemangle(accepter14174a.mangleof,
+           "_D7breaker131__T14"~
            "accepter14174a"~
            "HTS7breaker51__T11Config14174TS7breaker6N14174TS7breaker6N14174Z11Config14174TS7breaker6N14174TS7breaker6N14174Z14"~
            "accepter14174a"~
-           "FZv");
+           "FZv"));
 }
 
 void accepter14174b(Config : Config14174!(T) = defConfig14174, T...)()
 {
-    static assert(accepter14174b.mangleof
-        == "_D7breaker131__T14"~
+    static assert(equalDemangle(accepter14174b.mangleof,
+           "_D7breaker131__T14"~
            "accepter14174b"~
            "HTS7breaker51__T11Config14174TS7breaker6N14174TS7breaker6N14174Z11Config14174TS7breaker6N14174TS7breaker6N14174Z14"~
            "accepter14174b"~
-           "FZv");
+           "FZv"));
 }
 
 void test14174()
@@ -4595,6 +4608,30 @@ template SubOps14568(Args...)
 }
 
 struct Nat14568 { mixin SubOps14568!(null); }
+
+/******************************************/
+// 14603, 14604
+
+struct S14603
+{
+    template opDispatch(string name)
+    {
+        void opDispatch()() {}
+    }
+}
+alias a14603 = S14603.opDispatch!"go";  // OK
+alias b14603 = S14603.go;               // OK <- NG
+
+struct S14604
+{
+    template opDispatch(string name)
+    {
+        void opDispatch()() {}
+    }
+}
+alias Id14604(alias thing) = thing;
+alias c14604 = Id14604!(S14604.opDispatch!"go");     // ok
+alias d14604 = Id14604!(S14604.go);                  // issue 14604, 'Error: template instance opDispatch!"go" cannot resolve forward reference'
 
 /******************************************/
 // 14735
@@ -4758,6 +4795,139 @@ void test15352()
 }
 
 /******************************************/
+// 15623
+
+struct WithFoo15623a { void foo() {} }
+struct WithFoo15623b { void foo() {} }
+struct WithFoo15623c { void foo() {} }
+struct WithFoo15623d { void foo() {} }
+
+struct WithoutFoo15623a {}
+struct WithoutFoo15623b {}
+struct WithoutFoo15623c {}
+struct WithoutFoo15623d {}
+
+struct CallsFoo15623(T)
+{
+    T t;
+    void bar() { t.foo(); }     // error occurs during TemplateInstance.semantic3
+}
+
+// Instantiations outside of function bodies
+static assert( is(CallsFoo15623!WithFoo15623a));
+static assert(!is(CallsFoo15623!WithoutFoo15623a));                     // OK <- NG
+static assert( __traits(compiles, CallsFoo15623!WithFoo15623b));
+static assert(!__traits(compiles, CallsFoo15623!WithoutFoo15623b));     // OK <- NG
+
+// Instantiations inside function bodies (OK)
+static assert( is(typeof({ alias Baz = CallsFoo15623!WithFoo15623c; return Baz.init; }())));
+static assert(!is(typeof({ alias Baz = CallsFoo15623!WithoutFoo15623c; return Baz.init; }())));
+static assert( __traits(compiles, { alias Baz = CallsFoo15623!WithFoo15623d; return Baz.init; }()));
+static assert(!__traits(compiles, { alias Baz = CallsFoo15623!WithoutFoo15623d; return Baz.init; }()));
+
+/******************************************/
+// 15781
+
+void test15781()
+{
+    static struct S
+    {
+        int value;
+    }
+
+    T foo(T)(T a, T b)
+    {
+        return T();
+    }
+
+    const S cs;
+          S ms;
+    static assert(is(typeof(foo(ms, ms)) ==       S));
+    static assert(is(typeof(foo(ms, cs)) == const S));
+    static assert(is(typeof(foo(cs, ms)) == const S));
+    static assert(is(typeof(foo(cs, cs)) == const S));
+}
+
+/******************************************/
+// https://issues.dlang.org/show_bug.cgi?id=16042
+
+struct Foo16042 {}
+
+auto map16042(alias func, T)(T t)
+{
+    return func(t);
+}
+
+auto toChars16042(R)(R r) if (is(R == int[]))
+{
+    Foo16042 f;
+    assert(toChars16042(f) == 1);               // OK
+    assert(map16042!(toChars16042)(f) == 1);    // OK <- NG
+    assert(map16042!((toChars16042))(f) == 1);  // OK
+}
+
+auto toChars16042(Foo16042 f)
+{
+    return 1;
+}
+
+void test16042()
+{
+    [1].toChars16042();
+}
+
+// ---
+
+auto fn16042(R)(R r) if (is(R == int[])) {}
+auto fn16042(Foo16042 f) { return 1; }
+
+struct Namespace16042
+{
+    alias fn = fn16042!(int[]);
+}
+
+void test16042b()
+{
+    Foo16042 f;
+
+    with (Namespace16042)
+    {
+        static assert(!__traits(compiles, fn(f)));              // NG
+        static assert(!__traits(compiles, map16042!(fn)(f)));   // should be NG -> actually NG
+        static assert(!__traits(compiles, map16042!((fn))(f))); // NG
+    }
+}
+
+/******************************************/
+// https://issues.dlang.org/show_bug.cgi?id=15243
+
+struct S15243(Types...)
+{
+    void apply1(U)(U delegate(Types[0]) f0) {}
+
+    void apply2(U)(U delegate(Types) f0) {}
+
+    void apply3(U)(U delegate(Types[1..$]) f0) {}
+}
+
+void test15243()
+{
+    int f1(int) { return 0; }
+    int f2(int, long) { return 0; }
+    int f3(long, string) { return 0; }
+
+    S15243!(int) s1;
+    s1.apply1(&f1);
+    s1.apply2(&f1);
+
+    S15243!(int, long) s2;
+    s2.apply2(&f2);
+
+    S15243!(int, long, string) s3;
+    s3.apply3(&f3);
+}
+
+/******************************************/
 
 int main()
 {
@@ -4871,6 +5041,9 @@ int main()
     test14735();
     test14802();
     test15116();
+    test16042();
+    test16042b();
+    test15243();
 
     printf("Success\n");
     return 0;

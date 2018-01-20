@@ -2,7 +2,7 @@
 /*
 TEST_OUTPUT:
 ---
-fail_compilation/ice14424.d(12): Error: tuple has no effect in expression (tuple(__unittestL3_$n$))
+fail_compilation/ice14424.d(12): Error: `tuple(__unittest_imports_a14424_3_0)` has no effect
 ---
 */
 

@@ -821,6 +821,82 @@ void test11()
 }
 
 /****************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=17481
+
+class C17481
+{
+    synchronized void trigger(){ new ubyte[1]; }
+}
+
+void test17481()
+{
+    auto k = new shared C17481;
+    k.trigger;
+}
+
+/****************************************************/
+
+// a nothrow function, even though it is not marked as nothrow
+void test12()
+{
+    int i = 3;
+    try
+    {
+        try
+        {
+            ++i;
+            goto L10;
+        }
+        finally
+        {
+            i *= 2;
+            printf("f1\n");
+        }
+    }
+    finally
+    {
+        i += 5;
+        printf("f2\n");
+    }
+
+L10:
+    printf("3\n");
+    assert(i == (3 + 1) * 2 + 5);
+}
+
+/****************************************************/
+
+void foo13() { }
+
+void test13()
+{
+    int i = 3;
+    try
+    {
+        try
+        {
+            foo13(); // compiler assumes it throws
+            ++i;
+            goto L10;
+        }
+        finally
+        {
+            i *= 2;
+            printf("f1\n");
+        }
+    }
+    finally
+    {
+        i += 5;
+        printf("f2\n");
+    }
+
+L10:
+    printf("3\n");
+    assert(i == (3 + 1) * 2 + 5);
+}
+
+/****************************************************/
 
 int main()
 {
@@ -845,6 +921,9 @@ int main()
     test12989();
     test10();
     test11();
+    test17481();
+    test12();
+    test13();
 
     printf("finish\n");
     return 0;

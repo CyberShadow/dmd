@@ -5,6 +5,14 @@ pragma (lib, "test");
 pragma (msg, "Hello World");
 static assert(true, "message");
 alias mydbl = double;
+alias fl = function ()
+in
+{
+}
+do
+{
+}
+;
 int testmain()
 in
 {
@@ -14,7 +22,7 @@ out(result)
 {
 	assert(result == 0);
 }
-body
+do
 {
 	float f = (float).infinity;
 	int i = cast(int)f;
@@ -106,7 +114,6 @@ template Foo(T, int V)
 			B,
 			C,
 		}
-		;
 		void fswitch(Label l)
 		{
 			final switch (l)
@@ -154,6 +161,17 @@ template Foo(T, int V)
 		{
 			x--;
 		}
+		try
+		{
+			try
+				bar(1, 2);
+			catch(Object o)
+			{
+				x++;
+			}
+		}
+		finally
+			x--;
 		Object o;
 		synchronized(o) {
 			x = ~x;
@@ -168,10 +186,15 @@ template Foo(T, int V)
 	}
 }
 static this();
+static ~this();
 nothrow pure @nogc @safe static this();
+nothrow pure @nogc @safe static ~this();
 nothrow pure @nogc @safe static this();
+nothrow pure @nogc @safe static ~this();
 nothrow pure @nogc @safe shared static this();
+nothrow pure @nogc @safe shared static ~this();
 nothrow pure @nogc @safe shared static this();
+nothrow pure @nogc @safe shared static ~this();
 interface iFoo
 {
 }
@@ -448,7 +471,7 @@ version (unittest)
 {
 	public {}
 	extern (C) {}
-	align{}
+	align {}
 }
 template Foo10334(T) if (Bar10334!())
 {
@@ -532,3 +555,95 @@ pure clamp12266b(T1, T2, T3)(T1 x, T2 min_val, T3 max_val)
 	return 0;
 }
 alias Dg13832 = ref int delegate();
+class TestClass
+{
+	int aa;
+	int b1;
+	int b2;
+	this(int b1, int b2)
+	{
+		this.b1 = b1;
+		this.b2 = b2;
+	}
+	ref foo()
+	{
+		return aa;
+	}
+	ref return retFunc()
+	{
+		return aa;
+	}
+	@trusted @nogc @disable ~this()
+	{
+	}
+}
+class FooA
+{
+	protected void method42()
+	{
+	}
+	@safe ~this()
+	{
+	}
+}
+class Bar : FooA
+{
+	override void method42()
+	{
+	}
+}
+@trusted double foo()
+{
+	int a = 5;
+	return a;
+}
+struct Foo1(size_t Size = 42 / magic())
+{
+}
+size_t magic()
+{
+	return 42;
+}
+class Foo2A
+{
+	immutable(FooA) Dummy = new immutable(FooA);
+	private immutable pure nothrow @nogc @safe this()
+	{
+	}
+}
+struct Foo3A(T)
+{
+	@disable this(this);
+	@disable this();
+}
+ref @safe int foo(return ref int a)
+{
+	return a;
+}
+@safe int* foo(return scope int* a)
+{
+	return a;
+}
+ref @safe int* foo(return ref scope int* a)
+{
+	return a;
+}
+struct SafeS
+{
+	@safe 
+	{
+		ref return SafeS foo()
+		{
+			return this;
+		}
+		return scope SafeS foo()
+		{
+			return this;
+		}
+		ref return scope SafeS foo()
+		{
+			return this;
+		}
+		int* p;
+	}
+}

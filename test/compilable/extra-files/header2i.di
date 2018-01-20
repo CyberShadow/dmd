@@ -13,7 +13,7 @@ void foo2(const C2 c);
 struct Foo3
 {
 	int k;
-	~this()
+	@trusted @nogc @disable ~this()
 	{
 		k = 1;
 	}
@@ -35,6 +35,9 @@ T foo3(T)()
 struct S4A(T)
 {
 	T x;
+	@safe ~this()
+	{
+	}
 }
 struct S4B(T) if (1)
 {
@@ -199,3 +202,34 @@ void test13275()
 	{
 	}
 }
+align (1) struct S9766
+{
+	align (true ? 2 : 3) 
+	{
+		int var1;
+		align int var2;
+	}
+}
+void leFoo()()
+{
+	sign = a == 2 ? false : (y < 0) ^ sign;
+	sign = a == 2 ? false : sign ^ (y < 0);
+	sign = 2 + 3 | 7 + 5;
+}
+interface LeInterface
+{
+}
+class LeClass
+{
+	this()
+	{
+		auto foo = new class LeInterface
+		{
+		}
+		;
+	}
+}
+const levar = new class LeClass, LeInterface
+{
+}
+;
