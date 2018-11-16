@@ -656,18 +656,8 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
         m.dsymbolSemantic(null);
     }
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
-    backend_init();
+    if (first)
+        backend_init();
 
     //if (global.errors)
     //    fatal();
@@ -683,6 +673,17 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
         //fatal();
     }
 
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     // Do pass 2 semantic analysis
     foreach (m; modules)
     {
