@@ -523,6 +523,8 @@ private int tryMain(size_t argc, const(char)** argv)
     return doRemainder(modules, libmodules);
 }
 
+enum ASYNCREAD = false;
+
 int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModules, bool first, bool last, ref bool firstmodule)
 {
     // Create Modules
@@ -547,19 +549,7 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
         assert(added);
     }
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
     // Read files
-    enum ASYNCREAD = false;
     static if (ASYNCREAD)
     {
         // Multi threaded
@@ -578,6 +568,18 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
             m.read(Loc.initial);
         }
     }
+
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     // Parse files
     bool anydocfiles = false;
     size_t filecount = modules.dim;
