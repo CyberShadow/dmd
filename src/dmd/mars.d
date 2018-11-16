@@ -479,54 +479,58 @@ private int tryMain(size_t argc, const(char)** argv)
         files.push(global.main_d); // a dummy name, we never actually look up this file
     }
 
+    bool firstmodule = true;
+
+    Modules modules;
+
     if (global.params.forkServer)
     {
         int ret;
         bool first = true;
+        if (files.dim)
+        {
+            ret = processFiles(files, libmodules, modules, first, false, firstmodule);
+            if (ret) return ret;
+            first = false;
+        }
+
         foreach (i, group; global.params.forkModGroups)
             if (group.dim)
             {
-                printf("FORK GROUP:");
+                fprintf(stderr, "FORK GROUP:");
                 foreach (fn; *group)
-                    printf(" %s", fn);
-                printf("\n");
+                    fprintf(stderr, " %s", fn);
+                fprintf(stderr, "\n");
 
                 foreach (fn; *group)
                     files.push(fn); // all files
 
-                ret = processFiles(*group, libmodules, first, false);
+                ret = processFiles(*group, libmodules, modules, first, false, firstmodule);
                 if (ret) return ret;
                 first = false;
             }
+        fprintf(stderr, "FORK GROUPS DONE\n");
         Strings lastGroup;
-        ret = processFiles(lastGroup, libmodules, first, true);
+        ret = processFiles(lastGroup, libmodules, modules, first, true, firstmodule);
         if (ret) return ret;
     }
     else
     {
-        int ret = processFiles(files, libmodules, true, true);
+        int ret = processFiles(files, libmodules, modules, true, true, firstmodule);
         if (ret) return ret;
     }
 
-    return doRemainder(files, libmodules);
+    return doRemainder(modules, libmodules);
 }
 
-int processFiles(ref Strings files, ref Strings libmodules, bool first, bool last)
-{
-    // if (!last)
-    //     return 0;
-
-    return 0;
-}
-
-int doRemainder(ref Strings files, ref Strings libmodules)
+int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModules, bool first, bool last, ref bool firstmodule)
 {
     // Create Modules
-    Modules modules = createModules(files, libmodules);
-    // Read files
+    Modules modules = createModules(files, libmodules, firstmodule);
+
     /* Start by "reading" the dummy main.d file
      */
-    if (global.params.addMain)
+    if (first && global.params.addMain)
     {
         bool added = false;
         foreach (m; modules)
@@ -542,6 +546,19 @@ int doRemainder(ref Strings files, ref Strings libmodules)
         }
         assert(added);
     }
+
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
+    // Read files
     enum ASYNCREAD = false;
     static if (ASYNCREAD)
     {
@@ -2167,11 +2184,10 @@ Params:
 Returns:
   An array of path to D modules
 */
-Modules createModules(ref Strings files, ref Strings libmodules)
+Modules createModules(ref Strings files, ref Strings libmodules, ref bool firstmodule)
 {
     Modules modules;
     modules.reserve(files.dim);
-    bool firstmodule = true;
     for (size_t i = 0; i < files.dim; i++)
     {
         const(char)* name;

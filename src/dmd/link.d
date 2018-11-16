@@ -155,6 +155,7 @@ version (Posix)
  */
 public int runLINK()
 {
+    fprintf(stderr, "LINKING!\n");
     version (Windows)
     {
         if (global.params.mscoff)
