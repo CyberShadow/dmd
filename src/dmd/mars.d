@@ -567,7 +567,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
             m.read(Loc.initial);
         }
     }
-
     // Parse files
     bool anydocfiles = false;
     size_t filecount = modules.dim;
@@ -639,6 +638,16 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors)
         fatal();
 
+    // load all unconditional imports for better symbol resolving
+    foreach (m; modules)
+    {
+        if (global.params.verbose)
+            message("importall %s", m.toChars());
+        m.importAll(null);
+    }
+    if (global.errors)
+        fatal();
+
     // if (!last)
     //     return 0;
 
@@ -650,16 +659,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
 
 int doRemainder(ref Modules modules, ref Strings libmodules)
 {
-    // load all unconditional imports for better symbol resolving
-    foreach (m; modules)
-    {
-        if (global.params.verbose)
-            message("importall %s", m.toChars());
-        m.importAll(null);
-    }
-    if (global.errors)
-        fatal();
-
     backend_init();
 
     // Do semantic analysis
