@@ -692,6 +692,26 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
         m.semantic3(null);
     }
 
+    if (includeImports)
+    {
+        // Note: DO NOT USE foreach here because Module.amodules.dim can
+        //       change on each iteration of the loop
+        static __gshared size_t start = 0;
+        for (size_t i = start; i < compiledImports.dim; i++)
+        {
+            auto m = compiledImports[i];
+            assert(m.isRoot);
+            if (global.params.verbose)
+                message("semantic3 %s", m.toChars());
+            m.semantic3(null);
+            modules.push(m);
+        }
+        start = compiledImports.dim;
+    }
+    Module.runDeferredSemantic3();
+    if (global.errors)
+        fatal();
+
     // if (!last)
     //     return 0;
 
@@ -703,24 +723,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
 
 int doRemainder(ref Modules modules, ref Strings libmodules)
 {
-    if (includeImports)
-    {
-        // Note: DO NOT USE foreach here because Module.amodules.dim can
-        //       change on each iteration of the loop
-        for (size_t i = 0; i < compiledImports.dim; i++)
-        {
-            auto m = compiledImports[i];
-            assert(m.isRoot);
-            if (global.params.verbose)
-                message("semantic3 %s", m.toChars());
-            m.semantic3(null);
-            modules.push(m);
-        }
-    }
-    Module.runDeferredSemantic3();
-    if (global.errors)
-        fatal();
-
     // Scan for functions to inline
     if (global.params.useInline)
     {
