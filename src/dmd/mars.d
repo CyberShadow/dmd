@@ -684,6 +684,14 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors)
         fatal();
 
+    // Do pass 3 semantic analysis
+    foreach (m; modules)
+    {
+        if (global.params.verbose)
+            message("semantic3 %s", m.toChars());
+        m.semantic3(null);
+    }
+
     // if (!last)
     //     return 0;
 
@@ -695,13 +703,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
 
 int doRemainder(ref Modules modules, ref Strings libmodules)
 {
-    // Do pass 3 semantic analysis
-    foreach (m; modules)
-    {
-        if (global.params.verbose)
-            message("semantic3 %s", m.toChars());
-        m.semantic3(null);
-    }
     if (includeImports)
     {
         // Note: DO NOT USE foreach here because Module.amodules.dim can
