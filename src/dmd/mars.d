@@ -764,24 +764,6 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
             library.addObject(p, null);
     }
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-    foreach (mod; libmodules)
-        allLibModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules, ref Library library)
-{
-    // Generate output files
-    if (global.params.doJsonGeneration)
-    {
-        generateJson(&modules);
-    }
     if (!global.errors && global.params.doDocComments)
     {
         foreach (m; modules)
@@ -805,6 +787,24 @@ int doRemainder(ref Modules modules, ref Strings libmodules, ref Library library
             cgFile._ref = 1;
             cgFile.write();
         }
+    }
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+    foreach (mod; libmodules)
+        allLibModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules, ref Library library)
+{
+    // Generate output files
+    if (global.params.doJsonGeneration)
+    {
+        generateJson(&modules);
     }
     if (!global.params.obj)
     {
