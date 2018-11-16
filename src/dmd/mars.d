@@ -648,6 +648,14 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors)
         fatal();
 
+    // Do semantic analysis
+    foreach (m; modules)
+    {
+        if (global.params.verbose)
+            message("semantic  %s", m.toChars());
+        m.dsymbolSemantic(null);
+    }
+
     // if (!last)
     //     return 0;
 
@@ -661,13 +669,6 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
 {
     backend_init();
 
-    // Do semantic analysis
-    foreach (m; modules)
-    {
-        if (global.params.verbose)
-            message("semantic  %s", m.toChars());
-        m.dsymbolSemantic(null);
-    }
     //if (global.errors)
     //    fatal();
     Module.dprogress = 1;
