@@ -726,17 +726,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors || global.warnings)
         fatal();
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
     // inlineScan incrementally run semantic3 of each expanded functions.
     // So deps file generation should be moved after the inlinig stage.
     if (global.params.moduleDeps)
@@ -757,6 +746,17 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
 
     printCtfePerformanceStats();
 
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     Library library = null;
     if (global.params.lib)
     {
