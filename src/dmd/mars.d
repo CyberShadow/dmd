@@ -673,17 +673,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
         //fatal();
     }
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
     // Do pass 2 semantic analysis
     foreach (m; modules)
     {
@@ -695,6 +684,17 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
     if (global.errors)
         fatal();
 
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     // Do pass 3 semantic analysis
     foreach (m; modules)
     {
