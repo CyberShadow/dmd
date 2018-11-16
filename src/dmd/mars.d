@@ -622,17 +622,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors)
         fatal();
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
     if (global.params.doHdrGeneration)
     {
         /* Generate 'header' import files.
@@ -650,6 +639,17 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
     if (global.errors)
         fatal();
 
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     // load all unconditional imports for better symbol resolving
     foreach (m; modules)
     {
