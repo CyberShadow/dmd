@@ -480,6 +480,7 @@ private int tryMain(size_t argc, const(char)** argv)
     }
 
     bool firstmodule = true;
+    Library library = null;
 
     Modules modules;
 
@@ -489,7 +490,7 @@ private int tryMain(size_t argc, const(char)** argv)
         bool first = true;
         if (files.dim)
         {
-            ret = processFiles(files, libmodules, modules, first, false, firstmodule);
+            ret = processFiles(files, libmodules, modules, library, first, false, firstmodule);
             if (ret) return ret;
             first = false;
         }
@@ -505,26 +506,28 @@ private int tryMain(size_t argc, const(char)** argv)
                 foreach (fn; *group)
                     files.push(fn); // all files
 
-                ret = processFiles(*group, libmodules, modules, first, false, firstmodule);
+                ret = processFiles(*group, libmodules, modules, library, first, false, firstmodule);
                 if (ret) return ret;
                 first = false;
             }
         fprintf(stderr, "FORK GROUPS DONE\n");
         Strings lastGroup;
-        ret = processFiles(lastGroup, libmodules, modules, first, true, firstmodule);
+        ret = processFiles(lastGroup, libmodules, modules, library, first, true, firstmodule);
         if (ret) return ret;
     }
     else
     {
-        int ret = processFiles(files, libmodules, modules, true, true, firstmodule);
+        int ret = processFiles(files, libmodules, modules, library, true, true, firstmodule);
         if (ret) return ret;
     }
 
-    return doRemainder(modules, libmodules);
+    return doRemainder(modules, libmodules, library);
 }
 
-int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModules, bool first, bool last, ref bool firstmodule)
+int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allModules, ref Library library, bool first, bool last, ref bool firstmodule)
 {
+    Strings libmodules;
+
     // Create Modules
     Modules modules = createModules(files, libmodules, firstmodule);
 
@@ -746,18 +749,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
 
     printCtfePerformanceStats();
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
-    Library library = null;
     if (global.params.lib)
     {
         if (global.params.objfiles.dim == 0)
@@ -765,12 +756,27 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
             error(Loc.initial, "no input files");
             return EXIT_FAILURE;
         }
-        library = Library.factory();
+        if (first)
+            library = Library.factory();
         library.setFilename(global.params.objdir, global.params.libname);
         // Add input object and input library files to output library
         foreach (p; libmodules)
             library.addObject(p, null);
     }
+
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+    foreach (mod; libmodules)
+        allLibModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules, ref Library library)
+{
     // Generate output files
     if (global.params.doJsonGeneration)
     {
