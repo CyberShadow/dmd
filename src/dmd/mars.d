@@ -712,17 +712,6 @@ int processFiles(ref Strings files, ref Strings libmodules, ref Modules allModul
     if (global.errors)
         fatal();
 
-    // if (!last)
-    //     return 0;
-
-    foreach (mod; modules)
-        allModules.push(mod);
-
-    return 0;
-}
-
-int doRemainder(ref Modules modules, ref Strings libmodules)
-{
     // Scan for functions to inline
     if (global.params.useInline)
     {
@@ -737,6 +726,17 @@ int doRemainder(ref Modules modules, ref Strings libmodules)
     if (global.errors || global.warnings)
         fatal();
 
+    // if (!last)
+    //     return 0;
+
+    foreach (mod; modules)
+        allModules.push(mod);
+
+    return 0;
+}
+
+int doRemainder(ref Modules modules, ref Strings libmodules)
+{
     // inlineScan incrementally run semantic3 of each expanded functions.
     // So deps file generation should be moved after the inlinig stage.
     if (global.params.moduleDeps)
