@@ -304,7 +304,7 @@ private int tryMain(size_t argc, const(char)** argv)
     {
         fatal();
     }
-    if (files.dim == 0)
+    if (files.dim == 0 && !global.params.forkServer)
     {
         if (global.params.jsonFieldFlags)
         {
@@ -478,6 +478,49 @@ private int tryMain(size_t argc, const(char)** argv)
     {
         files.push(global.main_d); // a dummy name, we never actually look up this file
     }
+
+    if (global.params.forkServer)
+    {
+        int ret;
+        bool first = true;
+        foreach (i, group; global.params.forkModGroups)
+            if (group.dim)
+            {
+                printf("FORK GROUP:");
+                foreach (fn; *group)
+                    printf(" %s", fn);
+                printf("\n");
+
+                foreach (fn; *group)
+                    files.push(fn); // all files
+
+                ret = processFiles(*group, libmodules, first, false);
+                if (ret) return ret;
+                first = false;
+            }
+        Strings lastGroup;
+        ret = processFiles(lastGroup, libmodules, first, true);
+        if (ret) return ret;
+    }
+    else
+    {
+        int ret = processFiles(files, libmodules, true, true);
+        if (ret) return ret;
+    }
+
+    return doRemainder(files, libmodules);
+}
+
+int processFiles(ref Strings files, ref Strings libmodules, bool first, bool last)
+{
+    // if (!last)
+    //     return 0;
+
+    return 0;
+}
+
+int doRemainder(ref Strings files, ref Strings libmodules)
+{
     // Create Modules
     Modules modules = createModules(files, libmodules);
     // Read files
@@ -2078,6 +2121,20 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, ref Param 
                 params.run = false;
                 goto Lnoarg;
             }
+        }
+        else if (arg == "-fork-server")
+        {
+            params.forkServer = true;
+            params.forkModGroups.push(new Strings);
+            i++;
+            for (; i < argc; i++)
+            {
+                if (!strcmp(arguments[i], "-fork-delim"))
+                    params.forkModGroups.push(new Strings);
+                else
+                    params.forkModGroups[$-1].push(arguments[i]);
+            }
+            i--;
         }
         else if (p[1] == '\0')
             files.push("__stdin.d");

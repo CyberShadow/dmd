@@ -719,7 +719,7 @@ private void ctfeCompile(FuncDeclaration fd)
     }
     assert(!fd.ctfeCode);
     assert(!fd.semantic3Errors);
-    assert(fd.semanticRun == PASS.semantic3done);
+    assert(fd.semanticRun >= PASS.semantic3done);
 
     fd.ctfeCode = new CompiledCtfeFunction(fd);
     if (fd.parameters)

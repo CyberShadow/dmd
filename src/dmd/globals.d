@@ -232,6 +232,9 @@ struct Param
     const(char)* resfile;
     const(char)* exefile;
     const(char)* mapfile;
+
+    bool forkServer;
+    Array!(Strings*) forkModGroups;
 }
 
 alias structalign_t = uint;
