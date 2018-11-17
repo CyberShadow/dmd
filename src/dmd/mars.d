@@ -502,6 +502,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
 {
     import core.sys.posix.unistd;
     import core.sys.posix.sys.wait;
+    import core.sys.posix.stdio;
 
     static int fdgetc(int fd)
     {
@@ -532,7 +533,8 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
     bool firstmodule = true;
     Array!int snapshots; // file descriptors for the server/snapshot control channel
 
-    setvbuf(stdout, null, _IONBF, 0);
+    FILE* input = fdopen(global.params.forkInFD, "rb");
+    int fdOut = global.params.forkOutFD;
 
     if (files.dim)
     {
@@ -541,11 +543,11 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
         first = false;
     }
 
-    putchar('K'); // Tell daemon we are ready to accept commands
+    fdputc('K', fdOut); // Tell daemon we are ready to accept commands
 
     // Main command loop
     while (true)
-        switch (getchar())
+        switch (fgetc(input))
         {
             case EOF:
                 exit(0); // Control channel closed, likely due to driver termination
@@ -569,7 +571,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                     while (true)
                     {
                         char[1024] fileName;
-                        if (!fgets(fileName.ptr, fileName.length, stdin))
+                        if (!fgets(fileName.ptr, fileName.length, input))
                             fatal();
 
                         char *newline = strchr(fileName.ptr, '\n');
@@ -588,7 +590,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                     first = false;
 
                     fdputc('K', fds[1]); // Tell snapshot compilation group was successful
-                    putchar('K'); // Tell daemon compilation group was successful
+                    fdputc('K', fdOut); // Tell daemon compilation group was successful
                     snapshots.push(fds[1]); // Save snapshot
                     continue; // Read next command
                 }
@@ -603,7 +605,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                         case EOF:
                             // Parent died during file group compilation, take over
                             close(fds[0]);
-                            putchar('E'); // Tell daemon the group failed to compile
+                            fdputc('E', fdOut); // Tell daemon the group failed to compile
                             // Take over as the current fork server
                             continue; // Begin reading driver commands from stdin
                         case 'K': // Group compilation successful, we are now a snapshot
@@ -614,7 +616,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                                     assert(false); // Tbottom when
                                 case 'T': // Take over as the current fork server
                                     close(fds[0]);
-                                    putchar('K'); // Tell daemon rewinding was successful
+                                    fdputc('K', fdOut); // Tell daemon rewinding was successful
                                     continue; // Begin reading driver commands from stdin
                                 default:
                                     assert(false, "received unknown snapshot command from fork-server");
@@ -627,7 +629,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
             case 'R': // Rewind
             {
                 int snapshotIndex = int.max;
-                scanf("%d", &snapshotIndex);
+                fscanf(input, "%d", &snapshotIndex);
                 if (snapshotIndex >= snapshots.dim)
                 {
                     error(Loc.initial, "attempting to rewind to invalid snapshot");
@@ -643,7 +645,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                 if (pid)
                 {
                     waitpid(pid, null, 0);
-                    putchar('K');
+                    fdputc('K', fdOut);
                     continue;
                 }
                 else
@@ -2287,7 +2289,14 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, ref Param 
             }
         }
         else if (arg == "-fork-server")
+        {
             params.forkServer = true;
+            if (i + 3 > argc)
+                goto Lnoarg;
+            params.forkInFD = atoi(arguments[i+1]);
+            params.forkOutFD = atoi(arguments[i+2]);
+            i += 2;
+        }
         else if (p[1] == '\0')
             files.push("__stdin.d");
         else

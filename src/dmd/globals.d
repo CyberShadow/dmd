@@ -234,6 +234,7 @@ struct Param
     const(char)* mapfile;
 
     bool forkServer;
+    int forkInFD, forkOutFD;            // FDs used to talk to the fork driver
 }
 
 alias structalign_t = uint;
