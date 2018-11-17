@@ -500,9 +500,39 @@ private int tryMain(size_t argc, const(char)** argv)
 
 int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, ref Library library)
 {
+    import core.sys.posix.unistd;
+    import core.sys.posix.sys.wait;
+
+    static int fdgetc(int fd)
+    {
+        char c;
+        if (read(fd, &c, c.sizeof) != c.sizeof)
+            return EOF;
+        return c;
+    }
+
+    static bool fdputc(char c, int fd)
+    {
+        return write(fd, &c, c.sizeof) == c.sizeof;
+    }
+
+    static int tryFork()
+    {
+        int res = fork();
+        if (res < 0)
+        {
+            error(Loc.initial, "failed to fork (process limit reached?)");
+            fatal();
+        }
+        return res;
+    }
+
     int ret;
     bool first = true;
     bool firstmodule = true;
+    Array!int snapshots; // file descriptors for the server/snapshot control channel
+
+    setvbuf(stdout, null, _IONBF, 0);
 
     if (files.dim)
     {
@@ -511,24 +541,123 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
         first = false;
     }
 
-    foreach (i, group; global.params.forkModGroups)
-        if (group.dim)
+    putchar('K'); // Tell daemon we are ready to accept commands
+
+    // Main command loop
+    while (true)
+        switch (getchar())
         {
-            fprintf(stderr, "FORK GROUP:");
-            foreach (fn; *group)
-                fprintf(stderr, " %s", fn);
-            fprintf(stderr, "\n");
+            case EOF:
+                exit(0); // Control channel closed, likely due to driver termination
+                assert(false); // Tbottom when
+            case 'G': // Compile next group
+            {
+                // Make snapshot
+                int[2] fds;
+                if (pipe(fds) != 0)
+                {
+                    error(Loc.initial, "failed to create pipe (out of file descriptors?)");
+                    fatal();
+                }
+                if (tryFork())
+                {
+                    // outside fork
+                    close(fds[0]);
 
-            foreach (fn; *group)
-                files.push(fn); // all files
+                    // Read module group
+                    Strings group;
+                    while (true)
+                    {
+                        char[1024] fileName;
+                        if (!fgets(fileName.ptr, fileName.length, stdin))
+                            fatal();
 
-            ret = processFiles(*group, libmodules, modules, library, first, false, firstmodule);
-            if (ret) return ret;
-            first = false;
+                        char *newline = strchr(fileName.ptr, '\n');
+                        if (!newline)
+                            fatal(); // filename too long
+                        *newline = '\0';
+
+                        if (fileName[0])
+                            group.push(strdup(fileName.ptr));
+                        else
+                            break;
+                    }
+
+                    ret = processFiles(group, libmodules, modules, library, first, false, firstmodule);
+                    if (ret) return ret;
+                    first = false;
+
+                    fdputc('K', fds[1]); // Tell snapshot compilation group was successful
+                    putchar('K'); // Tell daemon compilation group was successful
+                    snapshots.push(fds[1]); // Save snapshot
+                    continue; // Read next command
+                }
+                else
+                {
+                    // in fork
+                    close(fds[1]);
+
+                    // Wait for OK from parent
+                    switch (fdgetc(fds[0]))
+                    {
+                        case EOF:
+                            // Parent died during file group compilation, take over
+                            close(fds[0]);
+                            putchar('E'); // Tell daemon the group failed to compile
+                            // Take over as the current fork server
+                            continue; // Begin reading driver commands from stdin
+                        case 'K': // Group compilation successful, we are now a snapshot
+                            switch (fdgetc(fds[0])) // Read snapshot command from current fork-server
+                            {
+                                case EOF:
+                                    exit(0); // Fork server and all child snapshots died
+                                    assert(false); // Tbottom when
+                                case 'T': // Take over as the current fork server
+                                    close(fds[0]);
+                                    putchar('K'); // Tell daemon rewinding was successful
+                                    continue; // Begin reading driver commands from stdin
+                                default:
+                                    assert(false, "received unknown snapshot command from fork-server");
+                            }
+                        default:
+                            assert(false, "received unknown snapshot-candidate command from fork-server");
+                    }
+                }
+            }
+            case 'R': // Rewind
+            {
+                int snapshotIndex = int.max;
+                scanf("%d", &snapshotIndex);
+                if (snapshotIndex >= snapshots.dim)
+                {
+                    error(Loc.initial, "attempting to rewind to invalid snapshot");
+                    fatal();
+                }
+                fdputc('T', snapshots[snapshotIndex]); // Tell this snapshot to take over
+                exit(0);
+                assert(false); // Tbottom when
+            }
+            case 'F': // Finish compilation
+            {
+                int pid = tryFork();
+                if (pid)
+                {
+                    waitpid(pid, null, 0);
+                    putchar('K');
+                    continue;
+                }
+                else
+                {
+                    //fprintf(stderr, "FORK GROUPS DONE\n");
+                    Strings lastGroup;
+                    return processFiles(lastGroup, libmodules, modules, library, first, true, firstmodule);
+                }
+            }
+            default:
+                error(Loc.initial, "received unknown fork-server command from driver");
+                fatal();
+                break;
         }
-    fprintf(stderr, "FORK GROUPS DONE\n");
-    Strings lastGroup;
-    return processFiles(lastGroup, libmodules, modules, library, first, true, firstmodule);
 }
 
 int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allModules, ref Library library, bool first, bool last, ref bool firstmodule)
@@ -2158,19 +2287,7 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, ref Param 
             }
         }
         else if (arg == "-fork-server")
-        {
             params.forkServer = true;
-            params.forkModGroups.push(new Strings);
-            i++;
-            for (; i < argc; i++)
-            {
-                if (!strcmp(arguments[i], "-fork-delim"))
-                    params.forkModGroups.push(new Strings);
-                else
-                    params.forkModGroups[$-1].push(arguments[i]);
-            }
-            i--;
-        }
         else if (p[1] == '\0')
             files.push("__stdin.d");
         else
