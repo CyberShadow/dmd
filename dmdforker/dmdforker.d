@@ -4,6 +4,7 @@ import std.algorithm.mutation;
 import std.algorithm.searching;
 import std.algorithm.sorting;
 import std.array;
+import std.conv;
 import std.datetime.systime;
 import std.exception;
 import std.file;
@@ -33,7 +34,6 @@ void main(string[] args)
 	stderr.writeln("dmdforker: Collecting dependencies...");
 	auto fDeps = getDeps(compilerOpts, compilerFiles);
 	auto cDeps = splitComponents(fDeps);
-	auto components = sortComponents(cDeps);
 
 	auto compiledFiles = fDeps.compiled.byKey.map!(fileIndex => fDeps.fileNames[fileIndex]).toSet;
 	foreach (fn; compilerFiles)
@@ -42,15 +42,85 @@ void main(string[] args)
 			.buildNormalizedPath()
 			.defaultExtension(".d"));
 
-	auto compiledGroups = components.map!(fileNames => fileNames.filter!(fn => fn in compiledFiles).array).array;
-	//compiledGroups.each!writeln;
-
 	stderr.writeln("dmdforker: Starting DMD fork server.");
-	auto comm = std.process.pipe();
-	auto compilerArgs = compiler ~ compilerOpts ~ ["-fork-server"] ~ compiledGroups.join(["-fork-delim"]);
-	stderr.writeln(escapeShellCommand(compilerArgs));
-	auto pid = spawnProcess(compilerArgs, comm.readEnd);
-	pid.wait();
+	auto commRead = std.process.pipe();
+	uninherit(commRead.writeEnd);
+	auto commWrite = std.process.pipe();
+	uninherit(commWrite.readEnd);
+	auto compilerArgs = compiler ~ compilerOpts ~ [
+		"-fork-server",
+		commRead.readEnd.fileno.text,
+		commWrite.writeEnd.fileno.text,
+	];
+	auto pid = spawnProcess(compilerArgs, null, Config.inheritFDs);
+	enforce(getchar(commWrite.readEnd) == 'K', "Unexpected reply from fork server");
+	stderr.writeln("dmdforker: Fork server ready, performing initial compilation.");
+	commRead.writeEnd.setvbuf(0, _IONBF);
+
+	Component[] oldComponents;
+	while (true)
+	{
+		auto components = sortComponents(cDeps);
+
+		auto commonPrefix = commonPrefix(oldComponents, components);
+		auto numReused = commonPrefix.length;
+		stderr.writefln("dmdforker: Reusing %d/%d components.", numReused, components.length);
+		if (commonPrefix.length != oldComponents.length)
+		{
+			commRead.writeEnd.writeln('R', commonPrefix.length); // Rewind!
+			enforce(getchar(commWrite.readEnd) == 'K', "Unexpected reply from fork server");
+			oldComponents = commonPrefix;
+		}
+
+		bool ok = true;
+
+		foreach (i, component; components[commonPrefix.length .. $])
+		{
+			stderr.writefln("dmdforker: [%s%s%s]", repeat('C', numReused), repeat('#', i), repeat('.', components.length - numReused - i));
+			commRead.writeEnd.write('G'); // Compile group
+			foreach (fileName; component.fileNames.filter!(fn => fn in compiledFiles))
+				commRead.writeEnd.writeln(fileName);
+			commRead.writeEnd.writeln(); // End of file names
+			switch (getchar(commWrite.readEnd))
+			{
+				case 'K': // OK
+					oldComponents ~= component;
+					continue;
+				case 'E': // Error
+					ok = false;
+					break;
+				default:
+					throw new Exception("Bad result from fork-server");
+			}
+		}
+
+		if (ok)
+		{
+			// Finish compilation
+			stderr.writefln("dmdforker: Finalizing.");
+			commRead.writeEnd.write('F');
+			enforce(getchar(commWrite.readEnd) == 'K', "Unexpected reply from fork server");
+		}
+
+		stderr.writeln("dmdforker: Done, press Enter to recompile...");
+		readln();
+	}
+}
+
+void uninherit(File file)
+{
+	import core.sys.posix.fcntl;
+
+	int fileno = file.fileno();
+	int fdflags = fcntl(fileno, F_GETFD);
+	fcntl(fileno, F_SETFD, fdflags & ~FD_CLOEXEC);
+}
+char getchar(File f)
+{
+	char[1] buf;
+	auto res = f.rawRead(buf);
+	enforce(res.length == buf.length, "End of file");
+	return buf[0];
 }
 
 struct FileDeps
@@ -163,8 +233,14 @@ ComponentDeps splitComponents(FileDeps files)
 	return components;
 }
 
+struct Component
+{
+	string[] fileNames;
+	SysTime mTime;
+}
+
 /// Sort components topologically, and then by modification time
-string[][] sortComponents(ComponentDeps components)
+Component[] sortComponents(ComponentDeps components)
 {
 	auto numComponents = components.fileNames.length;
 
@@ -189,5 +265,5 @@ string[][] sortComponents(ComponentDeps components)
 		order.insertInPlace(pos, n);
 	}
 
-	return order.map!(componentIndex => components.fileNames[componentIndex]).array;
+	return order.map!(componentIndex => Component(components.fileNames[componentIndex], mTimes[componentIndex])).array;
 }
