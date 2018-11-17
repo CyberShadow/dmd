@@ -479,49 +479,56 @@ private int tryMain(size_t argc, const(char)** argv)
         files.push(global.main_d); // a dummy name, we never actually look up this file
     }
 
-    bool firstmodule = true;
     Library library = null;
 
     Modules modules;
 
     if (global.params.forkServer)
     {
-        int ret;
-        bool first = true;
-        if (files.dim)
-        {
-            ret = processFiles(files, libmodules, modules, library, first, false, firstmodule);
-            if (ret) return ret;
-            first = false;
-        }
-
-        foreach (i, group; global.params.forkModGroups)
-            if (group.dim)
-            {
-                fprintf(stderr, "FORK GROUP:");
-                foreach (fn; *group)
-                    fprintf(stderr, " %s", fn);
-                fprintf(stderr, "\n");
-
-                foreach (fn; *group)
-                    files.push(fn); // all files
-
-                ret = processFiles(*group, libmodules, modules, library, first, false, firstmodule);
-                if (ret) return ret;
-                first = false;
-            }
-        fprintf(stderr, "FORK GROUPS DONE\n");
-        Strings lastGroup;
-        ret = processFiles(lastGroup, libmodules, modules, library, first, true, firstmodule);
+        int ret = forkServer(files, libmodules, modules, library);
         if (ret) return ret;
     }
     else
     {
+        bool firstmodule = true;
         int ret = processFiles(files, libmodules, modules, library, true, true, firstmodule);
         if (ret) return ret;
     }
 
     return doRemainder(modules, libmodules, library);
+}
+
+int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, ref Library library)
+{
+    int ret;
+    bool first = true;
+    bool firstmodule = true;
+
+    if (files.dim)
+    {
+        ret = processFiles(files, libmodules, modules, library, first, false, firstmodule);
+        if (ret) return ret;
+        first = false;
+    }
+
+    foreach (i, group; global.params.forkModGroups)
+        if (group.dim)
+        {
+            fprintf(stderr, "FORK GROUP:");
+            foreach (fn; *group)
+                fprintf(stderr, " %s", fn);
+            fprintf(stderr, "\n");
+
+            foreach (fn; *group)
+                files.push(fn); // all files
+
+            ret = processFiles(*group, libmodules, modules, library, first, false, firstmodule);
+            if (ret) return ret;
+            first = false;
+        }
+    fprintf(stderr, "FORK GROUPS DONE\n");
+    Strings lastGroup;
+    return processFiles(lastGroup, libmodules, modules, library, first, true, firstmodule);
 }
 
 int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allModules, ref Library library, bool first, bool last, ref bool firstmodule)
