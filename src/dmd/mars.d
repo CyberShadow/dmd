@@ -675,6 +675,7 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
 
     // Create Modules
     Modules modules = createModules(files, libmodules, firstmodule);
+    // Read files
 
     /* Start by "reading" the dummy main.d file
      */
@@ -694,8 +695,6 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
         }
         assert(added);
     }
-
-    // Read files
     enum ASYNCREAD = false;
     static if (ASYNCREAD)
     {
@@ -796,6 +795,9 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
     if (global.errors)
         fatal();
 
+    if (first)
+        backend_init();
+
     // Do semantic analysis
     foreach (m; modules)
     {
@@ -803,10 +805,6 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
             message("semantic  %s", m.toChars());
         m.dsymbolSemantic(null);
     }
-
-    if (first)
-        backend_init();
-
     //if (global.errors)
     //    fatal();
     Module.dprogress = 1;
@@ -839,7 +837,6 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
             message("semantic3 %s", m.toChars());
         m.semantic3(null);
     }
-
     if (includeImports)
     {
         // Note: DO NOT USE foreach here because Module.amodules.dim can
@@ -908,7 +905,6 @@ int processFiles(ref Strings files, ref Strings allLibModules, ref Modules allMo
         foreach (p; libmodules)
             library.addObject(p, null);
     }
-
     if (!global.errors && global.params.doDocComments)
     {
         foreach (m; modules)
