@@ -79,7 +79,7 @@ void main(string[] args)
 
 		foreach (i, component; components[commonPrefix.length .. $])
 		{
-			stderr.writefln("dmdforker: [%s%s%s]", repeat('C', numReused), repeat('#', i), repeat('.', components.length - numReused - i));
+			stderr.writefln("dmdforker: [%s%s>%s]", repeat('C', numReused), repeat('#', i), repeat('.', components.length - numReused - i - 1));
 			commRead.writeEnd.write('G'); // Compile group
 			foreach (fileName; component.fileNames.filter!(fn => fn in compiledFiles))
 				commRead.writeEnd.writeln(fileName);
