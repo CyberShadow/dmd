@@ -5,6 +5,7 @@ import std.algorithm.searching;
 import std.algorithm.sorting;
 import std.array;
 import std.conv;
+import std.datetime.stopwatch;
 import std.datetime.systime;
 import std.exception;
 import std.file;
@@ -60,6 +61,8 @@ void main(string[] args)
 	Component[] oldComponents;
 	while (true)
 	{
+		auto sw = StopWatch(AutoStart.yes);
+
 		auto components = sortComponents(cDeps);
 
 		auto commonPrefix = commonPrefix(oldComponents, components);
@@ -102,7 +105,7 @@ void main(string[] args)
 			enforce(getchar(commWrite.readEnd) == 'K', "Unexpected reply from fork server");
 		}
 
-		stderr.writeln("dmdforker: Done, press Enter to recompile...");
+		stderr.writefln("dmdforker: Done in %s, press Enter to recompile...", sw.peek());
 		readln();
 	}
 }
