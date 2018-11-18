@@ -517,6 +517,21 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
         return write(fd, &c, c.sizeof) == c.sizeof;
     }
 
+    static char* fdgets(int fd)
+    {
+        static __gshared Array!char buf;
+        buf.setDim(0);
+        while (true)
+        {
+            auto c = fdgetc(fd);
+            if (c == '\n' || c == EOF)
+                break;
+            buf.push(cast(char)c);
+        }
+        buf.push(0);
+        return buf.data;
+    }
+
     static int tryFork()
     {
         int res = fork();
@@ -533,7 +548,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
     bool firstmodule = true;
     Array!int snapshots; // file descriptors for the server/snapshot control channel
 
-    FILE* input = fdopen(global.params.forkInFD, "rb");
+    int fdIn = global.params.forkInFD;
     int fdOut = global.params.forkOutFD;
 
     if (files.dim)
@@ -547,7 +562,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
 
     // Main command loop
     while (true)
-        switch (fgetc(input))
+        switch (fdgetc(fdIn))
         {
             case EOF:
                 exit(0); // Control channel closed, likely due to driver termination
@@ -570,17 +585,10 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                     Strings group;
                     while (true)
                     {
-                        char[1024] fileName;
-                        if (!fgets(fileName.ptr, fileName.length, input))
-                            fatal();
-
-                        char *newline = strchr(fileName.ptr, '\n');
-                        if (!newline)
-                            fatal(); // filename too long
-                        *newline = '\0';
+                        char* fileName = fdgets(fdIn);
 
                         if (fileName[0])
-                            group.push(strdup(fileName.ptr));
+                            group.push(strdup(fileName));
                         else
                             break;
                     }
@@ -628,8 +636,7 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
             }
             case 'R': // Rewind
             {
-                int snapshotIndex = int.max;
-                fscanf(input, "%d", &snapshotIndex);
+                int snapshotIndex = atoi(fdgets(fdIn));
                 if (snapshotIndex >= snapshots.dim)
                 {
                     error(Loc.initial, "attempting to rewind to invalid snapshot");
