@@ -44,6 +44,8 @@ void main(string[] args)
 			.defaultExtension(".d"));
 
 	stderr.writeln("dmdforker: Starting DMD fork server.");
+	if (!compilerOpts.canFind!(opt => opt.startsWith("-of")))
+		compilerOpts ~= "-of" ~ compilerFiles.front.stripExtension;
 	auto commRead = std.process.pipe();
 	uninherit(commRead.writeEnd);
 	auto commWrite = std.process.pipe();
