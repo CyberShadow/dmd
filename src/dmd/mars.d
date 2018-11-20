@@ -593,9 +593,12 @@ int forkServer(ref Strings files, ref Strings libmodules, ref Modules modules, r
                             break;
                     }
 
-                    ret = processFiles(group, libmodules, modules, library, first, false, firstmodule);
-                    if (ret) return ret;
-                    first = false;
+                    if (group.dim)
+                    {
+                        ret = processFiles(group, libmodules, modules, library, first, false, firstmodule);
+                        if (ret) return ret;
+                        first = false;
+                    }
 
                     fdputc('K', fds[1]); // Tell snapshot compilation group was successful
                     fdputc('K', fdOut); // Tell daemon compilation group was successful
