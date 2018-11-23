@@ -249,6 +249,46 @@ Component[] sortComponents(ComponentDeps components)
 {
 	auto numComponents = components.fileNames.length;
 
+	// Transitive closure of component DAG
+	bool[size_t][size_t] depsClosure;
+	{
+		// Perform topological sort
+		// Note: Tarjan's algorithm gives us SCCs in topological
+		// order, so maybe use that instead of Kosaraju's
+		size_t[] rTopoOrder; // Reverse topological order - leaves first
+		{
+			auto visited = new bool[numComponents];
+			void visit(size_t componentIndex)
+			{
+				if (visited[componentIndex])
+					return;
+				visited[componentIndex] = true;
+				foreach (outNeighbor; components.deps.get(componentIndex, null).byKey)
+					visit(outNeighbor);
+				rTopoOrder ~= componentIndex;
+			}
+			foreach (componentIndex; 0 .. numComponents)
+				visit(componentIndex);
+		}
+
+		/// Construct transitive closure
+		foreach (componentIndex; rTopoOrder)
+		{
+			// Join all neighbors' closures, plus the neighbors themselves
+			depsClosure[componentIndex] =
+				components.deps.get(componentIndex, null).byKey
+				.map!(outNeighbor =>
+					chain(
+						outNeighbor.only,
+						depsClosure.get(outNeighbor, null).byKey
+					)
+					.map!(componentIndex => tuple(componentIndex, true))
+				)
+				.joiner
+				.assocArray;
+		}
+	}
+
 	// Get the modification times.
 	// For each component, we care about the
 	// newest-modified file within the group.
@@ -262,10 +302,10 @@ Component[] sortComponents(ComponentDeps components)
 	{
 		auto pos = 0;
 		// Move as far as possible, but not beyond a parent.
-		while (pos < order.length && !components.deps.get(order[pos], null).get(n, false))
+		while (pos < order.length && !depsClosure.get(order[pos], null).get(n, false))
 			pos++;
 		// Move back according to timestamp, but not beyond a child
-		while (pos && mTimes[n] < mTimes[order[pos-1]] && !components.deps.get(n, null).get(order[pos-1], false))
+		while (pos && mTimes[n] < mTimes[order[pos-1]] && !depsClosure.get(n, null).get(order[pos-1], false))
 			pos--;
 		order.insertInPlace(pos, n);
 	}
