@@ -1570,7 +1570,7 @@ template forward(args...)
             alias fwd = arg;
         // (r)value
         else
-            @property auto fwd(){ pragma(inline, true); return move(arg); }
+            @property auto fwd(){ return move(arg); }
     }
 
     alias Result = AliasSeq!();
