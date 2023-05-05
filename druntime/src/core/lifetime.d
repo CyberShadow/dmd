@@ -1570,7 +1570,7 @@ template forward(args...)
             alias fwd = arg;
         // (r)value
         else
-            @property auto fwd(){ return move(arg); }
+            @property auto fwd(){ pragma(inline, true); return move(arg); }
     }
 
     alias Result = AliasSeq!();
@@ -2596,7 +2596,6 @@ pure nothrow @system unittest
 }
 
 // wipes source after moving
-pragma(inline, true)
 private void wipe(T, Init...)(return scope ref T source, ref const scope Init initializer) @trusted
 if (!Init.length ||
     ((Init.length == 1) && (is(immutable T == immutable Init[0]))))
